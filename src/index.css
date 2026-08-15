@@ -1,0 +1,3946 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Space Grotesk", sans-serif;
+  --font-sans: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+@layer base {
+  /* Quitar flechas de inputs numéricos en todos los navegadores */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    background-color: #0c0c0e;
+    color: #e4e4e7;
+    font-family: "Inter", sans-serif;
+    overscroll-behavior-y: none;
+  }
+
+  /* Evitar auto-zoom de iOS Safari al enfocar inputs en móviles (min 16px) */
+  @media (max-width: 768px) {
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+    
+    /* Normalizar inputs de fecha en Safari iOS para evitar descuadre vertical y desbordamiento */
+    input[type="date"] {
+      -webkit-appearance: none;
+      appearance: none;
+      display: inline-flex;
+      align-items: center;
+      box-sizing: border-box;
+    }
+    
+    input[type="date"]::-webkit-date-and-time-value {
+      display: flex;
+      align-items: center;
+      min-height: 34px;
+      line-height: 34px;
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      text-align: left;
+    }
+  }
+}
+
+/* Print Overrides for thermal ticket prints */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #thermal-ticket-print, #thermal-ticket-print * {
+    visibility: visible;
+  }
+  #thermal-ticket-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 65mm;
+    background: white;
+    box-shadow: none;
+    border: none;
+  }
+}
+
+/* Scrollbars styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleUp {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes sheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0%); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-up {
+  animation: sheetSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Animación de línea láser de escanear estilo Sam's Club */
+@keyframes scannerLaserMove {
+  0% {
+    top: 6%;
+    opacity: 0.7;
+  }
+  50% {
+    top: 94%;
+    opacity: 1;
+  }
+  100% {
+    top: 6%;
+    opacity: 0.7;
+  }
+}
+
+.animate-scanner-laser {
+  animation: scannerLaserMove 2s ease-in-out infinite;
+}
+
+/* Estilos limpios para el escáner de cámara Html5Qrcode */
+#barcode-scanner-view {
+  width: 100% !important;
+  height: 100% !important;
+  background: black !important;
+  border: none !important;
+  overflow: hidden !important;
+  position: relative !important;
+}
+
+#barcode-scanner-view video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 1.5rem !important;
+}
+
+/* Ocultar absolutamente todos los controles, lienzos u overlays generados por Html5Qrcode */
+#barcode-scanner-view canvas,
+#barcode-scanner-view img,
+#barcode-scanner-view select,
+#barcode-scanner-view button,
+#barcode-scanner-view span,
+#barcode-scanner-view a,
+#barcode-scanner-view svg,
+#barcode-scanner-view div:not(#barcode-scanner-view),
+#barcode-scanner-view__header_message,
+#barcode-scanner-view__scan_region img,
+#barcode-scanner-view__dashboard {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.animate-spin-slow {
+  animation: spin 4s linear infinite;
+}
+
+/* Status change modal — full reset then specific overrides */
+.theme-retro-window.mode-light .status-modal-card,
+.theme-retro-window.mode-light .status-modal-card div,
+.theme-retro-window.mode-light .status-modal-card span,
+.theme-retro-window.mode-light .status-modal-card p,
+.theme-retro-window.mode-light .status-modal-card button,
+.theme-retro-window.mode-light .status-modal-card h3,
+.theme-retro-window.mode-light .status-modal-card strong {
+  background-color: #dfdfdf !important;
+  color: #000000 !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.theme-retro-window.mode-dark .status-modal-card,
+.theme-retro-window.mode-dark .status-modal-card div,
+.theme-retro-window.mode-dark .status-modal-card span,
+.theme-retro-window.mode-dark .status-modal-card p,
+.theme-retro-window.mode-dark .status-modal-card button,
+.theme-retro-window.mode-dark .status-modal-card h3,
+.theme-retro-window.mode-dark .status-modal-card strong {
+  background-color: #1a1c23 !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* Title bar — ID selector beats all !important class rules */
+#retro-status-titlebar,
+#retro-status-titlebar * {
+  background-color: #000080 !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+/* Modal status badges + confirm button — ID selectors, unbeatable */
+#retro-status-confirm,
+#retro-status-confirm *,
+#retro-status-new-state,
+#retro-status-new-state *,
+#retro-status-current-state,
+#retro-status-current-state * {
+  color: inherit !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+#retro-status-new-state { background-color: var(--retro-new-bg, #000080) !important; color: #ffffff !important; }
+#retro-status-current-state { background-color: var(--retro-cur-bg, #808080) !important; color: #ffffff !important; opacity: 0.65; }
+#retro-status-confirm { background-color: #000080 !important; color: #ffffff !important; }
+#retro-status-confirm * { color: #ffffff !important; background: transparent !important; }
+/* Current status badge */
+.theme-retro-window.mode-light .status-modal-card .retro-current-status {
+  background-color: #c0c0c0 !important;
+  color: #000000 !important;
+  border: 1px inset #808080 !important;
+}
+.theme-retro-window.mode-dark .status-modal-card .retro-current-status {
+  background-color: #121316 !important;
+  color: #ffffff !important;
+  border: 1px inset #5a6275 !important;
+}
+/* Inset info box */
+.theme-retro-window.mode-light .status-modal-card .retro-inset-box {
+  background-color: #c0c0c0 !important;
+  border: 2px solid #808080 !important;
+  border-top-color: #404040 !important;
+  border-left-color: #404040 !important;
+  border-bottom-color: #ffffff !important;
+  border-right-color: #ffffff !important;
+}
+.theme-retro-window.mode-dark .status-modal-card .retro-inset-box {
+  background-color: #121316 !important;
+  border: 2px solid #5a6275 !important;
+  border-top-color: #111317 !important;
+  border-left-color: #111317 !important;
+  border-bottom-color: #383c48 !important;
+  border-right-color: #383c48 !important;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ==========================================================
+   RETRO WINDOWS / BLUE DEEP COMPREHENSIVE THEME OVERRIDES
+   ========================================================== */
+.theme-retro-window.mode-light,
+.theme-retro-window.mode-dark {
+  background-color: #cbd6e2 !important;
+}
+
+/* RETRO WINDOW MAIN OVERRIDES - NON-GLARING GREY EXPERIENCES */
+/* RETRO WINDOW MAIN OVERRIDES - LIGHT MODE */
+.theme-retro-window.mode-light {
+  color: #031124;
+}
+
+/* 1. View panels and outer containers (Gris tenue) */
+.theme-retro-window.mode-light main,
+.theme-retro-window.mode-light .bg-\[\#0c0c0e\],
+.theme-retro-window.mode-light .bg-\[\#070709\],
+.theme-retro-window.mode-light .bg-\[\#0d0f14\],
+.theme-retro-window.mode-light .bg-\[\#0a0a0c\],
+.theme-retro-window.mode-light .bg-\[\#09090b\],
+.theme-retro-window.mode-light .bg-\[\#090d16\],
+.theme-retro-window.mode-light .bg-\[\#0b0e17\],
+.theme-retro-window.mode-light .bg-\[\#0e1322\],
+.theme-retro-window.mode-light .bg-\[\#0f172a\],
+.theme-retro-window.mode-light .bg-black,
+.theme-retro-window.mode-light .bg-zinc-950,
+.theme-retro-window.mode-light #pos-view-root,
+.theme-retro-window.mode-light #nueva-view-root,
+.theme-retro-window.mode-light mainContent {
+  background-color: #eaeef3 !important; /* Gris tenue */
+}
+
+/* 2. Elementos y sub-elementos (Gris un poco más fuerte + remarcados) */
+.theme-retro-window.mode-light .bg-\[\#121316\],
+.theme-retro-window.mode-light .bg-\[\#131418\],
+.theme-retro-window.mode-light .bg-\[\#121318\],
+.theme-retro-window.mode-light .bg-\[\#14161d\],
+.theme-retro-window.mode-light .bg-\[\#15110d\],
+.theme-retro-window.mode-light .bg-\[\#180d0f\],
+.theme-retro-window.mode-light .bg-\[\#16120b\],
+.theme-retro-window.mode-light .bg-\[\#1c1d22\],
+.theme-retro-window.mode-light .bg-\[\#1b1c21\],
+.theme-retro-window.mode-light .bg-\[\#181a1f\],
+.theme-retro-window.mode-light .bg-\[\#101114\],
+.theme-retro-window.mode-light .bg-zinc-900,
+.theme-retro-window.mode-light .bg-\[\#0a0a0d\],
+.theme-retro-window.mode-light .bg-\[\#090a0c\],
+.theme-retro-window.mode-light .bg-\[\#0a0a0c\]\/30,
+.theme-retro-window.mode-light .bg-\[\#0d0d10\],
+.theme-retro-window.mode-light .bg-black\/40,
+.theme-retro-window.mode-light .bg-zinc-800,
+.theme-retro-window.mode-light .bg-zinc-900\/30,
+.theme-retro-window.mode-light .bg-zinc-950\/25,
+.theme-retro-window.mode-light .bg-zinc-950\/30,
+.theme-retro-window.mode-light .bg-\[\#16171d\]\/60,
+.theme-retro-window.mode-light .bg-\[\#0b0c0e\]\/80,
+.theme-retro-window.mode-light .bg-\[\#08080a\]\/60,
+.theme-retro-window.mode-light .bg-\[\#0b0c10\],
+.theme-retro-window.mode-light .bg-zinc-950\/40,
+.theme-retro-window.mode-light .bg-zinc-950,
+.theme-retro-window.mode-light .bg-\[\#0b0c0f\],
+.theme-retro-window.mode-light .bg-\[\#0e0f12\],
+.theme-retro-window.mode-light .bg-\[\#15171c\] {
+  background-color: #cbd6e2 !important; /* Gris un poco más fuerte */
+  border: 1px solid #718096 !important; /* Remarcado con un gris más fuerte */
+  box-shadow: inset 1px 1px 0px #ffffff, 1px 2px 4px rgba(0,0,0,0.08) !important;
+  border-radius: 4px !important;
+}
+
+/* RETRO WINDOW MAIN OVERRIDES - DARK MODE */
+.theme-retro-window.mode-dark {
+  color: #ffffff;
+}
+
+.theme-retro-window.mode-dark main,
+.theme-retro-window.mode-dark .bg-\[\#0c0c0e\],
+.theme-retro-window.mode-dark .bg-\[\#070709\],
+.theme-retro-window.mode-dark .bg-\[\#0d0f14\],
+.theme-retro-window.mode-dark .bg-\[\#0a0a0c\],
+.theme-retro-window.mode-dark .bg-\[\#09090b\],
+.theme-retro-window.mode-dark .bg-\[\#090d16\],
+.theme-retro-window.mode-dark .bg-\[\#0b0e17\],
+.theme-retro-window.mode-dark .bg-\[\#0e1322\],
+.theme-retro-window.mode-dark .bg-\[\#0f172a\],
+.theme-retro-window.mode-dark .bg-black,
+.theme-retro-window.mode-dark .bg-zinc-950,
+.theme-retro-window.mode-dark #pos-view-root,
+.theme-retro-window.mode-dark #nueva-view-root,
+.theme-retro-window.mode-dark mainContent {
+  background-color: #121316 !important; /* Gris carbón retro oscuro */
+}
+
+.theme-retro-window.mode-dark .bg-\[\#121316\],
+.theme-retro-window.mode-dark .bg-\[\#131418\],
+.theme-retro-window.mode-dark .bg-\[\#121318\],
+.theme-retro-window.mode-dark .bg-\[\#14161d\],
+.theme-retro-window.mode-dark .bg-\[\#15110d\],
+.theme-retro-window.mode-dark .bg-\[\#180d0f\],
+.theme-retro-window.mode-dark .bg-\[\#16120b\],
+.theme-retro-window.mode-dark .bg-\[\#1c1d22\],
+.theme-retro-window.mode-dark .bg-\[\#1b1c21\],
+.theme-retro-window.mode-dark .bg-\[\#181a1f\],
+.theme-retro-window.mode-dark .bg-\[\#101114\],
+.theme-retro-window.mode-dark .bg-zinc-900,
+.theme-retro-window.mode-dark .bg-\[\#0a0a0d\],
+.theme-retro-window.mode-dark .bg-\[\#090a0c\],
+.theme-retro-window.mode-dark .bg-\[\#0a0a0c\]\/30,
+.theme-retro-window.mode-dark .bg-\[\#0d0d10\],
+.theme-retro-window.mode-dark .bg-black\/40,
+.theme-retro-window.mode-dark .bg-zinc-800,
+.theme-retro-window.mode-dark .bg-zinc-900\/30,
+.theme-retro-window.mode-dark .bg-zinc-950\/25,
+.theme-retro-window.mode-dark .bg-zinc-950\/30,
+.theme-retro-window.mode-dark .bg-\[\#16171d\]\/60,
+.theme-retro-window.mode-dark .bg-\[\#0b0c0e\]\/80,
+.theme-retro-window.mode-dark .bg-\[\#08080a\]\/60,
+.theme-retro-window.mode-dark .bg-\[\#0b0c10\],
+.theme-retro-window.mode-dark .bg-zinc-950\/40,
+.theme-retro-window.mode-dark .bg-zinc-950,
+.theme-retro-window.mode-dark .bg-\[\#0b0c0f\],
+.theme-retro-window.mode-dark .bg-\[\#0e0f12\],
+.theme-retro-window.mode-dark .bg-\[\#15171c\] {
+  background-color: #1a1c23 !important; /* Gris retro oscuro */
+  border: 1px solid #383c48 !important; /* Bisel oscuro */
+  box-shadow: inset 1px 1px 0px #383c48, 1px 2px 4px rgba(0,0,0,0.2) !important;
+  border-radius: 4px !important;
+}
+
+/* Form items inside - LIGHT MODE */
+.theme-retro-window.mode-light input:not(.premium-search-input),
+.theme-retro-window.mode-light select,
+.theme-retro-window.mode-light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+}
+
+/* Form items inside - DARK MODE */
+.theme-retro-window.mode-dark input:not(.premium-search-input),
+.theme-retro-window.mode-dark select,
+.theme-retro-window.mode-dark textarea {
+  background-color: #121316 !important;
+  color: #ffffff !important;
+  border: 1px solid #383c48 !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+}
+
+/* Force dark readable text everywhere in retro theme (Light mode only) */
+.theme-retro-window.mode-light h1,
+.theme-retro-window.mode-light h2,
+.theme-retro-window.mode-light h3,
+.theme-retro-window.mode-light h4,
+.theme-retro-window.mode-light h5,
+.theme-retro-window.mode-light h6,
+.theme-retro-window.mode-light label,
+.theme-retro-window.mode-light p,
+.theme-retro-window.mode-light td,
+.theme-retro-window.mode-light th,
+.theme-retro-window.mode-light li,
+.theme-retro-window.mode-light span,
+.theme-retro-window.mode-light font,
+.theme-retro-window.mode-light strong,
+.theme-retro-window.mode-light b,
+.theme-retro-window.mode-light code,
+.theme-retro-window.mode-light div:not(.retro-white-text):not(.bg-\[\#000080\]):not(.bg-\[\#102575\]):not(.bg-\[\#113a7c\]):not(.bg-\[\#1a3a6b\]):not([class*="bg-[#000080]"]):not([class*="bg-[#003c94]"]):not(.bg-cyan-600):not(.text-white):not(.text-zinc-100):not(.text-zinc-200):not(.text-rose-700):not(.text-rose-600):not(.text-rose-500):not(.text-red-600):not(.text-red-700),
+.theme-retro-window.mode-light button:not(.retro-white-text):not(.bg-\[\#000080\]):not(.bg-\[\#102575\]):not(.bg-\[\#113a7c\]):not(.bg-\[\#1a3a6b\]):not([class*="bg-[#000080]"]):not([class*="bg-[#003c94]"]):not(.bg-cyan-600):not(.text-white):not(.text-zinc-100):not(.text-zinc-200):not(.text-rose-700):not(.text-rose-600):not(.text-rose-500):not(.text-red-600):not(.text-red-700),
+.theme-retro-window.mode-light caption,
+.theme-retro-window.mode-light .text-zinc-500,
+.theme-retro-window.mode-light .text-gray-500 {
+  color: #000000 !important;
+}
+
+/* Excepción: headers con fondo azul retro (#000080) deben tener texto blanco */
+.theme-retro-window .retro-blue-header,
+.theme-retro-window .retro-blue-header *,
+.theme-retro-window .retro-blue-header div,
+.theme-retro-window .retro-blue-header span,
+.theme-retro-window .retro-blue-header h3,
+.theme-retro-window .retro-blue-header button {
+  color: #ffffff !important;
+}
+
+/* Excepción: filas seleccionadas en el POS (modal búsqueda y favoritos) con fondo azul retro (#000080) deben tener texto blanco */
+.theme-retro-window .pos-modal-row-selected,
+.theme-retro-window .pos-modal-row-selected *,
+.theme-retro-window .pos-modal-row-selected div,
+.theme-retro-window .pos-modal-row-selected span,
+.theme-retro-window .pos-modal-row-selected td,
+.theme-retro-window .pos-modal-row-selected b,
+.theme-retro-window .pos-modal-row-selected strong,
+.theme-retro-window .pos-fav-row-selected,
+.theme-retro-window .pos-fav-row-selected *,
+.theme-retro-window .pos-fav-row-selected div,
+.theme-retro-window .pos-fav-row-selected span,
+.theme-retro-window .pos-fav-row-selected td,
+.theme-retro-window .pos-fav-row-selected b,
+.theme-retro-window .pos-fav-row-selected strong {
+  color: #ffffff !important;
+}
+
+/* Force standard black text for all light/white/grey tailwind styles inside the retro theme */
+.theme-retro-window.mode-light .text-white,
+.theme-retro-window.mode-light .text-zinc-50,
+.theme-retro-window.mode-light .text-zinc-100,
+.theme-retro-window.mode-light .text-zinc-150,
+.theme-retro-window.mode-light .text-zinc-200,
+.theme-retro-window.mode-light .text-zinc-250,
+.theme-retro-window.mode-light .text-zinc-300,
+.theme-retro-window.mode-light .text-zinc-400,
+.theme-retro-window.mode-light .text-zinc-500,
+.theme-retro-window.mode-light .text-zinc-650,
+.theme-retro-window.mode-light .text-zinc-700,
+.theme-retro-window.mode-light .text-zinc-750,
+.theme-retro-window.mode-light .text-zinc-800,
+.theme-retro-window.mode-light .text-zinc-805,
+.theme-retro-window.mode-light .text-zinc-850,
+.theme-retro-window.mode-light .text-gray-100,
+.theme-retro-window.mode-light .text-gray-200,
+.theme-retro-window.mode-light .text-gray-300,
+.theme-retro-window.mode-light .text-gray-400,
+.theme-retro-window.mode-light .text-gray-500,
+.theme-retro-window.mode-light .text-neutral-100,
+.theme-retro-window.mode-light .text-neutral-200,
+.theme-retro-window.mode-light .text-neutral-300,
+.theme-retro-window.mode-light .text-neutral-400,
+.theme-retro-window.mode-light .text-neutral-500,
+.theme-retro-window.mode-light .text-slate-100,
+.theme-retro-window.mode-light .text-slate-200,
+.theme-retro-window.mode-light .text-slate-300,
+.theme-retro-window.mode-light .text-slate-400,
+.theme-retro-window.mode-light .text-slate-500,
+.theme-retro-window.mode-light .text-slate-600,
+.theme-retro-window.mode-light .text-sky-100,
+.theme-retro-window.mode-light .text-sky-205,
+.theme-retro-window.mode-light .text-sky-305,
+.theme-retro-window.mode-light .text-sky-400,
+.theme-retro-window.mode-light .text-cyan-400,
+.theme-retro-window.mode-light .text-amber-100,
+.theme-retro-window.mode-light .text-purple-100,
+.theme-retro-window.mode-light .text-blue-200,
+.theme-retro-window.mode-light .text-blue-105,
+.theme-retro-window.mode-light .text-emerald-100,
+.theme-retro-window.mode-light [class*="text-zinc-"],
+.theme-retro-window.mode-light [class*="text-gray-"],
+.theme-retro-window.mode-light [class*="text-neutral-"],
+.theme-retro-window.mode-light [class*="text-slate-"],
+.theme-retro-window.mode-light [class*="text-white"] {
+  color: #000000 !important;
+}
+
+/* Force high-contrast colors inside dark backgrounds for retro theme with ultra-high specificity */
+.theme-retro-window .retro-white-text,
+.theme-retro-window span.retro-white-text,
+.theme-retro-window button.retro-white-text,
+.theme-retro-window div.retro-white-text,
+.theme-retro-window label.retro-white-text,
+.theme-retro-window p.retro-white-text,
+.theme-retro-window p.retro-white-text *,
+.theme-retro-window strong.retro-white-text,
+.theme-retro-window strong.retro-white-text *,
+.theme-retro-window font.retro-white-text,
+.theme-retro-window b.retro-white-text,
+.theme-retro-window [class*="retro-white-text"],
+.theme-retro-window [class*="retro-white-text"] *,
+.theme-retro-window .retro-white-text * {
+  color: #ffffff !important;
+}
+
+/* Fondos azules del tema retro y todos sus hijos — texto blanco.
+   Va DESPUÉS de los resets de negro para ganarles en orden de cascada. */
+.theme-retro-window .bg-\[\#000080\],
+.theme-retro-window .bg-\[\#000080\] span,
+.theme-retro-window .bg-\[\#000080\] div,
+.theme-retro-window .bg-\[\#000080\] button,
+.theme-retro-window .bg-\[\#000080\] *,
+.theme-retro-window .bg-\[\#1a3a6b\],
+.theme-retro-window .bg-\[\#1a3a6b\] *,
+.theme-retro-window .bg-\[\#11131e\],
+.theme-retro-window .bg-\[\#11131e\] *,
+.theme-retro-window .modal-dark-header,
+.theme-retro-window .modal-dark-header span,
+.theme-retro-window .modal-dark-header div,
+.theme-retro-window .modal-dark-header button,
+.theme-retro-window .modal-dark-header * {
+  color: #ffffff !important;
+}
+.modal-dark-header,
+.modal-dark-header * {
+  color: #ffffff !important;
+}
+
+/* Excepción para badges blancos dentro de elementos con fondo azul retro (#000080) */
+.theme-retro-window .bg-\[\#000080\] .bg-white,
+.theme-retro-window .bg-\[\#000080\] .bg-white span,
+.theme-retro-window .bg-\[\#000080\] .bg-white *,
+.theme-retro-window [class*="bg-[#000080]"] .bg-white,
+.theme-retro-window [class*="bg-[#000080]"] .bg-white span,
+.theme-retro-window [class*="bg-[#000080]"] .bg-white * {
+  color: #000080 !important;
+}
+
+
+.theme-retro-window .retro-amber-text,
+.theme-retro-window span.retro-amber-text,
+.theme-retro-window button.retro-amber-text,
+.theme-retro-window div.retro-amber-text,
+.theme-retro-window label.retro-amber-text,
+.theme-retro-window p.retro-amber-text,
+.theme-retro-window [class*="retro-amber-text"],
+.theme-retro-window [class*="retro-amber-text"] *,
+.theme-retro-window .retro-amber-text * {
+  color: #fbbf24 !important;
+}
+
+.theme-retro-window .retro-emerald-text,
+.theme-retro-window span.retro-emerald-text,
+.theme-retro-window button.retro-emerald-text,
+.theme-retro-window div.retro-emerald-text,
+.theme-retro-window label.retro-emerald-text,
+.theme-retro-window p.retro-emerald-text,
+.theme-retro-window [class*="retro-emerald-text"],
+.theme-retro-window [class*="retro-emerald-text"] *,
+.theme-retro-window .retro-emerald-text * {
+  color: #34d399 !important;
+}
+
+.theme-retro-window .retro-slate-300-text,
+.theme-retro-window span.retro-slate-300-text,
+.theme-retro-window button.retro-slate-300-text,
+.theme-retro-window div.retro-slate-300-text,
+.theme-retro-window label.retro-slate-300-text,
+.theme-retro-window p.retro-slate-300-text,
+.theme-retro-window [class*="retro-slate-300-text"],
+.theme-retro-window [class*="retro-slate-300-text"] *,
+.theme-retro-window .retro-slate-300-text * {
+  color: #cbd5e1 !important;
+}
+
+/* Preserve specific text headers that are colored and readable */
+.theme-retro-window .text-emerald-500,
+.theme-retro-window .text-emerald-600,
+.theme-retro-window .text-emerald-700,
+.theme-retro-window.mode-light .text-emerald-400,
+.theme-retro-window.mode-light .text-green-500,
+.theme-retro-window.mode-light .text-green-605,
+.theme-retro-window.mode-light .text-green-400 {
+  color: #15803d !important; /* forest green */
+}
+.theme-retro-window.mode-light .text-red-500,
+.theme-retro-window.mode-light .text-rose-500,
+.theme-retro-window.mode-light .text-red-650,
+.theme-retro-window.mode-light .text-red-700,
+.theme-retro-window.mode-light .text-red-600,
+.theme-retro-window.mode-light .text-red-400 {
+  color: #b91c1c !important; /* crimson red */
+}
+.theme-retro-window.mode-light .text-amber-500,
+.theme-retro-window.mode-light .text-amber-800,
+.theme-retro-window.mode-light .text-\[\#b45309\],
+.theme-retro-window.mode-light .text-amber-600,
+.theme-retro-window.mode-light .text-\[\#854d0e\],
+.theme-retro-window.mode-light .text-yellow-500 {
+  color: #b45309 !important; /* dark amber */
+}
+.theme-retro-window.mode-light .text-\[\#000080\],
+.theme-retro-window.mode-light .text-blue-800,
+.theme-retro-window.mode-light .text-blue-900,
+.theme-retro-window.mode-light .text-\[\#113a7c\] {
+  color: #000080 !important; /* dark blue */
+}
+
+/* Make sure secondary lists inside views are readable gray */
+.theme-retro-window.mode-light .bg-\[\#111215\]\/40,
+.theme-retro-window.mode-light .bg-zinc-900\/40,
+.theme-retro-window.mode-light .bg-\[\#0a0a0c\]\/30,
+.theme-retro-window.mode-light .bg-zinc-950\/25,
+.theme-retro-window.mode-light .bg-zinc-950\/20,
+.theme-retro-window.mode-light .bg-zinc-900\/30 {
+  background-color: #cbd6e2 !important;
+  border-color: #718096 !important;
+}
+
+/* Table element formatting specifically for retro window background contrast */
+.theme-retro-window.mode-light table {
+  background-color: #ffffff !important;
+}
+.theme-retro-window.mode-light thead tr,
+.theme-retro-window.mode-light th {
+  background-color: #cbd6e2 !important;
+  color: #031124 !important;
+  border: 1px solid #718096 !important;
+}
+.theme-retro-window.mode-light tbody tr {
+  border-bottom: 1px solid #cbd6e2 !important;
+}
+.theme-retro-window.mode-light tbody tr:hover {
+  background-color: #dbe4ee !important;
+}
+
+.theme-retro-window.mode-dark table {
+  background-color: transparent !important;
+}
+.theme-retro-window.mode-dark thead tr,
+.theme-retro-window.mode-dark th {
+  background-color: #1a1c23 !important;
+  color: #ffffff !important;
+  border: 1px solid #383c48 !important;
+}
+.theme-retro-window.mode-dark tbody tr {
+  border-bottom: 1px solid #383c48 !important;
+}
+.theme-retro-window.mode-dark tbody tr:hover {
+  background-color: #282b35 !important;
+}
+
+/* Modals overlays & drawer backgrounds for retro */
+.theme-retro-window.mode-light .fixed.inset-0.bg-black\/60 {
+  background-color: rgba(3, 17, 36, 0.45) !important;
+}
+
+/* RETRO WINDOW DARK MODE SPECIFIC OVERRIDES */
+.theme-retro-window.mode-dark {
+  background-color: #2c2e38 !important;
+  color: #f1f5f9;
+}
+
+.theme-retro-window.mode-dark main,
+.theme-retro-window.mode-dark .bg-\[\#cbd6e2\],
+.theme-retro-window.mode-dark .bg-\[\#eaeef3\],
+.theme-retro-window.mode-dark .bg-\[\#0c0c0e\],
+.theme-retro-window.mode-dark .bg-\[\#070709\],
+.theme-retro-window.mode-dark .bg-\[\#0d0f14\],
+.theme-retro-window.mode-dark .bg-\[\#0a0a0c\],
+.theme-retro-window.mode-dark .bg-\[\#09090b\],
+.theme-retro-window.mode-dark .bg-\[\#090d16\],
+.theme-retro-window.mode-dark .bg-\[\#0b0e17\],
+.theme-retro-window.mode-dark .bg-\[\#0e1322\],
+.theme-retro-window.mode-dark .bg-\[\#0f172a\],
+.theme-retro-window.mode-dark .bg-black,
+.theme-retro-window.mode-dark .bg-zinc-950,
+.theme-retro-window.mode-dark .bg-\[\#d4d0c8\],
+.theme-retro-window.mode-dark #pos-view-root,
+.theme-retro-window.mode-dark #nueva-view-root,
+.theme-retro-window.mode-dark mainContent {
+  background-color: #1a1c23 !important;
+}
+
+.theme-retro-window.mode-dark .bg-\[\#dfdfdf\],
+.theme-retro-window.mode-dark .bg-zinc-100,
+.theme-retro-window.mode-dark .bg-zinc-200,
+.theme-retro-window.mode-dark .bg-zinc-50,
+.theme-retro-window.mode-dark .bg-white,
+.theme-retro-window.mode-dark .bg-\[\#dfe4ea\],
+.theme-retro-window.mode-dark .bg-\[\#f0f2f5\] {
+  background-color: #383c48 !important;
+  color: #ffffff !important;
+}
+
+/* Classic 3D Bevel buttons in Retro Dark Mode */
+.theme-retro-window.mode-dark button[class*="bg-[#dfdfdf]"],
+.theme-retro-window.mode-dark button.bg-\[\#dfdfdf\],
+.theme-retro-window.mode-dark button[class*="bg-[#eaeef3]"],
+.theme-retro-window.mode-dark button.bg-\[\#eaeef3\],
+.theme-retro-window.mode-dark button[class*="bg-[#d4d0c8]"],
+.theme-retro-window.mode-dark button.bg-\[\#d4d0c8\] {
+  background-color: #383c48 !important;
+  color: #ffffff !important;
+  border: 2px solid !important;
+  border-top-color: #5a6275 !important;
+  border-left-color: #5a6275 !important;
+  border-bottom-color: #111317 !important;
+  border-right-color: #111317 !important;
+}
+
+.theme-retro-window.mode-dark button[class*="bg-[#dfdfdf]"]:hover,
+.theme-retro-window.mode-dark button.bg-\[\#dfdfdf\]:hover,
+.theme-retro-window.mode-dark button[class*="bg-[#eaeef3]"]:hover,
+.theme-retro-window.mode-dark button.bg-\[\#eaeef3\]:hover,
+.theme-retro-window.mode-dark button[class*="bg-[#d4d0c8]"]:hover,
+.theme-retro-window.mode-dark button.bg-\[\#d4d0c8\]:hover {
+  background-color: #4a4f5d !important;
+}
+
+.theme-retro-window.mode-dark button[class*="bg-[#dfdfdf]"]:active,
+.theme-retro-window.mode-dark button.bg-\[\#dfdfdf\]:active,
+.theme-retro-window.mode-dark button[class*="bg-[#eaeef3]"]:active,
+.theme-retro-window.mode-dark button.bg-\[\#eaeef3\]:active,
+.theme-retro-window.mode-dark button[class*="bg-[#d4d0c8]"]:active,
+.theme-retro-window.mode-dark button.bg-\[\#d4d0c8\]:active {
+  border-top-color: #111317 !important;
+  border-left-color: #111317 !important;
+  border-bottom-color: #5a6275 !important;
+  border-right-color: #5a6275 !important;
+}
+
+/* Force standard dark mode readable text for labels & values inside tables */
+.theme-retro-window.mode-dark .text-zinc-800,
+.theme-retro-window.mode-dark .text-zinc-900,
+.theme-retro-window.mode-dark .text-black,
+.theme-retro-window.mode-dark .text-gray-900 {
+  color: #f1f5f9 !important;
+}
+
+.theme-retro-window.mode-dark .text-zinc-500,
+.theme-retro-window.mode-dark .text-zinc-400,
+.theme-retro-window.mode-dark .text-gray-500 {
+  color: #94a3b8 !important; /* lighter gray for readable descriptions */
+}
+
+/* Borders adjustments */
+.theme-retro-window.mode-dark .border-zinc-300,
+.theme-retro-window.mode-dark .border-zinc-400,
+.theme-retro-window.mode-dark .border-zinc-200,
+.theme-retro-window.mode-dark .border-t-white,
+.theme-retro-window.mode-dark .border-l-white {
+  border-color: #383c48 !important;
+}
+
+/* Stepper and Wizard container overrides in Retro Dark Mode */
+.theme-retro-window.mode-dark .bg-\[\#e1e6ed\] {
+  background-color: #1a1c23 !important;
+  border-color: #383c48 !important;
+}
+
+/* Warning/Legend/Alert cards contrast overrides in Retro Dark Mode */
+.theme-retro-window.mode-dark .bg-\[\#fffbe6\],
+.theme-retro-window.mode-dark .bg-amber-50,
+.theme-retro-window.mode-dark .bg-amber-100 {
+  background-color: #3b2e1b !important;
+  border-color: #78350f !important;
+  color: #fbbf24 !important;
+}
+
+.theme-retro-window.mode-dark .bg-\[\#fffbe6\] *,
+.theme-retro-window.mode-dark .bg-amber-50 *,
+.theme-retro-window.mode-dark .bg-amber-100 * {
+  color: #fbbf24 !important;
+}
+
+.theme-retro-window.mode-dark .bg-sky-50 {
+  background-color: #172554 !important;
+  border-color: #1e3a8a !important;
+  color: #60a5fa !important;
+}
+
+.theme-retro-window.mode-dark .bg-sky-50 * {
+  color: #60a5fa !important;
+}
+
+.theme-retro-window.mode-dark .bg-indigo-50 {
+  background-color: #1e1b4b !important;
+  border-color: #312e81 !important;
+  color: #818cf8 !important;
+}
+
+.theme-retro-window.mode-dark .bg-indigo-50 * {
+  color: #818cf8 !important;
+}
+
+.theme-retro-window.mode-dark .bg-emerald-50 {
+  background-color: #064e3b !important;
+  border-color: #065f46 !important;
+  color: #34d399 !important;
+}
+
+.theme-retro-window.mode-dark .bg-emerald-50 * {
+  color: #34d399 !important;
+}
+
+.theme-retro-window.mode-dark input:not(.premium-search-input),
+.theme-retro-window.mode-dark select,
+.theme-retro-window.mode-dark textarea,
+.theme-retro-window.mode-dark .bg-white,
+.theme-retro-window.mode-dark .bg-\[\#ffffff\],
+.theme-retro-window.mode-dark table {
+  background-color: #121316 !important;
+  color: #ffffff !important;
+  border-color: #5a6275 !important;
+}
+
+.theme-retro-window.mode-dark thead tr,
+.theme-retro-window.mode-dark th {
+  background-color: #2c2e38 !important;
+  color: #ffffff !important;
+  border: 1px solid #5a6275 !important;
+}
+
+.theme-retro-window.mode-dark tbody tr {
+  border-bottom: 1px solid #2c2e38 !important;
+}
+
+.theme-retro-window.mode-dark tbody tr:hover {
+  background-color: #2c2e38 !important;
+}
+/* Retro Dark Mode overrides for all search capsules */
+.theme-retro-window.mode-dark .premium-search-container,
+.theme-retro-window.mode-dark .capsule-search-container {
+  background: #121316 !important;
+  background-color: #121316 !important;
+  border: 2px solid #5a6275 !important;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.4) !important;
+  color: #ffffff !important;
+}
+
+.theme-retro-window.mode-dark .premium-search-container:focus-within,
+.theme-retro-window.mode-dark .capsule-search-container:focus-within {
+  border-color: #60a5fa !important;
+}
+
+.theme-retro-window.mode-dark .premium-search-container input,
+.theme-retro-window.mode-dark .premium-search-container input.premium-search-input,
+.theme-retro-window.mode-dark .capsule-search-container input,
+.theme-retro-window.mode-dark .capsule-search-container input.premium-search-input {
+  color: #ffffff !important;
+}
+
+.theme-retro-window.mode-dark .premium-search-container input::placeholder,
+.theme-retro-window.mode-dark .premium-search-container input.premium-search-input::placeholder,
+.theme-retro-window.mode-dark .capsule-search-container input::placeholder,
+.theme-retro-window.mode-dark .capsule-search-container input.premium-search-input::placeholder {
+  color: #71717a !important;
+}
+
+/* Retro Dark Mode overrides for shortcut keycaps */
+.theme-retro-window.mode-dark span.bg-indigo-50 {
+  background-color: #1e1b4b !important;
+  color: #818cf8 !important;
+  border: 2px solid !important;
+  border-top-color: #312e81 !important;
+  border-left-color: #312e81 !important;
+  border-bottom-color: #11131e !important;
+  border-right-color: #11131e !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-violet-50 {
+  background-color: #2e1065 !important;
+  color: #a78bfa !important;
+  border: 2px solid !important;
+  border-top-color: #581c87 !important;
+  border-left-color: #581c87 !important;
+  border-bottom-color: #1e1b4b !important;
+  border-right-color: #1e1b4b !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-emerald-50 {
+  background-color: #064e3b !important;
+  color: #34d399 !important;
+  border: 2px solid !important;
+  border-top-color: #065f46 !important;
+  border-left-color: #065f46 !important;
+  border-bottom-color: #022c22 !important;
+  border-right-color: #022c22 !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-blue-50 {
+  background-color: #1e3a8a !important;
+  color: #60a5fa !important;
+  border: 2px solid !important;
+  border-top-color: #3b82f6 !important;
+  border-left-color: #3b82f6 !important;
+  border-bottom-color: #172554 !important;
+  border-right-color: #172554 !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-rose-50 {
+  background-color: #4c0519 !important;
+  color: #f43f5e !important;
+  border: 2px solid !important;
+  border-top-color: #9f1239 !important;
+  border-left-color: #9f1239 !important;
+  border-bottom-color: #270510 !important;
+  border-right-color: #270510 !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-cyan-50 {
+  background-color: #083344 !important;
+  color: #22d3ee !important;
+  border: 2px solid !important;
+  border-top-color: #0891b2 !important;
+  border-left-color: #0891b2 !important;
+  border-bottom-color: #164e63 !important;
+  border-right-color: #164e63 !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-purple-50 {
+  background-color: #3b0764 !important;
+  color: #c084fc !important;
+  border: 2px solid !important;
+  border-top-color: #7e22ce !important;
+  border-left-color: #7e22ce !important;
+  border-bottom-color: #581c87 !important;
+  border-right-color: #581c87 !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-zinc-100 {
+  background-color: #24252c !important;
+  color: #94a3b8 !important;
+  border: 2px solid !important;
+  border-top-color: #383c48 !important;
+  border-left-color: #383c48 !important;
+  border-bottom-color: #111317 !important;
+  border-right-color: #111317 !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window.mode-dark span.bg-amber-50 {
+  background-color: #3b2e1b !important;
+  color: #fbbf24 !important;
+  border: 2px solid !important;
+  border-top-color: #78350f !important;
+  border-left-color: #78350f !important;
+  border-bottom-color: #291b0c !important;
+  border-right-color: #291b0c !important;
+  box-shadow: none !important;
+}
+
+/* Retro Bevel overrides in dark mode */
+.theme-retro-window.mode-dark .border-t-white {
+  border-top-color: #5a6275 !important;
+}
+.theme-retro-window.mode-dark .border-l-white {
+  border-left-color: #5a6275 !important;
+}
+.theme-retro-window.mode-dark .border-b-zinc-400,
+.theme-retro-window.mode-dark .border-b-\[\#707070\],
+.theme-retro-window.mode-dark .border-b-zinc-600 {
+  border-bottom-color: #111115 !important;
+}
+.theme-retro-window.mode-dark .border-r-zinc-400,
+.theme-retro-window.mode-dark .border-r-\[\#707070\],
+.theme-retro-window.mode-dark .border-r-zinc-600 {
+  border-right-color: #111115 !important;
+}
+
+/* Force text colors to white or slate-light in dark mode */
+.theme-retro-window.mode-dark h1,
+.theme-retro-window.mode-dark h2,
+.theme-retro-window.mode-dark h3,
+.theme-retro-window.mode-dark h4,
+.theme-retro-window.mode-dark h5,
+.theme-retro-window.mode-dark h6,
+.theme-retro-window.mode-dark label,
+.theme-retro-window.mode-dark p,
+.theme-retro-window.mode-dark td,
+.theme-retro-window.mode-dark th,
+.theme-retro-window.mode-dark li,
+.theme-retro-window.mode-dark span,
+.theme-retro-window.mode-dark font,
+.theme-retro-window.mode-dark strong,
+.theme-retro-window.mode-dark b,
+.theme-retro-window.mode-dark code,
+.theme-retro-window.mode-dark div,
+.theme-retro-window.mode-dark button,
+.theme-retro-window.mode-dark caption,
+.theme-retro-window.mode-dark .text-zinc-500,
+.theme-retro-window.mode-dark .text-gray-500,
+.theme-retro-window.mode-dark .text-white,
+.theme-retro-window.mode-dark .text-zinc-50,
+.theme-retro-window.mode-dark .text-zinc-100,
+.theme-retro-window.mode-dark .text-zinc-150,
+.theme-retro-window.mode-dark .text-zinc-200,
+.theme-retro-window.mode-dark .text-zinc-250,
+.theme-retro-window.mode-dark .text-zinc-300,
+.theme-retro-window.mode-dark .text-zinc-400,
+.theme-retro-window.mode-dark .text-zinc-500,
+.theme-retro-window.mode-dark .text-zinc-650,
+.theme-retro-window.mode-dark .text-zinc-700,
+.theme-retro-window.mode-dark .text-zinc-750,
+.theme-retro-window.mode-dark .text-zinc-800,
+.theme-retro-window.mode-dark .text-zinc-805,
+.theme-retro-window.mode-dark .text-zinc-850,
+.theme-retro-window.mode-dark .text-gray-100,
+.theme-retro-window.mode-dark .text-gray-200,
+.theme-retro-window.mode-dark .text-gray-300,
+.theme-retro-window.mode-dark [class*="text-zinc-"],
+.theme-retro-window.mode-dark [class*="text-gray-"],
+.theme-retro-window.mode-dark [class*="text-neutral-"],
+.theme-retro-window.mode-dark [class*="text-slate-"],
+.theme-retro-window.mode-dark [class*="text-white"] {
+  color: #ffffff !important;
+}
+
+/* Secondary list/card elements */
+.theme-retro-window.mode-dark .bg-\[\#121316\],
+.theme-retro-window.mode-dark .bg-\[\#131418\],
+.theme-retro-window.mode-dark .bg-\[\#121318\],
+.theme-retro-window.mode-dark .bg-\[\#14161d\],
+.theme-retro-window.mode-dark .bg-\[\#15110d\],
+.theme-retro-window.mode-dark .bg-\[\#180d0f\],
+.theme-retro-window.mode-dark .bg-\[\#16120b\],
+.theme-retro-window.mode-dark .bg-\[\#1c1d22\],
+.theme-retro-window.mode-dark .bg-\[\#1b1c21\],
+.theme-retro-window.mode-dark .bg-\[\#181a1f\],
+.theme-retro-window.mode-dark .bg-\[\#101114\],
+.theme-retro-window.mode-dark .bg-zinc-900,
+.theme-retro-window.mode-dark .bg-\[\#0a0a0d\],
+.theme-retro-window.mode-dark .bg-\[\#090a0c\],
+.theme-retro-window.mode-dark .bg-\[\#0a0a0c\]\/30,
+.theme-retro-window.mode-dark .bg-\[\#0d0d10\],
+.theme-retro-window.mode-dark .bg-black\/40,
+.theme-retro-window.mode-dark .bg-zinc-800,
+.theme-retro-window.mode-dark .bg-zinc-900\/30,
+.theme-retro-window.mode-dark .bg-zinc-950\/25,
+.theme-retro-window.mode-dark .bg-zinc-950\/30,
+.theme-retro-window.mode-dark .bg-\[\#16171d\]\/60,
+.theme-retro-window.mode-dark .bg-\[\#0b0c0e\]\/80,
+.theme-retro-window.mode-dark .bg-\[\#08080a\]\/60,
+.theme-retro-window.mode-dark .bg-\[\#0b0c10\],
+.theme-retro-window.mode-dark .bg-zinc-950\/40,
+.theme-retro-window.mode-dark .bg-zinc-950,
+.theme-retro-window.mode-dark .bg-\[\#0b0c0f\],
+.theme-retro-window.mode-dark .bg-\[\#0e0f12\],
+.theme-retro-window.mode-dark .bg-\[\#15171c\],
+.theme-retro-window.mode-dark .bg-\[\#111215\]\/40,
+.theme-retro-window.mode-dark .bg-zinc-900\/40,
+.theme-retro-window.mode-dark .bg-\[\#0a0a0c\]\/30,
+.theme-retro-window.mode-dark .bg-zinc-950\/20,
+.theme-retro-window.mode-dark .bg-zinc-900\/30 {
+  background-color: #2c2e38 !important;
+  border: 1px solid #5a6275 !important;
+  color: #ffffff !important;
+  box-shadow: inset 1px 1px 0px rgba(255,255,255,0.05), 1px 2px 4px rgba(0,0,0,0.2) !important;
+}
+
+.theme-retro-window.mode-dark .bg-\[\#000080\],
+.theme-retro-window.mode-dark .bg-gradient-to-r {
+  background: linear-gradient(to right, #1d4ed8, #0f172a) !important;
+}
+
+/* Base backgrounds inside retro light mode wrapper */
+.theme-retro-window.mode-light main,
+.theme-retro-window.mode-light .bg-\[\#0c0c0e\],
+.theme-retro-window.mode-light .bg-\[\#0d0f14\],
+.theme-retro-window.mode-light .bg-\[\#0a0a0c\],
+.theme-retro-window.mode-light .bg-\[\#09090b\],
+.theme-retro-window.mode-light .bg-\[\#0d121f\]\/90,
+.theme-retro-window.mode-light .bg-\[\#0d121f\]\/95 {
+  background-color: #eaeef3 !important;
+  color: #031124 !important;
+}
+
+/* Panel cards & blocks inside retro light mode wrapper */
+.theme-retro-window.mode-light .bg-\[\#121316\],
+.theme-retro-window.mode-light .bg-\[\#131418\],
+.theme-retro-window.mode-light .bg-\[\#121318\],
+.theme-retro-window.mode-light .bg-\[\#14161d\],
+.theme-retro-window.mode-light .bg-\[\#15110d\],
+.theme-retro-window.mode-light .bg-\[\#180d0f\],
+.theme-retro-window.mode-light .bg-\[\#16120b\],
+.theme-retro-window.mode-light .bg-\[\#181a1f\],
+.theme-retro-window.mode-light .bg-\[\#1c1d22\],
+.theme-retro-window.mode-light .bg-\[\#1b1c21\],
+.theme-retro-window.mode-light .bg-\[\#101114\],
+.theme-retro-window.mode-light .bg-zinc-900,
+.theme-retro-window.mode-light .bg-zinc-950,
+.theme-retro-window.mode-light .bg-\[\#08080a\],
+.theme-retro-window.mode-light .bg-\[\#0d0d10\],
+.theme-retro-window.mode-light .bg-\[\#0a0a0d\],
+.theme-retro-window.mode-light .bg-\[\#090a0c\],
+.theme-retro-window.mode-light .bg-black\/40,
+.theme-retro-window.mode-light .bg-white\/5,
+.theme-retro-window.mode-light .bg-\[\#16171d\]\/60 {
+  background-color: #ffffff !important;
+  border-color: #cbd6e2 !important;
+  color: #031124 !important;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03) !important;
+}
+
+/* Secondary panel headers / items */
+.theme-retro-window.mode-light .bg-\[\#111215\]\/40,
+.theme-retro-window.mode-light .bg-zinc-900\/40,
+.theme-retro-window.mode-light .bg-\[\#0a0a0c\]\/30,
+.theme-retro-window.mode-light .bg-zinc-950\/30,
+.theme-retro-window.mode-light .bg-zinc-950\/20,
+.theme-retro-window.mode-light .bg-zinc-900\/30 {
+  background-color: #f1f5f9 !important;
+}
+
+/* Modals overlays and contents */
+.theme-retro-window.mode-light .fixed.inset-0.bg-black\/60 {
+  background-color: rgba(3, 17, 36, 0.6) !important;
+}
+
+.theme-retro-window.mode-light .bg-zinc-950,
+.theme-retro-window.mode-light .bg-\[\#121318\],
+.theme-retro-window.mode-light .bg-\[\#0d121f\] {
+  background-color: #ffffff !important;
+  border: 1px solid #94a3b8 !important;
+  color: #031124 !important;
+}
+
+/* Tables styling */
+.theme-retro-window.mode-light table {
+  background-color: #ffffff !important;
+  color: #031124 !important;
+}
+
+.theme-retro-window.mode-light thead tr,
+.theme-retro-window.mode-light th {
+  background-color: #cbd6e2 !important;
+  color: #031124 !important;
+  border-color: #b2c0cc !important;
+  font-weight: 800 !important;
+}
+
+.theme-retro-window.mode-light tbody tr {
+  background-color: transparent !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.theme-retro-window.mode-light tbody tr:hover {
+  background-color: rgba(203, 214, 226, 0.4) !important;
+}
+
+.theme-retro-window.mode-light td {
+  color: #031124 !important;
+}
+
+/* Headings text reset */
+.theme-retro-window.mode-light h2,
+.theme-retro-window.mode-light h3,
+.theme-retro-window.mode-light h4,
+.theme-retro-window.mode-light h5,
+.theme-retro-window.mode-light .text-yellow-500,
+.theme-retro-window.mode-light .text-amber-400,
+.theme-retro-window.mode-light .text-amber-500,
+.theme-retro-window.mode-light .text-cyan-400,
+.theme-retro-window.mode-light .text-sky-400,
+.theme-retro-window.mode-light .text-purple-400 {
+  color: #031124 !important;
+}
+
+/* Force standard black text for normal labels & values */
+.theme-retro-window.mode-light .text-gray-100,
+.theme-retro-window.mode-light .text-zinc-100,
+.theme-retro-window.mode-light .text-zinc-200,
+.theme-retro-window.mode-light .text-zinc-300,
+.theme-retro-window.mode-light .text-gray-300,
+.theme-retro-window.mode-light .text-gray-200,
+.theme-retro-window.mode-light .text-white {
+  color: #0f172a !important;
+}
+
+.theme-retro-window.mode-light .text-zinc-400,
+.theme-retro-window.mode-light .text-zinc-500,
+.theme-retro-window.mode-light .text-gray-400,
+.theme-retro-window.mode-light .text-gray-500 {
+  color: #475569 !important; /* slate-600 */
+}
+
+/* Let's preserve specific status and accent states */
+.theme-retro-window.mode-light .text-emerald-400,
+.theme-retro-window.mode-light .text-green-400 {
+  color: #166534 !important; /* dark green */
+}
+
+.theme-retro-window.mode-light .text-red-400,
+.theme-retro-window.mode-light .text-rose-400 {
+  color: #991b1b !important; /* dark red */
+}
+
+.theme-retro-window.mode-light .bg-emerald-950\/40 {
+  background-color: #dcfce7 !important;
+  color: #15803d !important;
+  border-color: #bbf7d0 !important;
+}
+
+.theme-retro-window.mode-light .bg-rose-950\/40,
+.theme-retro-window.mode-light .bg-red-950\/40 {
+  background-color: #fee2e2 !important;
+  color: #b91c1c !important;
+  border-color: #fca5a5 !important;
+}
+
+.theme-retro-window.mode-light .bg-amber-950\/40,
+.theme-retro-window.mode-light .bg-yellow-950\/40 {
+  background-color: #fef9c3 !important;
+  color: #854d0e !important;
+  border-color: #fef08a !important;
+}
+
+.theme-retro-window.mode-light .bg-purple-950\/40 {
+  background-color: #f3e8ff !important;
+  color: #6b21a8 !important;
+  border-color: #e9d5ff !important;
+}
+
+/* Ensure icons maintain colors or adapt */
+.theme-retro-window.mode-light svg.text-cyan-400,
+.theme-retro-window.mode-light svg.text-sky-500,
+.theme-retro-window.mode-light svg.text-yellow-500,
+.theme-retro-window.mode-light svg.text-amber-500,
+.theme-retro-window.mode-light svg.text-emerald-500,
+.theme-retro-window.mode-light svg.text-purple-400 {
+  color: #031124 !important;
+}
+
+/* Inputs, Textareas, and Select elements styling */
+.theme-retro-window.mode-light input:not(.premium-search-input),
+.theme-retro-window.mode-light select,
+.theme-retro-window.mode-light textarea {
+  background-color: #ffffff !important;
+  color: #031124 !important;
+  border: 1px solid #cbd6e2 !important;
+  font-weight: 700 !important;
+}
+
+.theme-retro-window.mode-light input:not(.premium-search-input):focus,
+.theme-retro-window.mode-light select:focus,
+.theme-retro-window.mode-light textarea:focus {
+  border-color: #031124 !important;
+  outline: none !important;
+}
+
+.theme-retro-window.mode-light input::placeholder,
+.theme-retro-window.mode-light textarea::placeholder {
+  color: #94a3b8 !important;
+  font-weight: 450 !important;
+}
+
+/* Inactive filter tabs / buttons inside control fields reset */
+.theme-retro-window.mode-light .bg-zinc-800.text-sky-400,
+.theme-retro-window.mode-light .bg-zinc-800.text-yellow-500,
+.theme-retro-window.mode-light .bg-zinc-800.text-amber-500,
+.theme-retro-window.mode-light .bg-zinc-800.text-emerald-500,
+.theme-retro-window.mode-light .bg-zinc-800.text-cyan-400,
+.theme-retro-window.mode-light .bg-zinc-800.text-purple-400 {
+  background-color: #031124 !important;
+  color: #ffffff !important;
+  border-color: #031124 !important;
+}
+
+.theme-retro-window.mode-light button.text-gray-400:hover,
+.theme-retro-window.mode-light button.text-zinc-400:hover {
+  background-color: #cbd6e2 !important;
+  color: #031124 !important;
+}
+
+/* All borders in general adapt to clean list panels */
+.theme-retro-window.mode-light .border,
+.theme-retro-window.mode-light .border-b,
+.theme-retro-window.mode-light .border-t,
+.theme-retro-window.mode-light .border-r,
+.theme-retro-window.mode-light .border-l,
+.theme-retro-window.mode-light .border-zinc-800,
+.theme-retro-window.mode-light .border-zinc-850,
+.theme-retro-window.mode-light .border-\[\#1c1d22\],
+.theme-retro-window.mode-light .border-\[\#1b1c21\],
+.theme-retro-window.mode-light .border-\[\#2d2f36\],
+.theme-retro-window.mode-light .border-\[\#16171a\],
+.theme-retro-window.mode-light .border-\[\#1a1b20\] {
+  border-color: #cbd6e2 !important;
+}
+
+/* POS specific cleanups */
+.theme-retro-window.mode-light .text-cyan-400 {
+  color: #0c4a6e !important;
+}
+
+.theme-retro-window.mode-light .w-full.bg-\[\#08080a\] {
+  background-color: #ffffff !important;
+  border-color: #cbd6e2 !important;
+  color: #031124 !important;
+}
+
+.theme-retro-window.mode-light .text-yellow-400 {
+  color: #854d0e !important;
+}
+
+.theme-retro-window.mode-light .hover\:border-yellow-500\/80:hover {
+  border-color: #031124 !important;
+}
+
+.theme-retro-window.mode-light button.bg-yellow-500,
+.theme-retro-window.mode-light button.bg-emerald-600,
+.theme-retro-window.mode-light button.bg-cyan-500,
+.theme-retro-window.mode-light button.bg-purple-600,
+.theme-retro-window.mode-light button.bg-\[\#031124\],
+.theme-retro-window.mode-light button.bg-\[\#113a7c\],
+.theme-retro-window.mode-light button.bg-blue-600 {
+  color: #ffffff !important;
+}
+
+
+/* ==========================================================================
+   THEME MODERN: LIGHT MODE OVERRIDES
+   ========================================================================== */
+.theme-modern.mode-light main,
+.theme-modern.mode-light .bg-\[\#0c0c0e\],
+.theme-modern.mode-light .bg-\[\#070709\],
+.theme-modern.mode-light .bg-\[\#0d0f14\],
+.theme-modern.mode-light .bg-\[\#0a0a0c\],
+.theme-modern.mode-light .bg-\[\#09090b\],
+.theme-modern.mode-light .bg-\[\#090d16\],
+.theme-modern.mode-light .bg-\[\#0b0e17\],
+.theme-modern.mode-light .bg-\[\#0e1322\],
+.theme-modern.mode-light .bg-\[\#0f172a\],
+.theme-modern.mode-light .bg-black,
+.theme-modern.mode-light .bg-zinc-950,
+.theme-modern.mode-light #pos-view-root,
+.theme-modern.mode-light #nueva-view-root,
+.theme-modern.mode-light .mainContent,
+.theme-modern.mode-light .main-container {
+  background-color: #f8fafc !important; /* premium light slate */
+  color: #0f172a !important;
+}
+
+.theme-modern.mode-light .bg-\[\#121316\],
+.theme-modern.mode-light .bg-\[\#131418\],
+.theme-modern.mode-light .bg-\[\#121318\],
+.theme-modern.mode-light .bg-\[\#14161d\],
+.theme-modern.mode-light .bg-\[\#15110d\],
+.theme-modern.mode-light .bg-\[\#180d0f\],
+.theme-modern.mode-light .bg-\[\#16120b\],
+.theme-modern.mode-light .bg-\[\#181a1f\],
+.theme-modern.mode-light .bg-\[\#1c1d22\],
+.theme-modern.mode-light .bg-\[\#1b1c21\],
+.theme-modern.mode-light .bg-\[\#101114\],
+.theme-modern.mode-light .bg-zinc-900,
+.theme-modern.mode-light .bg-zinc-950,
+.theme-modern.mode-light .bg-\[\#08080a\],
+.theme-modern.mode-light .bg-\[\#0d0d10\],
+.theme-modern.mode-light .bg-\[\#0a0a0d\],
+.theme-modern.mode-light .bg-\[\#090a0c\],
+.theme-modern.mode-light .bg-black\/40,
+.theme-modern.mode-light .bg-white\/5,
+.theme-modern.mode-light .bg-zinc-800,
+.theme-modern.mode-light .bg-zinc-900\/30,
+.theme-modern.mode-light .bg-zinc-950\/25,
+.theme-modern.mode-light .bg-zinc-950\/30,
+.theme-modern.mode-light .bg-\[\#16171d\]\/60,
+.theme-modern.mode-light .bg-\[\#0b0c0e\]\/80,
+.theme-modern.mode-light .bg-\[\#08080a\]\/60,
+.theme-modern.mode-light .bg-\[\#0b0c10\],
+.theme-modern.mode-light .bg-zinc-950\/40,
+.theme-modern.mode-light .bg-zinc-950,
+.theme-modern.mode-light .bg-\[\#0b0c0f\],
+.theme-modern.mode-light .bg-\[\#0e0f12\],
+.theme-modern.mode-light .bg-\[\#15171c\],
+.theme-modern.mode-light .bg-\[\#111215\]\/40,
+.theme-modern.mode-light .bg-zinc-900\/40,
+.theme-modern.mode-light .bg-\[\#0a0a0c\]\/30,
+.theme-modern.mode-light .bg-zinc-950\/20,
+.theme-modern.mode-light .bg-zinc-900\/30,
+.theme-modern.mode-light .bg-\[\#1c1f2e\],
+.theme-modern.mode-light .bg-\[\#161822\],
+.theme-modern.mode-light .bg-\[\#151720\],
+.theme-modern.mode-light .bg-\[\#151822\],
+.theme-modern.mode-light .bg-\[\#1c1f2d\] {
+  background-color: #ffffff !important; /* clean white card */
+  border-color: #e2e8f0 !important; /* subtle border */
+  color: #0f172a !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Secondary panel headers / items */
+.theme-modern.mode-light .bg-\[\#111215\]\/40,
+.theme-modern.mode-light .bg-zinc-900\/40,
+.theme-modern.mode-light .bg-\[\#0a0a0c\]\/30,
+.theme-modern.mode-light .bg-zinc-950\/30,
+.theme-modern.mode-light .bg-zinc-950\/20,
+.theme-modern.mode-light .bg-zinc-900\/30 {
+  background-color: #f1f5f9 !important;
+}
+
+/* Modal and Overlays */
+.theme-modern.mode-light .fixed.inset-0.bg-black\/60,
+.theme-modern.mode-light .fixed.inset-0.bg-black\/70 {
+  background-color: rgba(15, 23, 42, 0.3) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+.theme-modern.mode-light .bg-zinc-950,
+.theme-modern.mode-light .bg-\[\#121318\],
+.theme-modern.mode-light .bg-\[\#0d121f\],
+.theme-modern.mode-light .bg-\[\#161822\] {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Tables */
+.theme-modern.mode-light table {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.theme-modern.mode-light thead tr,
+.theme-modern.mode-light th {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #e2e8f0 !important;
+  font-weight: 700 !important;
+}
+
+.theme-modern.mode-light tbody tr {
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+.theme-modern.mode-light tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+.theme-modern.mode-light td {
+  color: #334155 !important;
+}
+
+/* Inputs, Selects, Textareas */
+.theme-modern.mode-light input,
+.theme-modern.mode-light select,
+.theme-modern.mode-light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  font-weight: 500 !important;
+}
+
+.theme-modern.mode-light input:focus,
+.theme-modern.mode-light select:focus,
+.theme-modern.mode-light textarea:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1) !important;
+  outline: none !important;
+}
+
+.theme-modern.mode-light input::placeholder,
+.theme-modern.mode-light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Borders */
+.theme-modern.mode-light .border,
+.theme-modern.mode-light .border-b,
+.theme-modern.mode-light .border-t,
+.theme-modern.mode-light .border-r,
+.theme-modern.mode-light .border-l,
+.theme-modern.mode-light .border-zinc-800,
+.theme-modern.mode-light .border-zinc-850,
+.theme-modern.mode-light .border-zinc-700,
+.theme-modern.mode-light .border-slate-800,
+.theme-modern.mode-light .border-\[\#1c1d22\],
+.theme-modern.mode-light .border-\[\#1b1c21\],
+.theme-modern.mode-light .border-\[\#2d2f36\],
+.theme-modern.mode-light .border-\[\#16171a\],
+.theme-modern.mode-light .border-\[\#1a1b20\],
+.theme-modern.mode-light .border-\[\#222530\] {
+  border-color: #e2e8f0 !important;
+}
+
+/* Text adaptations */
+.theme-modern.mode-light h1,
+.theme-modern.mode-light h2,
+.theme-modern.mode-light h3,
+.theme-modern.mode-light h4,
+.theme-modern.mode-light h5,
+.theme-modern.mode-light h6,
+.theme-modern.mode-light label,
+.theme-modern.mode-light p,
+.theme-modern.mode-light span,
+.theme-modern.mode-light font,
+.theme-modern.mode-light strong,
+.theme-modern.mode-light b,
+.theme-modern.mode-light div {
+  color: #0f172a !important;
+}
+
+.theme-modern.mode-light button:not(.text-white):not(.text-zinc-100):not(.text-zinc-200) {
+  color: #0f172a !important;
+}
+
+.theme-modern.mode-light .text-zinc-400,
+.theme-modern.mode-light .text-zinc-500,
+.theme-modern.mode-light .text-gray-400,
+.theme-modern.mode-light .text-gray-500,
+.theme-modern.mode-light .text-zinc-300,
+.theme-modern.mode-light .text-gray-300,
+.theme-modern.mode-light .text-slate-400 {
+  color: #64748b !important;
+}
+
+.theme-modern.mode-light .text-white,
+.theme-modern.mode-light .text-zinc-100,
+.theme-modern.mode-light .text-zinc-200 {
+  color: #1e293b !important;
+}
+
+.theme-modern.mode-light button.bg-blue-600,
+.theme-modern.mode-light button.bg-emerald-600,
+.theme-modern.mode-light button.bg-indigo-600,
+.theme-modern.mode-light button.bg-amber-600,
+.theme-modern.mode-light button.bg-red-600,
+.theme-modern.mode-light button.bg-yellow-500,
+.theme-modern.mode-light button.bg-rose-600,
+.theme-modern.mode-light button.bg-sky-600,
+.theme-modern.mode-light button.bg-purple-600,
+.theme-modern.mode-light button.bg-cyan-600,
+.theme-modern.mode-light button.bg-\[\#000080\],
+.theme-modern.mode-light button.bg-\[\#1a3a6b\],
+.theme-modern.mode-light button.bg-\[\#113a7c\],
+.theme-modern.mode-light button.bg-\[\#003c94\],
+.theme-modern.mode-light button[class*="bg-[#003c94]"],
+.theme-modern.mode-light button.bg-primary {
+  color: #ffffff !important;
+}
+
+
+/* ==========================================================================
+   THEME FLUENT: LIGHT MODE OVERRIDES
+   ========================================================================== */
+.theme-fluent.mode-light main,
+.theme-fluent.mode-light .bg-\[\#0c0c0e\],
+.theme-fluent.mode-light .bg-\[\#070709\],
+.theme-fluent.mode-light .bg-\[\#0d0f14\],
+.theme-fluent.mode-light .bg-\[\#0a0a0c\],
+.theme-fluent.mode-light .bg-\[\#09090b\],
+.theme-fluent.mode-light .bg-\[\#090d16\],
+.theme-fluent.mode-light .bg-\[\#0b0e17\],
+.theme-fluent.mode-light .bg-\[\#0e1322\],
+.theme-fluent.mode-light .bg-\[\#0f172a\],
+.theme-fluent.mode-light .bg-black,
+.theme-fluent.mode-light .bg-zinc-950,
+.theme-fluent.mode-light #pos-view-root,
+.theme-fluent.mode-light #nueva-view-root,
+.theme-fluent.mode-light .mainContent,
+.theme-fluent.mode-light .main-container {
+  background-color: #f3f3f3 !important; /* Windows 11 Light background */
+  color: #202020 !important;
+}
+
+.theme-fluent.mode-light .bg-\[\#121316\],
+.theme-fluent.mode-light .bg-\[\#131418\],
+.theme-fluent.mode-light .bg-\[\#121318\],
+.theme-fluent.mode-light .bg-\[\#14161d\],
+.theme-fluent.mode-light .bg-\[\#15110d\],
+.theme-fluent.mode-light .bg-\[\#180d0f\],
+.theme-fluent.mode-light .bg-\[\#16120b\],
+.theme-fluent.mode-light .bg-\[\#181a1f\],
+.theme-fluent.mode-light .bg-\[\#1c1d22\],
+.theme-fluent.mode-light .bg-\[\#1b1c21\],
+.theme-fluent.mode-light .bg-\[\#101114\],
+.theme-fluent.mode-light .bg-zinc-900,
+.theme-fluent.mode-light .bg-zinc-950,
+.theme-fluent.mode-light .bg-\[\#08080a\],
+.theme-fluent.mode-light .bg-\[\#0d0d10\],
+.theme-fluent.mode-light .bg-\[\#0a0a0d\],
+.theme-fluent.mode-light .bg-\[\#090a0c\],
+.theme-fluent.mode-light .bg-black\/40,
+.theme-fluent.mode-light .bg-white\/5,
+.theme-fluent.mode-light .bg-zinc-800,
+.theme-fluent.mode-light .bg-zinc-900\/30,
+.theme-fluent.mode-light .bg-zinc-950\/25,
+.theme-fluent.mode-light .bg-zinc-950\/30,
+.theme-fluent.mode-light .bg-\[\#16171d\]\/60,
+.theme-fluent.mode-light .bg-\[\#0b0c0e\]\/80,
+.theme-fluent.mode-light .bg-\[\#08080a\]\/60,
+.theme-fluent.mode-light .bg-\[\#0b0c10\],
+.theme-fluent.mode-light .bg-zinc-950\/40,
+.theme-fluent.mode-light .bg-zinc-950,
+.theme-fluent.mode-light .bg-\[\#0b0c0f\],
+.theme-fluent.mode-light .bg-\[\#0e0f12\],
+.theme-fluent.mode-light .bg-\[\#15171c\],
+.theme-fluent.mode-light .bg-\[\#111215\]\/40,
+.theme-fluent.mode-light .bg-zinc-900\/40,
+.theme-fluent.mode-light .bg-\[\#0a0a0c\]\/30,
+.theme-fluent.mode-light .bg-zinc-950\/20,
+.theme-fluent.mode-light .bg-zinc-900\/30,
+.theme-fluent.mode-light .bg-\[\#1c1f2e\],
+.theme-fluent.mode-light .bg-\[\#161822\],
+.theme-fluent.mode-light .bg-\[\#151720\],
+.theme-fluent.mode-light .bg-\[\#151822\],
+.theme-fluent.mode-light .bg-\[\#1c1f2d\] {
+  background-color: #ffffff !important; /* Acrylic White Card */
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  color: #202020 !important;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.04) !important;
+  border-radius: 8px !important;
+}
+
+/* Secondary panel headers / items */
+.theme-fluent.mode-light .bg-\[\#111215\]\/40,
+.theme-fluent.mode-light .bg-zinc-900\/40,
+.theme-fluent.mode-light .bg-\[\#0a0a0c\]\/30,
+.theme-fluent.mode-light .bg-zinc-950\/30,
+.theme-fluent.mode-light .bg-zinc-950\/20,
+.theme-fluent.mode-light .bg-zinc-900\/30 {
+  background-color: #f9f9f9 !important;
+  border-radius: 4px !important;
+}
+
+/* Modal and Overlays */
+.theme-fluent.mode-light .fixed.inset-0.bg-black\/60,
+.theme-fluent.mode-light .fixed.inset-0.bg-black\/70 {
+  background-color: rgba(0, 0, 0, 0.15) !important;
+  backdrop-filter: blur(16px) !important;
+}
+
+.theme-fluent.mode-light .bg-zinc-950,
+.theme-fluent.mode-light .bg-\[\#121318\],
+.theme-fluent.mode-light .bg-\[\#0d121f\],
+.theme-fluent.mode-light .bg-\[\#161822\] {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  color: #202020 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Tables */
+.theme-fluent.mode-light table {
+  background-color: #ffffff !important;
+  color: #202020 !important;
+}
+
+.theme-fluent.mode-light thead tr,
+.theme-fluent.mode-light th {
+  background-color: #f9f9f9 !important;
+  color: #5f5f5f !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  font-weight: 600 !important;
+}
+
+.theme-fluent.mode-light tbody tr {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04) !important;
+}
+
+.theme-fluent.mode-light tbody tr:hover {
+  background-color: #f3f3f3 !important;
+}
+
+.theme-fluent.mode-light td {
+  color: #242424 !important;
+}
+
+/* Inputs, Selects, Textareas */
+.theme-fluent.mode-light input,
+.theme-fluent.mode-light select,
+.theme-fluent.mode-light textarea {
+  background-color: #ffffff !important;
+  color: #202020 !important;
+  border: 1px solid #d2d2d2 !important;
+  border-bottom: 2px solid #858585 !important;
+  border-radius: 4px !important;
+  transition: all 0.15s ease !important;
+}
+
+.theme-fluent.mode-light input:focus,
+.theme-fluent.mode-light select:focus,
+.theme-fluent.mode-light textarea:focus {
+  border-color: #0066b3 !important;
+  border-bottom-color: #0066b3 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.theme-fluent.mode-light input::placeholder,
+.theme-fluent.mode-light textarea::placeholder {
+  color: #909090 !important;
+}
+
+/* Borders */
+.theme-fluent.mode-light .border,
+.theme-fluent.mode-light .border-b,
+.theme-fluent.mode-light .border-t,
+.theme-fluent.mode-light .border-r,
+.theme-fluent.mode-light .border-l,
+.theme-fluent.mode-light .border-zinc-800,
+.theme-fluent.mode-light .border-zinc-850,
+.theme-fluent.mode-light .border-zinc-700,
+.theme-fluent.mode-light .border-slate-800,
+.theme-fluent.mode-light .border-\[\#1c1d22\],
+.theme-fluent.mode-light .border-\[\#1b1c21\],
+.theme-fluent.mode-light .border-\[\#2d2f36\],
+.theme-fluent.mode-light .border-\[\#16171a\],
+.theme-fluent.mode-light .border-\[\#1a1b20\],
+.theme-fluent.mode-light .border-\[\#222530\] {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Text adaptations */
+.theme-fluent.mode-light h1,
+.theme-fluent.mode-light h2,
+.theme-fluent.mode-light h3,
+.theme-fluent.mode-light h4,
+.theme-fluent.mode-light h5,
+.theme-fluent.mode-light h6,
+.theme-fluent.mode-light label,
+.theme-fluent.mode-light p,
+.theme-fluent.mode-light span,
+.theme-fluent.mode-light font,
+.theme-fluent.mode-light strong,
+.theme-fluent.mode-light b,
+.theme-fluent.mode-light div {
+  color: #202020 !important;
+}
+
+.theme-fluent.mode-light button:not(.text-white):not(.text-zinc-100):not(.text-zinc-200) {
+  color: #202020 !important;
+}
+
+.theme-fluent.mode-light .text-zinc-400,
+.theme-fluent.mode-light .text-zinc-500,
+.theme-fluent.mode-light .text-gray-400,
+.theme-fluent.mode-light .text-gray-500,
+.theme-fluent.mode-light .text-zinc-300,
+.theme-fluent.mode-light .text-gray-300,
+.theme-fluent.mode-light .text-slate-400 {
+  color: #5f5f5f !important;
+}
+
+.theme-fluent.mode-light .text-white,
+.theme-fluent.mode-light .text-zinc-100,
+.theme-fluent.mode-light .text-zinc-200 {
+  color: #242424 !important;
+}
+
+.theme-fluent.mode-light button.bg-blue-600,
+.theme-fluent.mode-light button.bg-emerald-600,
+.theme-fluent.mode-light button.bg-indigo-600,
+.theme-fluent.mode-light button.bg-amber-600,
+.theme-fluent.mode-light button.bg-red-600,
+.theme-fluent.mode-light button.bg-yellow-500,
+.theme-fluent.mode-light button.bg-rose-600,
+.theme-fluent.mode-light button.bg-sky-600,
+.theme-fluent.mode-light button.bg-purple-600,
+.theme-fluent.mode-light button.bg-cyan-600,
+.theme-fluent.mode-light button.bg-\[\#000080\],
+.theme-fluent.mode-light button.bg-\[\#1a3a6b\],
+.theme-fluent.mode-light button.bg-\[\#113a7c\],
+.theme-fluent.mode-light button.bg-\[\#003c94\],
+.theme-fluent.mode-light button[class*="bg-[#003c94]"],
+.theme-fluent.mode-light button.bg-primary {
+  color: #ffffff !important;
+}
+
+
+
+/* Premium Rounded Pill Search Bar for POS View, ignoring any global overrides */
+.premium-search-container {
+  display: flex !important;
+  align-items: center !important;
+  border-radius: 9999px !important;
+  height: 3.5rem !important; /* 56px per h-14 */
+  width: 100% !important;
+  padding-left: 1.5rem !important;
+  padding-right: 1.5rem !important;
+  box-sizing: border-box !important;
+  transition: all 0.2s ease-in-out !important;
+  
+  /* Defaults (Cosmic Dark Theme or similar) */
+  background: #1c1d22 !important;
+  background-color: #1c1d22 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Cosmic Dark Theme Active / Focus border color */
+.premium-search-container:focus-within {
+  border-color: #f59e0b !important; /* Yellow-amber accent */
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15) !important;
+}
+
+/* Light mode overrides */
+.mode-light .premium-search-container {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border: 1px solid #cbd6e2 !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04) !important;
+}
+
+.mode-light .premium-search-container:focus-within {
+  border-color: #3b82f6 !important; /* Blue active border in light mode */
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Retro theme overrides */
+.theme-retro-window .premium-search-container {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border: 2px solid #555555 !important;
+  border-radius: 9999px !important; /* fully rounded capsule design */
+  height: 3.5rem !important; /* unified standard height */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04) !important;
+}
+
+.theme-retro-window .premium-search-container:focus-within {
+  border-color: #000080 !important; /* Retro classic navy focus */
+}
+
+/* Ensure inner structural divs do not inherit backgrounds, borders, or shadows from global themes */
+.premium-search-container div:not([class*="bg-zinc-200"]),
+.theme-retro-window .premium-search-container div:not([class*="bg-zinc-200"]) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-width: 0px !important;
+  box-shadow: none !important;
+}
+
+.premium-search-input,
+.theme-retro-window .premium-search-input,
+.premium-search-container input,
+.theme-retro-window .premium-search-container input {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  color: #f4f4f5 !important; /* default dark text */
+  border: none !important;
+  border-width: 0px !important;
+  border-style: none !important;
+  border-color: transparent !important;
+  outline: none !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  padding-left: 0 !important;
+  margin: 0 !important;
+}
+
+/* Text overrides in Light and Retro themes */
+.mode-light .premium-search-container input {
+  color: #1f2937 !important; /* dark slate */
+}
+
+.theme-retro-window .premium-search-container input {
+  color: #000000 !important;
+  font-family: monospace !important;
+  font-weight: 700 !important;
+}
+
+/* Clear focus states explicitly */
+.premium-search-container input:focus,
+.premium-search-input:focus,
+.theme-retro-window .premium-search-container input:focus,
+.theme-retro-window input.premium-search-input:focus {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+}
+
+.premium-search-input::placeholder,
+.theme-retro-window .premium-search-container input::placeholder,
+.premium-search-container input::placeholder {
+  color: #71717a !important; /* zinc-500 */
+}
+
+.mode-light .premium-search-container input::placeholder {
+  color: #94a3b8 !important; /* light mode placeholder */
+}
+
+.theme-retro-window .premium-search-container input::placeholder {
+  color: #7c7c7c !important;
+}
+
+/* Unified Capsule/Pill Search Bar for all pages in all themes */
+.capsule-search-container {
+  display: flex !important;
+  align-items: center !important;
+  border-radius: 9999px !important;
+  height: 2.25rem !important; /* compact height for tables/headers */
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+  box-sizing: border-box !important;
+  transition: all 0.2s ease-in-out !important;
+  width: 100% !important;
+
+  /* Default Dark Mode (Cosmic Dark) */
+  background: #1c1d22 !important;
+  background-color: #1c1d22 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+  color: #f4f4f5 !important;
+}
+
+/* Focus style */
+.capsule-search-container:focus-within {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Light theme overrides */
+.mode-light .capsule-search-container {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border: 1px solid #cbd6e2 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  color: #1f2937 !important;
+}
+.mode-light .capsule-search-container:focus-within {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Retro theme overrides */
+.theme-retro-window .capsule-search-container {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border: 2px solid #555555 !important;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.15) !important;
+  color: #000000 !important;
+}
+.theme-retro-window .capsule-search-container:focus-within {
+  border-color: #000080 !important;
+  box-shadow: none !important;
+}
+
+/* Structural resets for input inside capsule-search-container */
+.capsule-search-container input,
+.capsule-search-container input.premium-search-input {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  border-width: 0px !important;
+  border-style: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  color: inherit !important;
+  font-size: 0.8rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.capsule-search-container input:focus,
+.capsule-search-container input.premium-search-input:focus {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Placeholder colors */
+.capsule-search-container input::placeholder,
+.capsule-search-container input.premium-search-input::placeholder {
+  color: #71717a !important;
+}
+.mode-light .capsule-search-container input::placeholder,
+.mode-light .capsule-search-container input.premium-search-input::placeholder {
+  color: #94a3b8 !important;
+}
+.theme-retro-window .capsule-search-container input::placeholder,
+.theme-retro-window .capsule-search-container input.premium-search-input::placeholder {
+  color: #7c7c7c !important;
+  text-transform: uppercase !important;
+}
+.theme-retro-window .capsule-search-container input,
+.theme-retro-window .capsule-search-container input.premium-search-input {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-weight: 700 !important;
+}
+
+.premium-search-icon-btn,
+.theme-retro-window .premium-search-icon-btn {
+  background: none !important;
+  border: none !important;
+  color: #a1a1aa !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Premium Search Modal Styling overrides */
+.mode-light .premium-modal-card select,
+.mode-light .premium-modal-card input,
+.theme-retro-window .premium-modal-card input {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: #1f2937 !important; /* dark grey text */
+  border: 1px solid #d1d5db !important;
+  border-radius: 0.375rem !important; /* rounded-md */
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.mode-light .premium-modal-card select:focus,
+.mode-light .premium-modal-card input:focus,
+.theme-retro-window .premium-modal-card input:focus {
+  border-color: #3b82f6 !important; /* focus blue */
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+
+/* ==========================================================================
+   NUEVA ORDEN - ENFOQUE DE ENCUADRE DE CONTROL Y MÁXIMO CONTRASTE CON EL FONDO
+   ========================================================================== */
+
+/* 1. Atenuar y dinamizar el fondo principal para dar protagonismo absoluto al formulario */
+#nueva-view-root {
+  background-color: #050507 !important;
+  background-image: radial-gradient(ellipse at center, rgba(16, 24, 48, 0.5) 0%, rgba(3, 4, 9, 0.98) 100%) !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* En modo claro (Light Mode) contrastar con un fondo gris suave degradado y tarjeta blanca reluciente */
+.mode-light #nueva-view-root {
+  background-color: #cbd5e1 !important;
+  background-image: radial-gradient(ellipse at center, #f1f5f9 0%, #cbd5e1 100%) !important;
+}
+
+/* En modo retro clásico, fondo gris clásico de interfaz industrial */
+.theme-retro-window #nueva-view-root {
+  background-color: #9da3af !important; /* Más oscuro para contraste impecable */
+  background-image: none !important;
+}
+
+/* 2. Resaltado unificado del contenedor simulado de nueva orden (Desktop Container) */
+#simulated-desktop-container {
+  padding-bottom: 5rem !important;
+  perspective: 1000px !important;
+}
+
+/* Tarjeta por defecto en modo oscuro premium (Cósmico) */
+#simulated-desktop-container > div {
+  background-color: #0e111a !important; /* Contraste negro azulado firme */
+  border: 2px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 1.25rem !important; /* Biselado moderno */
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.92), 
+              0 0 40px rgba(99, 102, 241, 0.05),
+              inset 0 1px 1px rgba(255, 255, 255, 0.04) !important;
+  transition: border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), 
+              box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* Efecto de Enfoque Activo ("Focus Glow Aura") cuando se interactúa con el formulario en Modo Oscuro */
+#simulated-desktop-container:focus-within > div {
+  border-color: rgba(245, 158, 11, 0.5) !important; /* Contorno de Oro Cálido de Atención */
+  box-shadow: 0 35px 80px -12px rgba(0, 0, 0, 0.96), 
+              0 0 50px rgba(245, 158, 11, 0.12),
+              inset 0 1px 2px rgba(245, 158, 11, 0.1) !important;
+  transform: translateY(-2px) scale(1.002) !important;
+}
+
+/* Tarjeta espectacular en Modo Claro (Light Mode) */
+.mode-light #simulated-desktop-container > div {
+  background-color: #ffffff !important; /* Blanco puro de alto contraste */
+  border: 2px solid #94a3b8 !important; /* Borde bien marcado de pizarra moderada */
+  border-radius: 1.25rem !important;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.15), 
+              0 0 30px rgba(0, 0, 0, 0.03),
+              inset 0 1px 1px #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Enfoque activo en Modo Claro */
+.mode-light #simulated-desktop-container:focus-within > div {
+  border-color: #2563eb !important; /* Borde azul eléctrico de enfoque */
+  box-shadow: 0 28px 65px rgba(15, 23, 42, 0.22), 
+              0 0 35px rgba(37, 99, 235, 0.15) !important;
+  transform: translateY(-2px) scale(1.002) !important;
+}
+
+/* Tarjeta excepcional en Tema Retro Clásico (Retro Windows) - LIGHT MODE */
+.theme-retro-window.mode-light #simulated-desktop-container > div {
+  background-color: #eaeef3 !important; /* Gris industrial sólido estándar de Windows */
+  border: 4px solid !important;
+  border-top-color: #ffffff !important;
+  border-left-color: #ffffff !important;
+  border-right-color: #404040 !important;
+  border-bottom-color: #404040 !important;
+  border-radius: 0px !important; /* Esquinas rectangulares de precisión clásica */
+  box-shadow: 4px 4px 0px #000000, 0 15px 30px rgba(0,0,0,0.15) !important;
+  color: #000000 !important;
+}
+
+/* Tarjeta excepcional en Tema Retro Clásico (Retro Windows) - DARK MODE */
+.theme-retro-window.mode-dark #simulated-desktop-container > div {
+  background-color: #1a1c23 !important; /* Retro dark bg */
+  border: 4px solid !important;
+  border-top-color: #383c48 !important;
+  border-left-color: #383c48 !important;
+  border-right-color: #111317 !important;
+  border-bottom-color: #111317 !important;
+  border-radius: 0px !important;
+  box-shadow: 4px 4px 0px #000000, 0 15px 30px rgba(0,0,0,0.15) !important;
+  color: #ffffff !important;
+}
+
+/* Enfoque activo en Tema Retro */
+.theme-retro-window #simulated-desktop-container:focus-within > div {
+  border-top-color: #ffffff !important;
+  border-left-color: #ffffff !important;
+  border-right-color: #000000 !important;
+  border-bottom-color: #000000 !important;
+  box-shadow: 6px 6px 0px #000000, 0 20px 45px rgba(0,0,0,0.25) !important;
+}
+
+/* 3. Resaltados ultra contrastados para los inputs del asistente de orden */
+#nueva-view-root input:not(.premium-search-input):focus,
+#nueva-view-root textarea:focus,
+#nueva-view-root select:focus {
+  border-color: #eab308 !important; /* Contorno dorado */
+  box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.2) !important;
+}
+
+.mode-light #nueva-view-root input:not(.premium-search-input):focus,
+.mode-light #nueva-view-root textarea:focus,
+.mode-light #nueva-view-root select:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2) !important;
+}
+
+.theme-retro-window #nueva-view-root input:not(.premium-search-input):focus,
+.theme-retro-window #nueva-view-root textarea:focus,
+.theme-retro-window #nueva-view-root select:focus {
+  border: 2px solid #000080 !important; /* Retro classic Navy active focus */
+  box-shadow: none !important;
+}
+
+/* Mayor notoriedad de texto de ayuda en asistente */
+#nueva-view-root select,
+#nueva-view-root input,
+#nueva-view-root textarea {
+  transition: all 0.2s ease-in-out !important;
+}
+
+/* Guarantee crisp high-definition rendering for uploaded logos */
+.logo-highres {
+  image-rendering: -webkit-optimize-contrast !important;
+  image-rendering: crisp-edges !important;
+  image-rendering: auto !important;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+/* ==========================================================
+   PERSISTENT MODALS & FLOATING WINDOWS THEME HARMONY OVERRIDES
+   ========================================================== */
+
+/* 1. Retro Theme Modals Overrides */
+.theme-retro-window .fixed:not([id*="mobile-sidebar-drawer"]):not([id*="mobile-sidebar-drawer"] *),
+.theme-retro-window [id*="modal"],
+.theme-retro-window [class*="modal"]:not(.modal-dark-header) {
+  /* Backdrops should be solid semi-transparent light blue-grey */
+  background-color: rgba(90, 105, 120, 0.45) !important;
+  backdrop-filter: blur(2px) !important;
+}
+
+/* Modal dialog boxes in Retro Theme - LIGHT MODE: flat and clean */
+.theme-retro-window.mode-light .fixed > div:not([id*="mobile-sidebar-drawer"]):not(.absolute):not(.fixed),
+.theme-retro-window.mode-light .fixed > form,
+.theme-retro-window.mode-light [class*="modal"]:not(.modal-dark-header) > div:not(.absolute):not(.fixed),
+.theme-retro-window.mode-light [class*="dialog"] > div:not(.absolute):not(.fixed) {
+  background-color: #eaeef3 !important; /* Flat light gray background */
+  border: 1px solid #cbd5e1 !important; /* Thin flat border */
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+  border-radius: 12px !important;
+  color: #0f172a !important;
+}
+
+/* Modal dialog boxes in Retro Theme - DARK MODE: flat and clean */
+.theme-retro-window.mode-dark .fixed > div:not([id*="mobile-sidebar-drawer"]):not(.absolute):not(.fixed),
+.theme-retro-window.mode-dark .fixed > form,
+.theme-retro-window.mode-dark [class*="modal"]:not(.modal-dark-header) > div:not(.absolute):not(.fixed),
+.theme-retro-window.mode-dark [class*="dialog"] > div:not(.absolute):not(.fixed) {
+  background-color: #1a1c23 !important; /* Retro dark bg */
+  border: 1px solid #383c48 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2) !important;
+  border-radius: 12px !important;
+  color: #ffffff !important;
+}
+
+/* Align headers/titlebars of any popup window/dialog in retro theme */
+.theme-retro-window.mode-light .fixed h3,
+.theme-retro-window.mode-light .fixed [class*="titlebar"],
+.theme-retro-window.mode-light .fixed div[class*="border-b"] {
+  color: #031124 !important;
+}
+
+.theme-retro-window.mode-dark .fixed h3,
+.theme-retro-window.mode-dark .fixed [class*="titlebar"],
+.theme-retro-window.mode-dark .fixed div[class*="border-b"] {
+  color: #ffffff !important;
+}
+
+/* Target windows header blocks (blue caption bar) and ensure they keep white text */
+.theme-retro-window .fixed div[class*="bg-[#000080]"],
+.theme-retro-window .fixed div[class*="bg-[#102575]"],
+.theme-retro-window .fixed .bg-\[\#000080\],
+.theme-retro-window .fixed .bg-\[\#102575\] {
+  background: linear-gradient(90deg, #000080 0%, #1034a6 100%) !important; /* Classic Win95 Navy-blue active caption bar */
+  color: #ffffff !important;
+  border: none !important;
+}
+
+/* Ensure text elements inside the active blue caption bar (but not general body elements) are white */
+.theme-retro-window .fixed div[class*="bg-[#000080]"] h3,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] h4,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] p,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] span,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] label,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] *,
+.theme-retro-window .fixed .bg-\[\#000080\] *,
+.theme-retro-window .fixed .bg-\[\#102575\] * {
+  color: #ffffff !important;
+}
+
+/* All other element types inside a retro window popup (modals) default to standard deep black for high contrast - LIGHT MODE */
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) p,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) span,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) label,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) li,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) td,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) th,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) font,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) strong,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) small,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) b,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h1,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h2,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h3,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h4,
+.theme-retro-window.mode-light .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) {
+  color: #000000 !important;
+}
+
+/* All other element types inside a retro window popup (modals) default to white for dark mode retro - DARK MODE */
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) p,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) span,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) label,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) li,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) td,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) th,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) font,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) strong,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) small,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) b,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h1,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h2,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h3,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) h4,
+.theme-retro-window.mode-dark .fixed div:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) {
+  color: #ffffff !important;
+}
+
+/* Specific text color overrides to bypass global white text rule in retro dark mode popups */
+.theme-retro-window.mode-dark .fixed .text-red-300,
+.theme-retro-window.mode-dark .fixed .text-red-300 * { color: #fca5a5 !important; }
+.theme-retro-window.mode-dark .fixed .text-red-400,
+.theme-retro-window.mode-dark .fixed .text-red-400 * { color: #f87171 !important; }
+.theme-retro-window.mode-dark .fixed .text-emerald-300,
+.theme-retro-window.mode-dark .fixed .text-emerald-300 * { color: #86efac !important; }
+.theme-retro-window.mode-dark .fixed .text-violet-300,
+.theme-retro-window.mode-dark .fixed .text-violet-300 * { color: #c084fc !important; }
+.theme-retro-window.mode-dark .fixed .text-zinc-450,
+.theme-retro-window.mode-dark .fixed .text-zinc-450 * { color: #a1a1aa !important; }
+.theme-retro-window.mode-dark .fixed .text-zinc-400,
+.theme-retro-window.mode-dark .fixed .text-zinc-400 * { color: #a1a1aa !important; }
+.theme-retro-window.mode-dark .fixed .text-zinc-300,
+.theme-retro-window.mode-dark .fixed .text-zinc-300 * { color: #d4d4d8 !important; }
+.theme-retro-window.mode-dark .fixed .text-\[\#60a5fa\],
+.theme-retro-window.mode-dark .fixed .text-\[\#60a5fa\] * { color: #60a5fa !important; }
+.theme-retro-window.mode-dark .fixed .text-sky-400,
+.theme-retro-window.mode-dark .fixed .text-sky-400 * { color: #38bdf8 !important; }
+
+/* Force standard dark colors for gray background containers and buttons - LIGHT MODE */
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\],
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] *,
+.theme-retro-window.mode-light .fixed .bg-\[\#cbd6e2\],
+.theme-retro-window.mode-light .fixed .bg-\[\#cbd6e2\] *,
+.theme-retro-window.mode-light .fixed button:not([class*="bg-[#000080]"]):not([class*="bg-[#003c94]"]):not(.bg-cyan-600):not(.text-white):not(.text-zinc-100):not(.text-zinc-200) {
+  color: #000000 !important;
+}
+
+/* Force standard light colors for gray background containers and buttons - DARK MODE */
+.theme-retro-window.mode-dark .fixed .bg-\[\#dfdfdf\],
+.theme-retro-window.mode-dark .fixed .bg-\[\#dfdfdf\] *,
+.theme-retro-window.mode-dark .fixed .bg-\[\#cbd6e2\],
+.theme-retro-window.mode-dark .fixed .bg-\[\#cbd6e2\] *,
+.theme-retro-window.mode-dark .fixed button:not([class*="bg-[#000080]"]):not([class*="bg-[#003c94]"]):not(.bg-cyan-600) {
+  color: #ffffff !important;
+}
+
+/* Sub-containers inside retro windows - LIGHT MODE: flat and clean */
+.theme-retro-window.mode-light .fixed .bg-zinc-950,
+.theme-retro-window.mode-light .fixed .bg-zinc-950\/40,
+.theme-retro-window.mode-light .fixed .bg-black\/60,
+.theme-retro-window.mode-light .fixed .bg-black {
+  background-color: #f8fafc !important; /* Clean flat bg */
+  border: 1px solid #e2e8f0 !important; /* Thin clean border */
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  color: #000000 !important;
+}
+
+/* Sub-containers inside retro windows - DARK MODE: flat and clean */
+.theme-retro-window.mode-dark .fixed .bg-zinc-950,
+.theme-retro-window.mode-dark .fixed .bg-zinc-950\/40,
+.theme-retro-window.mode-dark .fixed .bg-black\/60,
+.theme-retro-window.mode-dark .fixed .bg-black {
+  background-color: #121316 !important;
+  border: 1px solid #383c48 !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  color: #ffffff !important;
+}
+
+/* Correct close symbol hover states and colors in retro mode - LIGHT MODE */
+.theme-retro-window.mode-light .fixed button:hover {
+  background-color: #94a3b8 !important;
+  color: #000000 !important;
+}
+
+/* Correct close symbol hover states and colors in retro mode - DARK MODE */
+.theme-retro-window.mode-dark .fixed button:hover {
+  background-color: #282b35 !important;
+  color: #ffffff !important;
+}
+
+/* Ensure paragraph tags & labels inside modals under retro theme have dark text contrast */
+.theme-retro-window .fixed p,
+.theme-retro-window .fixed label,
+.theme-retro-window .fixed span,
+.theme-retro-window .fixed li,
+.theme-retro-window .fixed font,
+.theme-retro-window .fixed strong,
+.theme-retro-window .fixed small,
+.theme-retro-window .fixed div {
+  color: #000000 !important;
+}
+
+/* Ensure blue header text in retro modal remains white and countboards remain yellow/amber */
+.theme-retro-window .fixed div[class*="bg-[#000080]"],
+.theme-retro-window .fixed div[class*="bg-[#000080]"] *,
+.theme-retro-window .fixed .bg-\[\#000080\],
+.theme-retro-window .fixed .bg-\[\#000080\] *,
+.theme-retro-window .fixed div[class*="bg-[#102575]"] *,
+.theme-retro-window .fixed .bg-\[\#102575\] * {
+  color: #ffffff !important;
+}
+
+/* ── HIGH-SPECIFICITY FIX: blue modal header bars (e.g. label printer, order print confirm) ──
+   Problem: the :not(blue-bg) h3/span rule has specificity (0,4,2) which beats the generic
+   "blue bg children = white" restore rule at (0,3,1). We chain .flex.items-center on the same
+   element as .bg-[#000080] to push specificity to (0,5,2+) and permanently win the cascade. */
+
+/* All text / divs INSIDE any blue .flex.items-center header → force white */
+.theme-retro-window .fixed .bg-\[\#000080\].flex.items-center div h3,
+.theme-retro-window .fixed .bg-\[\#000080\].flex.items-center div span,
+.theme-retro-window .fixed .bg-\[\#000080\].flex.items-center div p,
+.theme-retro-window .fixed .bg-\[\#000080\].flex.items-center div {
+  color: #ffffff !important;
+}
+
+/* Icon container inside blue header (white background box) → keep dark icon */
+.theme-retro-window .fixed .bg-\[\#000080\].flex.items-center div[class*="bg-white"] {
+  background-color: #ffffff !important;
+  color: #000080 !important;
+}
+.theme-retro-window .fixed .bg-\[\#000080\].flex.items-center div[class*="bg-white"] svg,
+.theme-retro-window .fixed .bg-\[\#000080\].flex.items-center div[class*="bg-white"] * {
+  color: #000080 !important;
+}
+
+/* Blue buttons (bg-[#000080]) inside modal footers: rule (dfdfdf *→black) wins at (0,3,0)
+   because it comes later. Beat it with a button element selector (0,3,1). */
+.theme-retro-window .fixed button.bg-\[\#000080\],
+.theme-retro-window .fixed button[class*="bg-[#000080]"] {
+  color: #ffffff !important;
+  background: linear-gradient(90deg, #000080 0%, #1034a6 100%) !important;
+}
+.theme-retro-window .fixed button.bg-\[\#000080\] *,
+.theme-retro-window .fixed button[class*="bg-[#000080]"] * {
+  color: #ffffff !important;
+}
+
+.theme-retro-window .fixed .retro-amber-text,
+.theme-retro-window .fixed .retro-amber-text *,
+.theme-retro-window .fixed [class*="retro-amber-text"] {
+  color: #eab308 !important;
+}
+
+/* 2. Modern Light Theme Modals */
+.mode-light .fixed,
+.mode-light [id*="modal"],
+.mode-light [class*="modal"]:not(.modal-dark-header) {
+  background-color: rgba(15, 23, 42, 0.4) !important;
+}
+
+/* Modern light theme container cards inside modals */
+.mode-light .fixed > div:not([id*="mobile-sidebar-drawer"]):not(.absolute):not(.fixed),
+.mode-light .fixed > form {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+  border-radius: 12px !important;
+}
+
+/* All paragraphs, labels and spans inside light mode popups should be dark text */
+.mode-light .fixed p,
+.mode-light .fixed label,
+.mode-light .fixed span:not([class*="bg-"]):not([class*="text-"]),
+.mode-light .fixed li,
+.mode-light .fixed h3,
+.mode-light .fixed h4,
+.mode-light .fixed h5,
+.mode-light .fixed h6 {
+  color: #1e293b !important;
+}
+
+.mode-light .fixed input,
+.mode-light .fixed select,
+.mode-light .fixed textarea {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* Subtle border color and headers in light mode popups */
+.mode-light .fixed div[class*="border-b"]:not(.modal-dark-header),
+.mode-light .fixed div[class*="border-t"]:not(.modal-dark-header) {
+  border-color: #e2e8f0 !important;
+  background-color: #f8fafc !important;
+}
+
+/* ==========================================================
+   MOBILE & TABLET RESPONSIVE DEEP OVERRIDES FOR RETRO THEME
+   ========================================================== */
+@media (max-width: 1023px) {
+  /* Prevent perspective skew from breaking container alignments on tablets and phones */
+  .theme-retro-window #simulated-desktop-container {
+    perspective: none !important;
+    padding-bottom: 2rem !important;
+    padding-left: 0.25rem !important;
+    padding-right: 0.25rem !important;
+  }
+
+  /* Cancel skew and translation effects on mobile and tablets to keep it flat and fully functional */
+  .theme-retro-window #simulated-desktop-container > div,
+  .theme-retro-window #simulated-desktop-container:focus-within > div {
+    transform: none !important;
+    box-shadow: 4px 4px 0px #000000 !important;
+  }
+
+  /* Make sure all modal screens overlays are fully scrollable and optimized for mobile screens */
+  .theme-retro-window .fixed:not([id*="mobile-sidebar-drawer"]):not([id*="mobile-sidebar-drawer"] *) {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0.5rem !important;
+    overflow-y: auto !important;
+  }
+
+  /* Set flexible fits for all modal and dialog components in retro mode on handheld devices */
+  .theme-retro-window .fixed > div:not([id*="mobile-sidebar-drawer"]):not(.absolute):not(.fixed),
+  .theme-retro-window .fixed > form {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0.5rem auto !important;
+    max-height: 92vh !important;
+    overflow-y: auto !important;
+    border-width: 3px !important;
+  }
+
+  /* Enforce mobile-safe input sizes to avoid automatic viewport zoom on iOS and Android */
+  .theme-retro-window input:not(.premium-search-input),
+  .theme-retro-window select,
+  .theme-retro-window textarea {
+    font-size: 16px !important; /* Prevents auto zoom */
+    min-height: 40px !important;
+    padding: 0.35rem 0.5rem !important;
+  }
+
+  /* Force table layouts to scroll horizontally on small screens instead of overflowing the container */
+  .theme-retro-window table {
+    display: block !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Style rustic scrollbars for scrollable layouts on mobile */
+  .theme-retro-window table::-webkit-scrollbar,
+  .theme-retro-window div::-webkit-scrollbar {
+    height: 7px !important;
+    width: 7px !important;
+  }
+  .theme-retro-window table::-webkit-scrollbar-track,
+  .theme-retro-window div::-webkit-scrollbar-track {
+    background: #cbd6e2 !important;
+  }
+  .theme-retro-window table::-webkit-scrollbar-thumb,
+  .theme-retro-window div::-webkit-scrollbar-thumb {
+    background: #808080 !important;
+    border: 1.5px solid #cbd6e2 !important;
+  }
+
+  /* Improve flexible layout wrapping for action panels, lists and header components */
+  .theme-retro-window .flex-row:not(.flex-nowrap) {
+    flex-wrap: wrap !important;
+  }
+
+  /* Ensure the sidebar matches retro window style elegantly when expanded on tablets/mobiles */
+  .theme-retro-window #mobile-sidebar-drawer aside {
+    border-right: 4px solid #808080 !important;
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 639px) {
+  /* Density optimizations specifically for phones */
+  .theme-retro-window {
+    font-size: 12px !important;
+  }
+
+  .theme-retro-window h2 { font-size: 1.3rem !important; }
+  .theme-retro-window h3 { font-size: 1.15rem !important; }
+  .theme-retro-window h4, 
+  .theme-retro-window h5 { font-size: 1rem !important; }
+
+  /* Reduce margin layout spacings to leverage available viewport real estate */
+  .theme-retro-window .p-6,
+  .theme-retro-window .p-5,
+  .theme-retro-window .p-4 {
+    padding: 0.75rem !important;
+  }
+
+  .theme-retro-window .px-6,
+  .theme-retro-window .px-4 {
+    padding-left: 0.65rem !important;
+    padding-right: 0.65rem !important;
+  }
+
+  .theme-retro-window .py-6,
+  .theme-retro-window .py-4 {
+    padding-top: 0.65rem !important;
+    padding-bottom: 0.65rem !important;
+  }
+
+  /* Fluid screen positioning for the printing toast overlay */
+  .theme-retro-window #printing-floating-toast {
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    bottom: 0.5rem !important;
+    width: auto !important;
+  }
+}
+
+/* ==========================================================
+   RETRO THEME CUSTOM COLOR RESTORATIVE OVERRIDES
+   ========================================================== */
+
+/* 1. Force white text color inside active blue header caption bars to avoid inheriting the generic black color rule */
+.theme-retro-window .fixed div[class*="bg-[#000080]"] div,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] h3,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] span,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] label,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] p,
+.theme-retro-window .fixed div[class*="bg-[#000080]"] *,
+.theme-retro-window .fixed div[class*="bg-[#102575]"] div,
+.theme-retro-window .fixed div[class*="bg-[#102575]"] h3,
+.theme-retro-window .fixed div[class*="bg-[#102575]"] span,
+.theme-retro-window .fixed div[class*="bg-[#102575]"] label,
+.theme-retro-window .fixed div[class*="bg-[#102575]"] p,
+.theme-retro-window .fixed div[class*="bg-[#102575]"] *,
+.theme-retro-window .fixed .bg-\[\#000080\] div,
+.theme-retro-window .fixed .bg-\[\#000080\] h3,
+.theme-retro-window .fixed .bg-\[\#000080\] span,
+.theme-retro-window .fixed .bg-\[\#000080\] label,
+.theme-retro-window .fixed .bg-\[\#000080\] p,
+.theme-retro-window .fixed .bg-\[\#000080\] * {
+  color: #ffffff !important;
+}
+
+/* 2. Restore Cancel button (red) background, borders and text color inside retro window modals */
+.theme-retro-window .fixed button.bg-red-600,
+.theme-retro-window .fixed button.bg-red-650,
+.theme-retro-window .fixed button[class^="bg-red-"],
+.theme-retro-window .fixed button[class*=" bg-red-"] {
+  background-color: #dc2626 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 8px !important;
+}
+
+.theme-retro-window .fixed button.bg-red-600:hover,
+.theme-retro-window .fixed button.bg-red-650:hover,
+.theme-retro-window .fixed button[class^="bg-red-"]:hover,
+.theme-retro-window .fixed button[class*=" bg-red-"]:hover {
+  background-color: #b91c1c !important;
+  color: #ffffff !important;
+}
+
+/* 3. Restore Cobrar/Submit button (blue) background, borders and text color inside retro window modals */
+.theme-retro-window .fixed button.bg-blue-600,
+.theme-retro-window .fixed button.bg-blue-650,
+.theme-retro-window .fixed button[class^="bg-blue-"],
+.theme-retro-window .fixed button[class*=" bg-blue-"] {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 8px !important;
+}
+
+.theme-retro-window .fixed button.bg-blue-600:hover,
+.theme-retro-window .fixed button.bg-blue-650:hover,
+.theme-retro-window .fixed button[class^="bg-blue-"]:hover,
+.theme-retro-window .fixed button[class*=" bg-blue-"]:hover {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+/* ==========================================================
+   4. GENERAL HIGH-CONTRAST FORCED WHITE TEXT FOR NAVY BLUE BARS (RESOLVES HERENCIA VISUAL)
+   ========================================================== */
+
+/* This overrides the general nested selector rules that inadvertently turn nested text inside blue headers black. */
+.theme-retro-window.mode-light [class*="bg-[#000080]"],
+.theme-retro-window.mode-light [class*="bg-[#000080]"] *,
+.theme-retro-window.mode-light .bg-\[\#000080\],
+.theme-retro-window.mode-light .bg-\[\#000080\] *,
+.theme-retro-window.mode-light [class*="bg-[#102575]"],
+.theme-retro-window.mode-light [class*="bg-[#102575]"] *,
+.theme-retro-window.mode-light .bg-\[\#102575\],
+.theme-retro-window.mode-light .bg-\[\#102575\] *,
+.theme-retro-window.mode-light [class*="bg-[#113a7c]"],
+.theme-retro-window.mode-light [class*="bg-[#113a7c]"] *,
+.theme-retro-window.mode-light .bg-\[\#113a7c\],
+.theme-retro-window.mode-light .bg-\[\#113a7c\] *,
+.theme-retro-window.mode-light .retro-white-text,
+.theme-retro-window.mode-light .retro-white-text *,
+.theme-retro-window [class*="bg-[#000080]"],
+.theme-retro-window [class*="bg-[#000080]"] *,
+.theme-retro-window .bg-\[\#000080\],
+.theme-retro-window .bg-\[\#000080\] *,
+.theme-retro-window [class*="bg-[#102575]"],
+.theme-retro-window [class*="bg-[#102575]"] *,
+.theme-retro-window .bg-\[\#102575\],
+.theme-retro-window .bg-\[\#102575\] *,
+.theme-retro-window [class*="bg-[#113a7c]"],
+.theme-retro-window [class*="bg-[#113a7c]"] *,
+.theme-retro-window .bg-\[\#113a7c\],
+.theme-retro-window .bg-\[\#113a7c\] *,
+.theme-retro-window .retro-white-text,
+.theme-retro-window .retro-white-text * {
+  color: #ffffff !important;
+}
+
+/* Ensure icons, svgs, labels, and text elements inside active caption bar elements are forced back to white for pristine readability */
+.theme-retro-window .bg-\[\#000080\] svg,
+.theme-retro-window .bg-\[\#000080\] path,
+.theme-retro-window div[class*="bg-[#000080]"] svg,
+.theme-retro-window div[class*="bg-[#000080]"] path {
+  stroke: #ffffff !important;
+  color: #ffffff !important;
+}
+
+
+
+
+
+
+
+.retro-header-blue, .retro-header-blue * { color: white !important; }
+
+/* ==========================================================
+   SUBCATEGORY COUNT BADGE — OVERRIDE DE ALTA ESPECIFICIDAD
+   Evita que el CSS del tema retro-window fuerce texto blanco
+   sobre el badge contador de subcategorías de accesorios.
+   ========================================================== */
+/* Badge activo (Botón seleccionado) */
+.theme-retro-window button.bg-\[\#000080\] span.sub-count-badge,
+.theme-retro-window [class*="bg-[#000080]"] span.sub-count-badge,
+.theme-retro-window .retro-white-text span.sub-count-badge {
+  background-color: #ffffff !important;
+  color: #000080 !important;
+  border: 1px solid #000080 !important;
+}
+
+/* Badge inactivo en Modo Claro */
+.theme-retro-window.mode-light button:not(.bg-\[\#000080\]) span.sub-count-badge {
+  background-color: #d4d0c8 !important;
+  color: #404040 !important;
+  border: 1px solid #808080 !important;
+}
+
+/* Badge inactivo en Modo Oscuro */
+.theme-retro-window.mode-dark button:not(.bg-\[\#000080\]) span.sub-count-badge {
+  background-color: #0c0d10 !important;
+  color: #a0a5b5 !important;
+  border: 1px solid #3f414a !important;
+}
+
+
+
+/* 3. Modal footer bars with opacity modifiers */
+main .fixed .bg-\[\#13151a\]\/90,
+main .fixed .bg-\[\#0e0f12\]\/90 {
+  background-color: rgba(26, 28, 34, 0.97) !important;
+}
+.mode-light main .fixed .bg-\[\#13151a\]\/90,
+.mode-light main .fixed .bg-\[\#0e0f12\]\/90 {
+  background-color: rgba(228, 234, 242, 0.97) !important;
+}
+.theme-retro-window main .fixed .bg-\[\#13151a\]\/90,
+.theme-retro-window main .fixed .bg-\[\#0e0f12\]\/90 {
+  background-color: rgba(212, 208, 200, 0.97) !important;
+}
+
+/* 4. Text inside modal fixed panels must be readable in light/retro */
+.mode-light main .fixed .text-zinc-400 { color: #64748b !important; }
+.mode-light main .fixed .text-zinc-500 { color: #475569 !important; }
+.mode-light main .fixed .text-white { color: #0f172a !important; }
+.mode-light main .fixed h2,
+.mode-light main .fixed h3,
+.mode-light main .fixed p { color: #1e293b !important; }
+.theme-retro-window main .fixed .text-zinc-400 { color: #444444 !important; }
+.theme-retro-window main .fixed .text-zinc-500 { color: #333333 !important; }
+.theme-retro-window main .fixed .text-white { color: #000000 !important; }
+.theme-retro-window main .fixed h2,
+.theme-retro-window main .fixed h3,
+.theme-retro-window main .fixed p { color: #000000 !important; }
+
+/* ==========================================================
+   REVIEW PANEL (Paso 4 — Detalles de Recepción)
+   Overrides retro theme so the dark navy card stays readable
+   ========================================================== */
+
+/* Step 1: reset backgrounds/borders on every child (NOT color — inheriting black from parent is wrong) */
+.theme-retro-window .review-panel-container *,
+.theme-retro-window .review-panel-row div,
+.theme-retro-window .review-panel-row span {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* Step 2: restore the specific backgrounds that must exist */
+.theme-retro-window .review-panel-container {
+  background-color: #0a2342 !important;
+  border: 1px solid #3c5d80 !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+}
+.theme-retro-window .review-panel-container .review-panel-row {
+  background-color: #0d2d4f !important;
+  border: 1px solid #1e4a73 !important;
+  border-radius: 8px !important;
+}
+.theme-retro-window .review-panel-container .review-panel-icon {
+  background-color: #1a4a73 !important;
+  border-radius: 50% !important;
+}
+
+/* Step 3: force text colors — chained selector beats all retro element selectors */
+.theme-retro-window .review-panel-container .review-panel-title {
+  color: #a8c8e8 !important;
+  border-bottom: 1px solid #3c5d80 !important;
+  background-color: transparent !important;
+}
+.theme-retro-window .review-panel-container .review-panel-label,
+.theme-retro-window .review-panel-container .review-panel-label * {
+  color: #7aafd4 !important;
+}
+.theme-retro-window .review-panel-container .review-panel-value,
+.theme-retro-window .review-panel-container .review-panel-value * {
+  color: #ffffff !important;
+}
+
+/* Force white text on dark blue backgrounds in fluent theme */
+[style*="background: rgb(26, 58, 107)"] *,
+[style*="background: #1a3a6b"] *,
+[style*="background: rgb(0, 0, 128)"] *,
+[style*="background: #000080"] * {
+  -webkit-text-fill-color: #ffffff !important;
+  color: #ffffff !important;
+}
+
+/* ==========================================================
+   RETRO THEME — BLUE BACKGROUND WHITE TEXT (FINAL OVERRIDE)
+   Especificidad (0,4,0) — gana sobre todas las reglas anteriores
+   incluyendo las de .fixed modals con especificidad (0,3,0).
+   Esta regla va AL FINAL del archivo para ganar por cascada también.
+   ========================================================== */
+.theme-retro-window .fixed [class*="bg-[#000080]"],
+.theme-retro-window .fixed [class*="bg-[#000080]"] span,
+.theme-retro-window .fixed [class*="bg-[#000080]"] div,
+.theme-retro-window .fixed [class*="bg-[#000080]"] button,
+.theme-retro-window .fixed [class*="bg-[#000080]"] p,
+.theme-retro-window .fixed [class*="bg-[#000080]"] *,
+.theme-retro-window .fixed [class*="bg-[#003c94]"],
+.theme-retro-window .fixed [class*="bg-[#003c94]"] *,
+.theme-retro-window .fixed [class*="bg-[#113a7c]"],
+.theme-retro-window .fixed [class*="bg-[#113a7c]"] *,
+.theme-retro-window .fixed .modal-dark-header,
+.theme-retro-window .fixed .modal-dark-header span,
+.theme-retro-window .fixed .modal-dark-header div,
+.theme-retro-window .fixed .modal-dark-header button,
+.theme-retro-window .fixed .modal-dark-header *,
+.theme-retro-window [class*="bg-[#000080]"].fixed,
+.theme-retro-window [class*="bg-[#000080]"].fixed *,
+.theme-retro-window [class*="bg-[#003c94]"],
+.theme-retro-window [class*="bg-[#003c94]"] *,
+.theme-retro-window [class*="bg-[#113a7c]"],
+.theme-retro-window [class*="bg-[#113a7c]"] * {
+  color: #ffffff !important;
+}
+
+/* Botones con bg azul dentro de fixed — incluyendo hover */
+.theme-retro-window .fixed button[class*="bg-[#000080]"],
+.theme-retro-window .fixed button[class*="bg-[#000080]"]:hover,
+.theme-retro-window .fixed button[class*="bg-[#000080]"] *,
+.theme-retro-window .fixed button[class*="bg-[#003c94]"],
+.theme-retro-window .fixed button[class*="bg-[#003c94]"]:hover,
+.theme-retro-window .fixed button[class*="bg-[#113a7c]"],
+.theme-retro-window .fixed button[class*="bg-[#113a7c]"]:hover,
+.theme-retro-window button[class*="bg-[#003c94]"],
+.theme-retro-window button[class*="bg-[#003c94]"]:hover,
+.theme-retro-window button[class*="bg-[#113a7c]"],
+.theme-retro-window button[class*="bg-[#113a7c]"]:hover {
+  color: #ffffff !important;
+}
+
+/* Excepción: botones con fondo gris dentro de headers azules deben tener texto oscuro */
+.theme-retro-window .fixed [class*="bg-[#000080]"] button[class*="bg-[#dfdfdf]"],
+.theme-retro-window .fixed [class*="bg-[#000080]"] button[class*="bg-[#dfdfdf]"]:hover,
+.theme-retro-window .fixed [class*="bg-[#000080]"] button[class*="bg-[#cbd6e2]"],
+.theme-retro-window .fixed [class*="bg-[#000080]"] button[class*="bg-[#cbd6e2]"]:hover {
+  color: #000080 !important;
+}
+
+/* Placeholder sutil en tema retro — el CSS fuerza color oscuro en inputs
+   lo que también afecta el placeholder haciéndolo negro igual que el texto real */
+.theme-retro-window input::placeholder,
+.theme-retro-window textarea::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+/* ID selectors — highest specificity, beat all class !important rules */
+#pos-sale-confirm-header,
+#pos-sale-confirm-header * {
+  color: #ffffff !important;
+}
+
+#pos-cobro-total-box,
+#pos-cobro-total-box * {
+  background-color: #000000 !important;
+  color: #facc15 !important;
+}
+
+/* Inputs del contador de corte de caja — esquinas redondeadas igualadas al importe */
+.theme-retro-window input.corte-qty-input,
+.theme-retro-window input.corte-qty-input:not(.premium-search-input) {
+  border-radius: 8px !important;
+}
+
+#corte-total-display {
+  border-radius: 8px !important;
+}
+
+.theme-retro-window .corte-resumen-field {
+  border-radius: 8px !important;
+}
+
+#coins-total-display {
+  border-radius: 8px !important;
+}
+
+#apertura-fondo-input,
+#apertura-fondo-input-full {
+  border-radius: 12px !important;
+}
+
+#apertura-fondo-input input,
+#apertura-fondo-input-full input {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+#apertura-fondo-input ~ .space-y-2 button,
+.theme-retro-window .apertura-btn {
+  border-radius: 12px !important;
+}
+
+#apertura-counter-panel {
+  background-color: #eaeef3 !important;
+}
+
+#apertura-counter-header,
+#apertura-counter-header *:not(button) {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+#apertura-modal-header,
+#apertura-modal-header * {
+  background-color: transparent !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+#license-modal-header,
+#license-modal-header * {
+  color: #ffffff !important;
+}
+
+#corte-confirm-header,
+#corte-confirm-header * {
+  color: #ffffff !important;
+}
+
+/* Excepción absoluta de altísima especificidad para filas seleccionadas en el POS del tema retro (Win95) para evitar texto negro */
+body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td,
+body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td *,
+body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td div,
+body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td span,
+body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td b,
+body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td strong,
+body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td,
+body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td *,
+body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td div,
+body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td span,
+body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td b,
+body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td strong,
+body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td,
+body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td *,
+body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td div,
+body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td span,
+body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td b,
+body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td strong {
+  color: #ffffff !important;
+}
+
+/* Excepción absoluta de altísima especificidad para cabeceras oscuras en modo claro o retro */
+.mode-light main .fixed .modal-dark-header,
+.mode-light main .fixed .modal-dark-header *,
+.mode-light main .fixed .modal-dark-header p,
+.mode-light main .fixed .modal-dark-header h2,
+.mode-light main .fixed .modal-dark-header h3,
+.mode-light main .fixed .modal-dark-header span,
+.theme-retro-window main .fixed .modal-dark-header,
+.theme-retro-window main .fixed .modal-dark-header *,
+.theme-retro-window main .fixed .modal-dark-header p,
+.theme-retro-window main .fixed .modal-dark-header h2,
+.theme-retro-window main .fixed .modal-dark-header h3,
+.theme-retro-window main .fixed .modal-dark-header span,
+#confirm-checkout-header,
+#confirm-checkout-header * {
+  color: #ffffff !important;
+}
+
+/* Excepción absoluta de altísima especificidad para botones estilo POS en el detalle de orden */
+main button.pos-checkout-btn,
+.theme-retro-window main button.pos-checkout-btn,
+.mode-light main button.pos-checkout-btn {
+  border-radius: 16px !important; /* rounded-2xl */
+  border-width: 0px !important;
+  border-style: none !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Force white text for active POS buttons in all modes, including retro */
+main button.pos-checkout-btn:not(:disabled),
+.theme-retro-window main button.pos-checkout-btn:not(:disabled),
+.mode-light main button.pos-checkout-btn:not(:disabled) {
+  color: #ffffff !important;
+}
+
+/* Disabled state styling overrides for POS button */
+main button.pos-checkout-btn:disabled,
+.theme-retro-window main button.pos-checkout-btn:disabled,
+.mode-light main button.pos-checkout-btn:disabled {
+  color: #70889f !important;
+  background-color: #d2dae2 !important;
+  opacity: 0.75 !important;
+}
+
+/* Specific overrides for POS deliver button to be always blue when enabled, and grayish-blue when disabled */
+main button.pos-deliver-btn:not(:disabled),
+.theme-retro-window main button.pos-deliver-btn:not(:disabled),
+.mode-light main button.pos-deliver-btn:not(:disabled) {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+main button.pos-deliver-btn:not(:disabled):hover,
+.theme-retro-window main button.pos-deliver-btn:not(:disabled):hover,
+.mode-light main button.pos-deliver-btn:not(:disabled):hover {
+  background-color: #1d4ed8 !important;
+}
+
+main button.pos-deliver-btn:not(:disabled):active,
+.theme-retro-window main button.pos-deliver-btn:not(:disabled):active,
+.mode-light main button.pos-deliver-btn:not(:disabled):active {
+  background-color: #1e40af !important;
+}
+
+main button.pos-deliver-btn:disabled,
+.theme-retro-window main button.pos-deliver-btn:disabled,
+.mode-light main button.pos-deliver-btn:disabled {
+  background-color: #a3bce0 !important;
+  color: #4b6b94 !important;
+  opacity: 0.8 !important;
+}
+
+
+/* Force rounded corners on specific containers to bypass flat layouts */
+main .force-rounded-xl,
+.theme-retro-window main .force-rounded-xl {
+  border-radius: 12px !important;
+  overflow: hidden !important;
+}
+
+/* Cabecera del Panel: Botón de Retorno y Badge de Estado */
+#header-return-group-btn {
+  background-color: #ffffff !important;
+  color: #1a3a6b !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  font-weight: 800 !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+}
+
+#header-return-group-btn * {
+  color: #1a3a6b !important;
+}
+
+#header-return-group-btn:hover {
+  background-color: #f1f5f9 !important;
+}
+
+/* En el tema retro, el botón de retorno debe verse como un botón retro gris clásico con borde biselado */
+.theme-retro-window #header-return-group-btn {
+  background-color: #dfdfdf !important;
+  color: #000000 !important;
+  border: 2px solid #808080 !important;
+  border-top-color: #ffffff !important;
+  border-left-color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.theme-retro-window #header-return-group-btn * {
+  color: #000000 !important;
+}
+
+.theme-retro-window #header-return-group-btn:hover {
+  background-color: #cbd5e1 !important;
+}
+
+/* Override absoluto de altísima especificidad para insignias de estado en cabeceras */
+#header-status-badge-pendiente, #header-status-badge-pendiente * { background-color: #d97706 !important; color: #ffffff !important; border-color: #f59e0b !important; }
+#header-status-badge-diagnostico, #header-status-badge-diagnostico * { background-color: #7c3aed !important; color: #ffffff !important; border-color: #8b5cf6 !important; }
+#header-status-badge-en-reparacion, #header-status-badge-en-reparacion * { background-color: #2563eb !important; color: #ffffff !important; border-color: #3b82f6 !important; }
+#header-status-badge-listo, #header-status-badge-listo * { background-color: #dc2626 !important; color: #ffffff !important; border-color: #ef4444 !important; }
+#header-status-badge-fallido, #header-status-badge-fallido * { background-color: #ea580c !important; color: #ffffff !important; border-color: #f97316 !important; }
+#header-status-badge-entregado, #header-status-badge-entregado * { background-color: #059669 !important; color: #ffffff !important; border-color: #10b981 !important; }
+#header-status-badge-entregado-y-pagado, #header-status-badge-entregado-y-pagado * { background-color: #059669 !important; color: #ffffff !important; border-color: #10b981 !important; }
+#header-status-badge-cancelado, #header-status-badge-cancelado * { background-color: #71717a !important; color: #ffffff !important; border-color: #9ca3af !important; }
+
+/* En el tema retro, respetar el diseño de borde biselado gris pero forzando el color de texto e insignia */
+.theme-retro-window #header-status-badge-pendiente, .theme-retro-window #header-status-badge-pendiente * { background-color: #ffedd5 !important; color: #9a3412 !important; border: 1px solid #ea580c !important; }
+.theme-retro-window #header-status-badge-diagnostico, .theme-retro-window #header-status-badge-diagnostico * { background-color: #f3e8ff !important; color: #6b21a8 !important; border: 1px solid #8b5cf6 !important; }
+.theme-retro-window #header-status-badge-en-reparacion, .theme-retro-window #header-status-badge-en-reparacion * { background-color: #dbeafe !important; color: #1e40af !important; border: 1px solid #3b82f6 !important; }
+.theme-retro-window #header-status-badge-listo, .theme-retro-window #header-status-badge-listo * { background-color: #dc2626 !important; color: #ffffff !important; border: 1px solid #b91c1c !important; }
+.theme-retro-window #header-status-badge-fallido, .theme-retro-window #header-status-badge-fallido * { background-color: #fee2e2 !important; color: #991b1b !important; border: 1px solid #ef4444 !important; }
+.theme-retro-window #header-status-badge-entregado, .theme-retro-window #header-status-badge-entregado * { background-color: #d1fae5 !important; color: #065f46 !important; border: 1px solid #10b981 !important; }
+.theme-retro-window #header-status-badge-entregado-y-pagado, .theme-retro-window #header-status-badge-entregado-y-pagado * { background-color: #d1fae5 !important; color: #065f46 !important; border: 1px solid #10b981 !important; }
+.theme-retro-window #header-status-badge-cancelado, .theme-retro-window #header-status-badge-cancelado * { background-color: #f3f4f6 !important; color: #374151 !important; border: 1px solid #4b5563 !important; }
+
+/* Utilería para ocultar barras de desplazamiento */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;  /* Firefox */
+}
+
+/* ──────────────────────────────────────────────────────────
+   CORRECTING QUOTE SHEET INPUTS SPECIFICITY IN ALL THEMES
+   ────────────────────────────────────────────────────────── */
+body.theme-retro-window.mode-light input.quote-sheet-input-clean,
+body.theme-retro-window.mode-dark input.quote-sheet-input-clean,
+body.theme-modern.mode-light input.quote-sheet-input-clean,
+body.theme-modern.mode-dark input.quote-sheet-input-clean,
+body.theme-fluent.mode-light input.quote-sheet-input-clean,
+body.theme-fluent.mode-dark input.quote-sheet-input-clean,
+body.theme-retro-window.mode-light select.quote-sheet-select,
+body.theme-retro-window.mode-dark select.quote-sheet-select,
+body.theme-modern.mode-light select.quote-sheet-select,
+body.theme-modern.mode-dark select.quote-sheet-select,
+body.theme-fluent.mode-light select.quote-sheet-select,
+body.theme-fluent.mode-dark select.quote-sheet-select,
+body.theme-retro-window.mode-light textarea.quote-sheet-input-clean,
+body.theme-retro-window.mode-dark textarea.quote-sheet-input-clean,
+body.theme-modern.mode-light textarea.quote-sheet-input-clean,
+body.theme-modern.mode-dark textarea.quote-sheet-input-clean,
+body.theme-fluent.mode-light textarea.quote-sheet-input-clean,
+body.theme-fluent.mode-dark textarea.quote-sheet-input-clean {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  color: inherit !important;
+  font-weight: inherit !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+body.theme-retro-window.mode-light input.quote-sheet-input-underline,
+body.theme-retro-window.mode-dark input.quote-sheet-input-underline,
+body.theme-modern.mode-light input.quote-sheet-input-underline,
+body.theme-modern.mode-dark input.quote-sheet-input-underline,
+body.theme-fluent.mode-light input.quote-sheet-input-underline,
+body.theme-fluent.mode-dark input.quote-sheet-input-underline {
+  background-color: transparent !important;
+  border-width: 0 0 1px 0 !important;
+  border-color: #d1d5db !important;
+  border-style: solid !important;
+  border-radius: 0 !important;
+  padding: 2px 4px !important;
+  color: #000000 !important;
+  box-shadow: none !important;
+  font-weight: 700 !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+body.theme-retro-window.mode-light input.quote-sheet-input-underline:focus,
+body.theme-retro-window.mode-dark input.quote-sheet-input-underline:focus,
+body.theme-modern.mode-light input.quote-sheet-input-underline:focus,
+body.theme-modern.mode-dark input.quote-sheet-input-underline:focus,
+body.theme-fluent.mode-light input.quote-sheet-input-underline:focus,
+body.theme-fluent.mode-dark input.quote-sheet-input-underline:focus {
+  border-color: #1a3a6b !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+body.theme-retro-window.mode-light input.quote-sheet-input-table,
+body.theme-retro-window.mode-dark input.quote-sheet-input-table,
+body.theme-modern.mode-light input.quote-sheet-input-table,
+body.theme-modern.mode-dark input.quote-sheet-input-table,
+body.theme-fluent.mode-light input.quote-sheet-input-table,
+body.theme-fluent.mode-dark input.quote-sheet-input-table {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  color: #000000 !important;
+  font-weight: 800 !important;
+  height: auto !important;
+  width: 100% !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+body.theme-retro-window.mode-light textarea.quote-sheet-textarea,
+body.theme-retro-window.mode-dark textarea.quote-sheet-textarea,
+body.theme-modern.mode-light textarea.quote-sheet-textarea,
+body.theme-modern.mode-dark textarea.quote-sheet-textarea,
+body.theme-fluent.mode-light textarea.quote-sheet-textarea,
+body.theme-fluent.mode-dark textarea.quote-sheet-textarea {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0px !important;
+  color: #1e293b !important;
+  font-weight: 600 !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+body.theme-retro-window.mode-light textarea.quote-sheet-textarea:focus,
+body.theme-retro-window.mode-dark textarea.quote-sheet-textarea:focus,
+body.theme-modern.mode-light textarea.quote-sheet-textarea:focus,
+body.theme-modern.mode-dark textarea.quote-sheet-textarea:focus,
+body.theme-fluent.mode-light textarea.quote-sheet-textarea:focus,
+body.theme-fluent.mode-dark textarea.quote-sheet-textarea:focus {
+  background-color: #ffffff !important;
+  border: 1px solid #3b82f6 !important;
+  padding: 4px !important;
+  border-radius: 4px !important;
+}
+
+body.theme-retro-window.mode-light input.quote-sheet-input-border,
+body.theme-retro-window.mode-dark input.quote-sheet-input-border,
+body.theme-modern.mode-light input.quote-sheet-input-border,
+body.theme-modern.mode-dark input.quote-sheet-input-border,
+body.theme-fluent.mode-light input.quote-sheet-input-border,
+body.theme-fluent.mode-dark input.quote-sheet-input-border {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: none !important;
+  border-radius: 4px !important;
+  padding: 4px 8px !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+  height: auto !important;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+/* Ensure the sheet is ALWAYS white and has black text in all themes and modes, preventing dark mode overrides */
+.quote-sheet-paper,
+body.theme-retro-window.mode-dark .quote-sheet-paper,
+body.theme-modern.mode-dark .quote-sheet-paper,
+body.theme-fluent.mode-dark .quote-sheet-paper {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.theme-retro-window.mode-dark .quote-sheet-paper div,
+body.theme-retro-window.mode-dark .quote-sheet-paper span,
+body.theme-retro-window.mode-dark .quote-sheet-paper p,
+body.theme-retro-window.mode-dark .quote-sheet-paper input,
+body.theme-retro-window.mode-dark .quote-sheet-paper textarea,
+body.theme-retro-window.mode-dark .quote-sheet-paper select,
+body.theme-modern.mode-dark .quote-sheet-paper div,
+body.theme-modern.mode-dark .quote-sheet-paper span,
+body.theme-modern.mode-dark .quote-sheet-paper p,
+body.theme-modern.mode-dark .quote-sheet-paper input,
+body.theme-modern.mode-dark .quote-sheet-paper textarea,
+body.theme-modern.mode-dark .quote-sheet-paper select,
+body.theme-fluent.mode-dark .quote-sheet-paper div,
+body.theme-fluent.mode-dark .quote-sheet-paper span,
+body.theme-fluent.mode-dark .quote-sheet-paper p,
+body.theme-fluent.mode-dark .quote-sheet-paper input,
+body.theme-fluent.mode-dark .quote-sheet-paper textarea,
+body.theme-fluent.mode-dark .quote-sheet-paper select {
+  background-color: transparent !important;
+  color: #000000 !important;
+}
+
+/* Specifically preserve blue link styling inside the sheet */
+.quote-sheet-paper .text-blue-600,
+.quote-sheet-paper .text-blue-700,
+body.theme-retro-window.mode-dark .quote-sheet-paper .text-blue-600,
+body.theme-retro-window.mode-dark .quote-sheet-paper .text-blue-700,
+body.theme-modern.mode-dark .quote-sheet-paper .text-blue-600,
+body.theme-modern.mode-dark .quote-sheet-paper .text-blue-700,
+body.theme-fluent.mode-dark .quote-sheet-paper .text-blue-600,
+body.theme-fluent.mode-dark .quote-sheet-paper .text-blue-700 {
+  color: #2563eb !important;
+}
+
+/* Force white text in all headers under the retro theme to win the specificity battle */
+body.theme-retro-window.mode-light .modal-dark-header,
+body.theme-retro-window.mode-light .modal-dark-header *,
+body.theme-retro-window.mode-light .modal-dark-header span,
+body.theme-retro-window.mode-light .modal-dark-header div,
+body.theme-retro-window.mode-light .modal-dark-header p,
+body.theme-retro-window.mode-light .modal-dark-header button,
+body.theme-retro-window.mode-dark .modal-dark-header,
+body.theme-retro-window.mode-dark .modal-dark-header *,
+body.theme-retro-window.mode-dark .modal-dark-header span,
+body.theme-retro-window.mode-dark .modal-dark-header div,
+body.theme-retro-window.mode-dark .modal-dark-header p,
+body.theme-retro-window.mode-dark .modal-dark-header button {
+  color: #ffffff !important;
+}
+
+/* Ensure retro headers with background #800000 preserve their background and don't get forced to light gray by mode-light rules */
+body.theme-retro-window.mode-light .fixed div[class*="bg-[#800000]"],
+body.theme-retro-window.mode-light .fixed .bg-\[\#800000\] {
+  background-color: #800000 !important;
+}
+
+/* Force white text/icons inside dark red headers and blue/red buttons inside fixed modals in light retro mode to win specificity battles */
+/* Force white text/icons inside dark red/blue headers and colored buttons inside fixed modals in light mode to win specificity battles */
+.mode-light .fixed div[class*="bg-[#800000]"],
+.mode-light .fixed div[class*="bg-[#800000]"] *,
+.mode-light .fixed .bg-\[\#800000\],
+.mode-light .fixed .bg-\[\#800000\] *,
+.mode-light .fixed .text-white,
+.mode-light .fixed .text-white *,
+.mode-light .fixed button.text-white,
+.mode-light .fixed button.text-white *,
+.mode-light .fixed button[class*="bg-[#000080]"],
+.mode-light .fixed button[class*="bg-[#000080]"] *,
+.mode-light .fixed button[class*="bg-[#003c94]"],
+.mode-light .fixed button[class*="bg-[#003c94]"] *,
+.mode-light .fixed button[class*="bg-[#113a7c]"],
+.mode-light .fixed button[class*="bg-[#113a7c]"] *,
+.mode-light .fixed button[class*="bg-[#102575]"],
+.mode-light .fixed button[class*="bg-[#102575]"] *,
+.mode-light .fixed button[class*="bg-[#1a3a6b]"],
+.mode-light .fixed button[class*="bg-[#1a3a6b]"] *,
+.mode-light .fixed button[class^="bg-red-"],
+.mode-light .fixed button[class*=" bg-red-"],
+.mode-light .fixed button[class^="bg-red-"] *,
+.mode-light .fixed button[class*=" bg-red-"] *,
+.mode-light .fixed button[class^="bg-blue-"],
+.mode-light .fixed button[class*=" bg-blue-"],
+.mode-light .fixed button[class^="bg-blue-"] *,
+.mode-light .fixed button[class*=" bg-blue-"] *,
+.mode-light .fixed button[class^="bg-indigo-"],
+.mode-light .fixed button[class*=" bg-indigo-"],
+.mode-light .fixed button[class^="bg-indigo-"] *,
+.mode-light .fixed button[class*=" bg-indigo-"] *,
+.mode-light .fixed button[class^="bg-cyan-"],
+.mode-light .fixed button[class*=" bg-cyan-"],
+.mode-light .fixed button[class^="bg-cyan-"] *,
+.mode-light .fixed button[class*=" bg-cyan-"] *,
+.mode-light .fixed button[class^="bg-emerald-"],
+.mode-light .fixed button[class*=" bg-emerald-"],
+.mode-light .fixed button[class^="bg-emerald-"] *,
+.mode-light .fixed button[class*=" bg-emerald-"] *,
+.mode-light .fixed button.bg-\[\#000080\],
+.mode-light .fixed button.bg-\[\#000080\] *,
+.mode-light .fixed button.bg-\[\#003c94\],
+.mode-light .fixed button.bg-\[\#003c94\] *,
+.mode-light .fixed button.bg-cyan-600,
+.mode-light .fixed button.bg-cyan-600 *,
+
+.theme-retro-window.mode-light .fixed .text-white,
+.theme-retro-window.mode-light .fixed button.text-white,
+.theme-retro-window.mode-light .fixed button.bg-\[\#003c94\],
+.theme-retro-window.mode-light .fixed button.bg-cyan-600,
+
+.theme-modern.mode-light .fixed .text-white,
+.theme-modern.mode-light .fixed button.text-white,
+.theme-modern.mode-light .fixed button.bg-\[\#003c94\],
+.theme-modern.mode-light .fixed button.bg-cyan-600,
+
+.theme-fluent.mode-light .fixed .text-white,
+.theme-fluent.mode-light .fixed button.text-white,
+.theme-fluent.mode-light .fixed button.bg-\[\#003c94\],
+.theme-fluent.mode-light .fixed button.bg-cyan-600,
+
+/* GLOBAL (non-fixed inline views) overrides to prevent general light mode rules from blacking out white/amber/emerald texts */
+
+/* 1. White text elements on colored backgrounds / buttons */
+.theme-retro-window.mode-light .text-white,
+.theme-retro-window.mode-light button.text-white,
+.theme-retro-window.mode-light button.text-white div,
+.theme-retro-window.mode-light button.text-white span,
+.theme-retro-window.mode-light button.text-white p,
+.theme-retro-window.mode-light button.text-white strong,
+.theme-retro-window.mode-light button.text-white b,
+.theme-retro-window.mode-light button.text-white font,
+.theme-retro-window.mode-light button.bg-\[\#003c94\],
+.theme-retro-window.mode-light button.bg-\[\#003c94\] div,
+.theme-retro-window.mode-light button.bg-\[\#003c94\] span,
+.theme-retro-window.mode-light button.bg-\[\#003c94\] p,
+.theme-retro-window.mode-light button.bg-\[\#000080\],
+.theme-retro-window.mode-light button.bg-\[\#000080\] div,
+.theme-retro-window.mode-light button.bg-\[\#000080\] span,
+.theme-retro-window.mode-light button.bg-\[\#000080\] p,
+.theme-retro-window.mode-light button.bg-\[\#113a7c\],
+.theme-retro-window.mode-light button.bg-\[\#113a7c\] div,
+.theme-retro-window.mode-light button.bg-\[\#113a7c\] span,
+.theme-retro-window.mode-light button.bg-\[\#113a7c\] p,
+.theme-retro-window.mode-light button.bg-cyan-600,
+.theme-retro-window.mode-light button.bg-cyan-600 div,
+.theme-retro-window.mode-light button.bg-cyan-600 span,
+.theme-retro-window.mode-light button.bg-cyan-600 p,
+.theme-retro-window.mode-light button.bg-blue-600,
+.theme-retro-window.mode-light button.bg-blue-600 div,
+.theme-retro-window.mode-light button.bg-blue-600 span,
+.theme-retro-window.mode-light button.bg-blue-600 p,
+.theme-retro-window.mode-light button.bg-indigo-600,
+.theme-retro-window.mode-light button.bg-indigo-600 div,
+.theme-retro-window.mode-light button.bg-indigo-600 span,
+.theme-retro-window.mode-light button.bg-indigo-600 p,
+.theme-retro-window.mode-light button.bg-emerald-600,
+.theme-retro-window.mode-light button.bg-emerald-600 div,
+.theme-retro-window.mode-light button.bg-emerald-600 span,
+.theme-retro-window.mode-light button.bg-emerald-600 p,
+.theme-retro-window.mode-light button.bg-amber-500,
+.theme-retro-window.mode-light button.bg-amber-500 div,
+.theme-retro-window.mode-light button.bg-amber-500 span,
+.theme-retro-window.mode-light button.bg-amber-500 p,
+.theme-retro-window.mode-light button.bg-red-600,
+.theme-retro-window.mode-light button.bg-red-600 div,
+.theme-retro-window.mode-light button.bg-red-600 span,
+.theme-retro-window.mode-light button.bg-red-600 p,
+.theme-retro-window.mode-light .retro-white-text,
+.theme-retro-window.mode-light main .text-white,
+.theme-retro-window.mode-light main button.text-white,
+.theme-retro-window.mode-light main button.text-white div,
+.theme-retro-window.mode-light main button.text-white span,
+.theme-retro-window.mode-light main button.text-white p,
+.theme-retro-window.mode-light main button.bg-\[\#003c94\],
+.theme-retro-window.mode-light main button.bg-\[\#003c94\] div,
+.theme-retro-window.mode-light main button.bg-\[\#003c94\] span,
+.theme-retro-window.mode-light main button.bg-\[\#003c94\] p,
+.theme-retro-window.mode-light main button.bg-\[\#000080\],
+.theme-retro-window.mode-light main button.bg-\[\#000080\] div,
+.theme-retro-window.mode-light main button.bg-\[\#000080\] span,
+.theme-retro-window.mode-light main button.bg-\[\#000080\] p,
+.theme-retro-window.mode-light main button.bg-\[\#113a7c\],
+.theme-retro-window.mode-light main button.bg-cyan-600,
+.theme-retro-window.mode-light main button.bg-cyan-600 div,
+.theme-retro-window.mode-light main button.bg-cyan-600 span,
+.theme-retro-window.mode-light main button.bg-cyan-600 p,
+.theme-retro-window.mode-light main .retro-white-text {
+  color: #ffffff !important;
+}
+
+/* 2. Amber text elements */
+.theme-retro-window.mode-light div.retro-amber-text,
+.theme-retro-window.mode-light span.retro-amber-text,
+.theme-retro-window.mode-light p.retro-amber-text,
+.theme-retro-window.mode-light label.retro-amber-text,
+.theme-retro-window.mode-light .retro-amber-text,
+.theme-retro-window.mode-light div.text-amber-500,
+.theme-retro-window.mode-light span.text-amber-500,
+.theme-retro-window.mode-light p.text-amber-500,
+.theme-retro-window.mode-light label.text-amber-500,
+.theme-retro-window.mode-light .text-amber-500,
+.theme-retro-window.mode-light main div.retro-amber-text,
+.theme-retro-window.mode-light main span.retro-amber-text,
+.theme-retro-window.mode-light main p.retro-amber-text,
+.theme-retro-window.mode-light main label.retro-amber-text,
+.theme-retro-window.mode-light main .retro-amber-text,
+.theme-retro-window.mode-light main div.text-amber-500,
+.theme-retro-window.mode-light main span.text-amber-500,
+.theme-retro-window.mode-light main p.text-amber-500,
+.theme-retro-window.mode-light main label.text-amber-500,
+.theme-retro-window.mode-light main .text-amber-500 {
+  color: #fbbf24 !important;
+}
+
+/* 3. Emerald text elements */
+.theme-retro-window.mode-light div.retro-emerald-text,
+.theme-retro-window.mode-light span.retro-emerald-text,
+.theme-retro-window.mode-light p.retro-emerald-text,
+.theme-retro-window.mode-light label.retro-emerald-text,
+.theme-retro-window.mode-light .retro-emerald-text,
+.theme-retro-window.mode-light div.text-emerald-500,
+.theme-retro-window.mode-light span.text-emerald-500,
+.theme-retro-window.mode-light p.text-emerald-500,
+.theme-retro-window.mode-light label.text-emerald-500,
+.theme-retro-window.mode-light .text-emerald-500,
+.theme-retro-window.mode-light main div.retro-emerald-text,
+.theme-retro-window.mode-light main span.retro-emerald-text,
+.theme-retro-window.mode-light main p.retro-emerald-text,
+.theme-retro-window.mode-light main label.retro-emerald-text,
+.theme-retro-window.mode-light main .retro-emerald-text,
+.theme-retro-window.mode-light main div.text-emerald-500,
+.theme-retro-window.mode-light main span.text-emerald-500,
+.theme-retro-window.mode-light main p.text-emerald-500,
+.theme-retro-window.mode-light main label.text-emerald-500,
+.theme-retro-window.mode-light main .text-emerald-500 {
+  color: #34d399 !important;
+}
+
+/* 4. Slate / Light gray text elements */
+.theme-retro-window.mode-light div.retro-slate-300-text,
+.theme-retro-window.mode-light span.retro-slate-300-text,
+.theme-retro-window.mode-light p.retro-slate-300-text,
+.theme-retro-window.mode-light label.retro-slate-300-text,
+.theme-retro-window.mode-light .retro-slate-300-text,
+.theme-retro-window.mode-light div.text-zinc-300,
+.theme-retro-window.mode-light span.text-zinc-300,
+.theme-retro-window.mode-light p.text-zinc-300,
+.theme-retro-window.mode-light label.text-zinc-300,
+.theme-retro-window.mode-light .text-zinc-300,
+.theme-retro-window.mode-light div.text-gray-300,
+.theme-retro-window.mode-light span.text-gray-300,
+.theme-retro-window.mode-light p.text-gray-300,
+.theme-retro-window.mode-light label.text-gray-300,
+.theme-retro-window.mode-light .text-gray-300,
+.theme-retro-window.mode-light main div.retro-slate-300-text,
+.theme-retro-window.mode-light main span.retro-slate-300-text,
+.theme-retro-window.mode-light main p.retro-slate-300-text,
+.theme-retro-window.mode-light main label.retro-slate-300-text,
+.theme-retro-window.mode-light main .retro-slate-300-text,
+.theme-retro-window.mode-light main div.text-zinc-300,
+.theme-retro-window.mode-light main span.text-zinc-300,
+.theme-retro-window.mode-light main p.text-zinc-300,
+.theme-retro-window.mode-light main label.text-zinc-300,
+.theme-retro-window.mode-light main .text-zinc-300,
+.theme-retro-window.mode-light main div.text-gray-300,
+.theme-retro-window.mode-light main span.text-gray-300,
+.theme-retro-window.mode-light main p.text-gray-300,
+.theme-retro-window.mode-light main label.text-gray-300,
+.theme-retro-window.mode-light main .text-gray-300 {
+  color: #cbd5e1 !important;
+}
+
+/* 5. Elements inside dark black overlays (like bg-black/50 inside header) */
+.theme-retro-window.mode-light .bg-black\/50,
+.theme-retro-window.mode-light .bg-black\/60 {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 6. Modern and Fluent Theme General Specificity Boosters */
+.theme-modern.mode-light button.text-white,
+.theme-modern.mode-light button.text-white div,
+.theme-modern.mode-light button.text-white span,
+.theme-modern.mode-light button.text-white p,
+.theme-modern.mode-light button.text-white strong,
+.theme-modern.mode-light button.text-white b,
+.theme-modern.mode-light button.text-white font,
+.theme-modern.mode-light button.bg-\[\#003c94\],
+.theme-modern.mode-light button.bg-\[\#003c94\] div,
+.theme-modern.mode-light button.bg-\[\#003c94\] span,
+.theme-modern.mode-light button.bg-\[\#003c94\] p,
+.theme-modern.mode-light button.bg-cyan-600,
+.theme-modern.mode-light button.bg-cyan-600 div,
+.theme-modern.mode-light button.bg-cyan-600 span,
+.theme-modern.mode-light button.bg-cyan-600 p,
+.theme-modern.mode-light button.bg-blue-600,
+.theme-modern.mode-light button.bg-blue-600 div,
+.theme-modern.mode-light button.bg-blue-600 span,
+.theme-modern.mode-light button.bg-blue-600 p,
+.theme-modern.mode-light button.bg-indigo-600,
+.theme-modern.mode-light button.bg-indigo-600 div,
+.theme-modern.mode-light button.bg-indigo-600 span,
+.theme-modern.mode-light button.bg-indigo-600 p,
+.theme-modern.mode-light button.bg-emerald-600,
+.theme-modern.mode-light button.bg-emerald-600 div,
+.theme-modern.mode-light button.bg-emerald-600 span,
+.theme-modern.mode-light button.bg-emerald-600 p,
+.theme-modern.mode-light button.bg-red-650,
+.theme-modern.mode-light button.bg-red-650 div,
+.theme-modern.mode-light button.bg-red-650 span,
+.theme-modern.mode-light button.bg-red-650 p,
+.theme-modern.mode-light button.bg-red-600,
+.theme-modern.mode-light button.bg-red-600 div,
+.theme-modern.mode-light button.bg-red-600 span,
+.theme-modern.mode-light button.bg-red-600 p,
+
+.theme-fluent.mode-light button.text-white,
+.theme-fluent.mode-light button.text-white div,
+.theme-fluent.mode-light button.text-white span,
+.theme-fluent.mode-light button.text-white p,
+.theme-fluent.mode-light button.text-white strong,
+.theme-fluent.mode-light button.text-white b,
+.theme-fluent.mode-light button.text-white font,
+.theme-fluent.mode-light button.bg-\[\#003c94\],
+.theme-fluent.mode-light button.bg-\[\#003c94\] div,
+.theme-fluent.mode-light button.bg-\[\#003c94\] span,
+.theme-fluent.mode-light button.bg-\[\#003c94\] p,
+.theme-fluent.mode-light button.bg-cyan-600,
+.theme-fluent.mode-light button.bg-cyan-600 div,
+.theme-fluent.mode-light button.bg-cyan-600 span,
+.theme-fluent.mode-light button.bg-cyan-600 p,
+.theme-fluent.mode-light button.bg-blue-600,
+.theme-fluent.mode-light button.bg-blue-600 div,
+.theme-fluent.mode-light button.bg-blue-600 span,
+.theme-fluent.mode-light button.bg-blue-600 p,
+.theme-fluent.mode-light button.bg-indigo-600,
+.theme-fluent.mode-light button.bg-indigo-600 div,
+.theme-fluent.mode-light button.bg-indigo-600 span,
+.theme-fluent.mode-light button.bg-indigo-600 p,
+.theme-fluent.mode-light button.bg-emerald-600,
+.theme-fluent.mode-light button.bg-emerald-600 div,
+.theme-fluent.mode-light button.bg-emerald-600 span,
+.theme-fluent.mode-light button.bg-emerald-600 p,
+.theme-fluent.mode-light button.bg-red-650,
+.theme-fluent.mode-light button.bg-red-650 div,
+.theme-fluent.mode-light button.bg-red-650 span,
+.theme-fluent.mode-light button.bg-red-650 p,
+.theme-fluent.mode-light button.bg-red-600,
+.theme-fluent.mode-light button.bg-red-600 div,
+.theme-fluent.mode-light button.bg-red-600 span,
+.theme-fluent.mode-light button.bg-red-600 p {
+  color: #ffffff !important;
+}
+
+/* 7. Subtexts inside colored buttons to retain proper light pastel contrasts */
+.theme-modern.mode-light button.bg-emerald-600 .text-emerald-100,
+.theme-fluent.mode-light button.bg-emerald-600 .text-emerald-100 {
+  color: #d1fae5 !important;
+}
+.theme-modern.mode-light button.bg-indigo-600 .text-indigo-100,
+.theme-fluent.mode-light button.bg-indigo-600 .text-indigo-100 {
+  color: #e0e7ff !important;
+}
+
+/* 8. High-specificity overrides for retro light mode dialog buttons to win over general resets */
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.text-rose-700,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.text-rose-650,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.text-rose-600,
+.theme-retro-window.mode-light .fixed button.text-rose-700,
+.theme-retro-window.mode-light .fixed button.text-rose-650,
+.theme-retro-window.mode-light .fixed button.text-rose-600,
+.theme-retro-window.mode-light .text-rose-700,
+.theme-retro-window.mode-light button.text-rose-700,
+.theme-retro-window.mode-light .text-rose-600,
+.theme-retro-window.mode-light button.text-rose-600 {
+  color: #be123c !important;
+}
+
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-emerald-600,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-emerald-600 div,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-emerald-600 span,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-emerald-600 p,
+.theme-retro-window.mode-light .fixed button.bg-emerald-600,
+.theme-retro-window.mode-light .fixed button.bg-emerald-600 div,
+.theme-retro-window.mode-light .fixed button.bg-emerald-600 span,
+.theme-retro-window.mode-light .fixed button.bg-emerald-600 p {
+  color: #ffffff !important;
+}
+
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-indigo-600,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-indigo-600 div,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-indigo-600 span,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-indigo-600 p,
+.theme-retro-window.mode-light .fixed button.bg-indigo-600,
+.theme-retro-window.mode-light .fixed button.bg-indigo-600 div,
+.theme-retro-window.mode-light .fixed button.bg-indigo-600 span,
+.theme-retro-window.mode-light .fixed button.bg-indigo-600 p {
+  color: #ffffff !important;
+}
+
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-amber-500,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-amber-500 div,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-amber-500 span,
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.bg-amber-500 p,
+.theme-retro-window.mode-light .fixed button.bg-amber-500,
+.theme-retro-window.mode-light .fixed button.bg-amber-500 div,
+.theme-retro-window.mode-light .fixed button.bg-amber-500 span,
+.theme-retro-window.mode-light .fixed button.bg-amber-500 p {
+  color: #ffffff !important;
+}
+
+/* Ensure that retro light mode colored buttons (blue, red) have white text for legibility */
+.theme-retro-window.mode-light .fixed button.bg-\[\#000080\],
+.theme-retro-window.mode-light .fixed button.bg-\[\#000080\] *,
+.theme-retro-window.mode-light .fixed button[class*="bg-[#000080]"],
+.theme-retro-window.mode-light .fixed button[class*="bg-[#000080]"] *,
+.theme-retro-window.mode-light .fixed button.bg-\[\#800000\],
+.theme-retro-window.mode-light .fixed button.bg-\[\#800000\] *,
+.theme-retro-window.mode-light .fixed button[class*="bg-[#800000]"],
+.theme-retro-window.mode-light .fixed button[class*="bg-[#800000]"] *,
+.theme-retro-window.mode-light button.bg-\[\#000080\],
+.theme-retro-window.mode-light button.bg-\[\#000080\] *,
+.theme-retro-window.mode-light button[class*="bg-[#000080]"],
+.theme-retro-window.mode-light button[class*="bg-[#000080]"] *,
+.theme-retro-window.mode-light button.bg-\[\#800000\],
+.theme-retro-window.mode-light button.bg-\[\#800000\] *,
+.theme-retro-window.mode-light button[class*="bg-[#800000]"],
+.theme-retro-window.mode-light button[class*="bg-[#800000]"] * {
+  color: #ffffff !important;
+}
+
+/* Ensure that retro light mode gray buttons have black text */
+.theme-retro-window.mode-light .fixed button.bg-\[\#dfdfdf\],
+.theme-retro-window.mode-light .fixed button.bg-\[\#dfdfdf\] *,
+.theme-retro-window.mode-light button.bg-\[\#dfdfdf\],
+.theme-retro-window.mode-light button.bg-\[\#dfdfdf\] * {
+  color: #000000 !important;
+}
+
+/* Force white text on white text classes and their children inside retro light mode */
+.theme-retro-window.mode-light .text-white,
+.theme-retro-window.mode-light .text-white *,
+.theme-retro-window.mode-light span.text-white,
+.theme-retro-window.mode-light span.text-white *,
+.theme-retro-window.mode-light span[class*="text-white"],
+.theme-retro-window.mode-light span[class*="text-white"] *,
+.theme-retro-window.mode-light .retro-white-text,
+.theme-retro-window.mode-light .retro-white-text *,
+.theme-retro-window.mode-light span.retro-white-text,
+.theme-retro-window.mode-light span.retro-white-text *,
+.theme-retro-window.mode-light .bg-\[\#000080\],
+.theme-retro-window.mode-light .bg-\[\#000080\] *,
+.theme-retro-window.mode-light span.bg-\[\#000080\],
+.theme-retro-window.mode-light span.bg-\[\#000080\] *,
+.theme-retro-window.mode-light [class*="bg-[#000080]"],
+.theme-retro-window.mode-light [class*="bg-[#000080]"] *,
+.theme-retro-window.mode-light span[class*="bg-[#000080]"],
+.theme-retro-window.mode-light span[class*="bg-[#000080]"] * {
+  color: #ffffff !important;
+}
+
+
+/* Keep header customer box text readable (yellow/green labels, white values) in retro light mode */
+.theme-retro-window.mode-light #nueva-view-root .header-customer-box,
+.theme-retro-window.mode-light #nueva-view-root .header-customer-box div,
+.theme-retro-window.mode-light #nueva-view-root .header-customer-box span,
+.theme-retro-window.mode-light #nueva-view-root .header-customer-box p {
+  color: #ffffff !important;
+}
+.theme-retro-window.mode-light #nueva-view-root .header-customer-box .retro-amber-text {
+  color: #fbbf24 !important;
+}
+.theme-retro-window.mode-light #nueva-view-root .header-customer-box .retro-emerald-text {
+  color: #34d399 !important;
+}
+
+/* Universal rule: Force white text for retro-white-text class across all themes and light/dark modes */
+.retro-white-text,
+.retro-white-text *,
+.retro-white-text div,
+.retro-white-text span,
+.retro-white-text p {
+  color: #ffffff !important;
+}
+
+/* Banknotes text contrast rules in retro window light theme - High Specificity Override */
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]),
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) span,
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) div,
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) p {
+  color: #ffffff !important;
+}
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) .text-white\/50 {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) .text-white\/40 {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) .text-white\/30 {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) .text-white\/20 {
+  color: rgba(255, 255, 255, 0.2) !important;
+}
+.theme-retro-window.mode-light .fixed div.banknote:not([class*="bg-[#000080]"]):not([class*="bg-[#102575]"]) .text-red-400 {
+  color: #f87171 !important;
+}
+
+/* Ensure tab switcher buttons are readable in retro window light theme - High Specificity Wildcard Override */
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.retro-tab-button {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.retro-tab-button.active-tab {
+  color: #ffffff !important;
+}
+.theme-retro-window.mode-light .fixed .bg-\[\#dfdfdf\] button.retro-tab-button:hover {
+  color: #ffffff !important;
+}
+
+/* Custom override to force disable backdrop-filter blurs and enforce solid dark backgrounds */
+.no-blur-backdrop {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: rgba(0, 0, 0, 0.75) !important;
+}
+
+/* Fuerza el botón de WhatsApp a verde WhatsApp con texto blanco en cualquier tema y estado */
+button.whatsapp-green-btn,
+button.whatsapp-green-btn *,
+.theme-retro-window.mode-light button.whatsapp-green-btn,
+.theme-retro-window.mode-light button.whatsapp-green-btn * {
+  background-color: #25d366 !important;
+  color: #ffffff !important;
+}
+button.whatsapp-green-btn:hover {
+  background-color: #20ba5a !important;
+}
+/* Override to prevent white-on-white text in the active subcategory count badge under the retro theme */
+.theme-retro-window button.bg-\[\#000080\] span.sub-count-badge,
+.theme-retro-window [class*="bg-[#000080]"] span.sub-count-badge,
+.theme-retro-window .retro-white-text span.sub-count-badge,
+.theme-retro-window span.sub-count-badge.bg-white,
+.theme-retro-window .retro-white-text span.sub-count-badge.bg-white {
+  color: #000080 !important;
+}
+
+/* Force clean Windows 95 Listbox aesthetics for Search Results Dropdown */
+.theme-retro-window .search-result-item,
+.theme-retro-window .search-result-item *,
+.theme-retro-window .search-result-item span {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  transition: none !important;
+}
+
+/* Force white text on hover for Retro Mode search results.
+   Uses .retro-item-hovered class applied dynamically by React state in RetroResultItem.
+   This !important overrides .theme-retro-window.mode-light span { color: #000000 !important }
+   because this selector has higher specificity (3 classes + 1 tag vs 2 classes + 1 tag). */
+.theme-retro-window .retro-item-hovered span,
+.theme-retro-window.mode-light .retro-item-hovered span,
+.theme-retro-window.mode-dark .retro-item-hovered span,
+.theme-retro-window .retro-item-hovered *,
+.theme-retro-window.mode-light .retro-item-hovered *,
+.theme-retro-window.mode-dark .retro-item-hovered * {
+  color: #ffffff !important;
+  transition: none !important;
+}
+
+/* Soporte para el área segura de Capacitor iOS (Notch y Home Indicator) */
+@media (max-width: 768px) {
+  body {
+    padding: 0;
+    margin: 0;
+    background-color: #0a0f1d;
+  }
+}
+
+/* Force white text/icons on mobile light mode blue header to override the global .theme-modern.mode-light color rule */
+.theme-modern.mode-light .retro-header-blue,
+.theme-modern.mode-light .retro-header-blue * {
+  color: #ffffff !important;
+}
+
+/* Force high-contrast white text on mobile Órdenes badge in all themes */
+#mobile-orders-badge-count,
+#mobile-orders-badge-count * {
+  color: #ffffff !important;
+  background-color: #2563eb !important;
+}
+
+/* POS Floating Cart Bar overrides to defeat global theme rules */
+.pos-floating-cart-bar {
+  color: #ffffff !important;
+}
+.pos-floating-cart-bar.theme-light {
+  background-color: #2563eb !important;
+  border-color: #3b82f6 !important;
+}
+.pos-floating-cart-bar.theme-dark {
+  background-color: #2e1065 !important;
+  border-color: #6d28d9 !important;
+}
+.pos-floating-cart-bar .cart-text-small {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+.pos-floating-cart-bar .cart-text-large {
+  color: #ffffff !important;
+}
+.pos-floating-cart-bar .cart-icon-container {
+  background-color: #10b981 !important; /* Emerald 500 */
+  color: #0c0a09 !important;
+}
+.pos-floating-cart-bar .cart-icon-container svg {
+  color: #0c0a09 !important;
+  fill: #0c0a09 !important;
+}
+.pos-floating-cart-bar button {
+  background-color: #10b981 !important; /* Emerald 500 */
+  color: #0c0a09 !important;
+}
+.pos-floating-cart-bar button span {
+  color: #0c0a09 !important;
+}
+
+/* Animación de confeti cayendo para cobro exitoso */
+@keyframes confettiFall {
+  0% {
+    transform: translateY(-5vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(105vh) rotate(360deg);
+    opacity: 0.3;
+  }
+}
+.confetti-particle {
+  position: absolute;
+  top: -5vh;
+  pointer-events: none;
+  z-index: 9999999;
+  animation: confettiFall 3s linear forwards;
+}
+
+
