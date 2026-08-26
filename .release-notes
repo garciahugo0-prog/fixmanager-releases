@@ -1,0 +1,3 @@
+- Desglose detallado de descuentos por renglón y globales en tickets de venta POS (impresión física, vista previa digital y envío por WhatsApp).
+- Mapeo persistente de descuentos por producto en histórico de ventas y reimpresión de comprobantes.
+- Opción de posición del total en cabecera superior derecha o inferior en POS.

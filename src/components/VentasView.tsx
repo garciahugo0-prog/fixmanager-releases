@@ -223,7 +223,17 @@ export function VentasView({
       const sale = saleToReprint;
       const saleMapped = {
         ...sale,
-        items: sale.items.map(i => ({ itemId: (i as any).itemId || (i as any).id, name: i.name, description: i.description || i.name, quantity: i.quantity, price: i.price })),
+        items: (sale.items || []).map(i => ({
+          itemId: (i as any).itemId || (i as any).id,
+          name: i.name || (i as any).description || '',
+          description: (i as any).description || i.name || '',
+          quantity: i.quantity,
+          price: i.price,
+          originalPrice: (i as any).originalPrice,
+          discountValue: (i as any).discountValue ?? (i as any).lineDiscountValue,
+          discountType: (i as any).discountType ?? (i as any).lineDiscountType,
+          fromWarehouseId: (i as any).fromWarehouseId
+        })),
       };
       const isRec = isRechargeSale(saleMapped as any);
       const ticketHtml = isRec ? buildRechargeTicketHtml(saleMapped as any, config) : buildPosTicketHtml(saleMapped, config);
@@ -864,7 +874,11 @@ export function VentasView({
                                         name: i.name || i.description || '',
                                         description: i.description || i.name || '',
                                         quantity: i.quantity,
-                                        price: i.price
+                                        price: i.price,
+                                        originalPrice: (i as any).originalPrice,
+                                        discountValue: (i as any).discountValue ?? (i as any).lineDiscountValue,
+                                        discountType: (i as any).discountType ?? (i as any).lineDiscountType,
+                                        fromWarehouseId: (i as any).fromWarehouseId
                                       })),
                                     };
                                     const isRec = isRechargeSale(saleMapped as any);
@@ -1114,7 +1128,7 @@ export function VentasView({
                         }}
                         className={`h-7 px-2.5 rounded text-[10px] font-bold uppercase tracking-wider inline-flex items-center justify-center gap-1 cursor-pointer transition-transform active:scale-95 ${
                           isRetro
-                            ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-[#000080]'
+                            ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-900'
                             : isLight
                               ? 'bg-amber-100 hover:bg-amber-250 text-amber-800 border-amber-300'
                               : 'bg-amber-500/10 hover:bg-amber-50 hover:text-black text-amber-350 border-amber-500/35'
@@ -1137,7 +1151,11 @@ export function VentasView({
                                   name: i.name || i.description || '',
                                   description: i.description || i.name || '',
                                   quantity: i.quantity,
-                                  price: i.price
+                                  price: i.price,
+                                  originalPrice: (i as any).originalPrice,
+                                  discountValue: (i as any).discountValue ?? (i as any).lineDiscountValue,
+                                  discountType: (i as any).discountType ?? (i as any).lineDiscountType,
+                                  fromWarehouseId: (i as any).fromWarehouseId
                                 })),
                               };
                               const msg = buildWhatsappSaleTicketMessage(saleMapped as any, config);
@@ -1806,13 +1824,18 @@ export function VentasView({
                                 window.alert('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.');
                               } else {
                                 const saleMapped = {
+                                  ...currentSaleState,
                                   id: currentSaleState.id,
                                   items: (currentSaleState.items || []).map((i: any) => ({
                                     itemId: i.itemId || i.id,
                                     name: i.name || i.description || '',
                                     description: i.description || i.name || '',
                                     quantity: i.quantity,
-                                    price: i.price
+                                    price: i.price,
+                                    originalPrice: (i as any).originalPrice,
+                                    discountValue: (i as any).discountValue ?? (i as any).lineDiscountValue,
+                                    discountType: (i as any).discountType ?? (i as any).lineDiscountType,
+                                    fromWarehouseId: (i as any).fromWarehouseId
                                   })),
                                   total: currentSaleState.total,
                                   createdAt: currentSaleState.createdAt || new Date().toISOString(),
@@ -1823,6 +1846,9 @@ export function VentasView({
                                   ticketNumber: currentSaleState.ticketNumber || currentSaleState.id,
                                   confirmationCode: currentSaleState.confirmationCode || '',
                                   notes: currentSaleState.notes || '',
+                                  discount: currentSaleState.discount,
+                                  discountType: currentSaleState.discountType,
+                                  discountValue: currentSaleState.discountValue,
                                 };
                                 const isRec = isRechargeSale(saleMapped as any);
                                 const msg = buildWhatsappSaleTicketMessage(saleMapped as any, config);
@@ -2096,7 +2122,11 @@ export function VentasView({
             name: i.name || i.description || '',
             description: i.name || i.description || '',
             quantity: i.quantity,
-            price: i.price
+            price: i.price,
+            originalPrice: (i as any).originalPrice,
+            discountValue: (i as any).discountValue ?? (i as any).lineDiscountValue,
+            discountType: (i as any).discountType ?? (i as any).lineDiscountType,
+            fromWarehouseId: (i as any).fromWarehouseId
           }))
         };
 

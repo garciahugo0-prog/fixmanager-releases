@@ -4114,8 +4114,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
           quantity: i.quantity,
           price: i.price,
           originalPrice: i.originalPrice,
-          discountValue: i.discountValue,
-          discountType: i.discountType
+          discountValue: i.discountValue ?? i.lineDiscountValue,
+          discountType: i.discountType ?? i.lineDiscountType,
+          fromWarehouseId: i.fromWarehouseId
         })),
         total: newSale.total,
         createdAt: newSale.createdAt || new Date().toISOString(),
@@ -4277,8 +4278,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
           quantity: i.quantity,
           price: i.price,
           originalPrice: i.originalPrice,
-          discountValue: i.discountValue,
-          discountType: i.discountType
+          discountValue: i.discountValue ?? (i as any).lineDiscountValue,
+          discountType: i.discountType ?? (i as any).lineDiscountType,
+          fromWarehouseId: i.fromWarehouseId
         })),
         total: newSale.total,
         createdAt: newSale.createdAt || new Date().toISOString(),
@@ -4289,6 +4291,10 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         notes: newSale.notes || '',
         confirmationCode: newSale.confirmationCode || '',
         createdBy: newSale.createdBy || currentUser?.name || '',
+        discount: newSale.discount,
+        discountType: newSale.discountType,
+        discountValue: newSale.discountValue,
+        ticketNumber: newSale.ticketNumber || newSale.id,
       };
       const isRecharge =
         newSale.id.startsWith('R-') ||

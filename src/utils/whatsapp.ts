@@ -392,8 +392,12 @@ export async function sendPosQuoteByWhatsapp(
     items: items.map(cartItem => {
       return {
         description: cartItem.item.name,
+        name: cartItem.item.name,
         quantity: cartItem.quantity,
         price: cartItem.item.price,
+        originalPrice: (cartItem as any).basePrice ?? cartItem.item.price,
+        discountValue: (cartItem as any).lineDiscountValue,
+        discountType: (cartItem as any).lineDiscountType,
         fromWarehouseId: cartItem.fromWarehouseId
       };
     }),
@@ -760,7 +764,7 @@ export async function sendWhatsappNotification(
             if (htmlForImage) {
               imgBase64 = await renderHtmlToBase64(htmlForImage);
             }
-            const finalSendText = htmlForImage ? '' : text;
+            const finalSendText = text || '';
             const res = await api.whatsappSendMessage(formattedPhone, finalSendText, imgBase64);
             if (res.success) {
               loading.update('¡Comprobante enviado por WhatsApp en segundo plano!', 'success');
@@ -779,7 +783,7 @@ export async function sendWhatsappNotification(
   }
   
   // Despachar evento personalizado para que App.tsx levante el modal de React
-  const finalSendText = htmlForImage ? '' : text;
+  const finalSendText = text || '';
   window.dispatchEvent(new CustomEvent('show-whatsapp-modal', {
     detail: { phone, text: finalSendText, htmlForImage, autoAction, change, countryCode }
   }));
@@ -883,6 +887,49 @@ export function buildWhatsappSaleTicketMessage(sale: Sale, config: WorkshopConfi
       detailLines.forEach(dl => {
         ticket += `   ${dl}\n`;
       });
+    }
+
+    const discountValue = (i as any).discountValue !== undefined ? (i as any).discountValue : (i as any).lineDiscountValue;
+    const discountType = (i as any).discountType || (i as any).lineDiscountType || 'percentage';
+    const hasLineDiscount = discountValue !== undefined && Number(discountValue) > 0;
+    if (hasLineDiscount) {
+      let origPrice = (i as any).originalPrice !== undefined && Number((i as any).originalPrice) > i.price
+        ? Number((i as any).originalPrice)
+        : 0;
+      let unitDiscountAmt = 0;
+      if (origPrice > 0) {
+        unitDiscountAmt = origPrice - i.price;
+      } else {
+        if (discountType === 'percentage') {
+          const factor = 1 - Number(discountValue) / 100;
+          if (factor > 0 && factor < 1) {
+            origPrice = Number((i.price / factor).toFixed(2));
+            unitDiscountAmt = origPrice - i.price;
+          } else {
+            origPrice = i.price;
+            unitDiscountAmt = 0;
+          }
+        } else {
+          unitDiscountAmt = Number(discountValue);
+          origPrice = i.price + unitDiscountAmt;
+        }
+      }
+      const totalDiscountAmt = unitDiscountAmt * i.quantity;
+      const origStr = origPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const unitDescStr = unitDiscountAmt.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const finalStr = i.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const totalDescStr = totalDiscountAmt.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      let descDetail = '';
+      if (discountType === 'percentage') {
+        descDetail = `${sym}${origStr} - ${discountValue}% = ${sym}${finalStr}`;
+      } else {
+        descDetail = `${sym}${origStr} - ${sym}${unitDescStr} = ${sym}${finalStr}`;
+      }
+      if (i.quantity > 1) {
+        descDetail += ` (Ahorro: -${sym}${totalDescStr})`;
+      }
+      ticket += `   └─ Desc: ${descDetail}\n`;
     }
   });
   

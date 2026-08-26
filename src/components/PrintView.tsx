@@ -338,9 +338,13 @@ export default function PrintView({ order, sale, config, setActiveTab, onClearSe
           quantity: i.quantity,
           price: i.price,
           originalPrice: i.originalPrice,
-          discountValue: i.discountValue,
-          discountType: i.discountType
+          discountValue: i.discountValue ?? (i as any).lineDiscountValue,
+          discountType: i.discountType ?? (i as any).lineDiscountType,
+          fromWarehouseId: (i as any).fromWarehouseId
         })),
+        discount: sale.discount,
+        discountType: sale.discountType,
+        discountValue: sale.discountValue,
       };
       html = buildPosTicketHtml(saleForTicket, config);
     } else {

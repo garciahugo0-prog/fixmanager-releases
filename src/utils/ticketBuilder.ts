@@ -850,16 +850,36 @@ export function buildPosTicketHtml(
       '<td style="text-align:right;white-space:nowrap;font-weight:900;padding:3px 0;border:none !important;">' + currSym + lineTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
       '</tr>';
 
-    const originalPrice = (item as any).originalPrice !== undefined ? (item as any).originalPrice : item.price;
-    const discountValue = (item as any).discountValue;
-    const discountType = (item as any).discountType;
-    const hasLineDiscount = discountValue !== undefined && discountValue > 0;
+    const discountValue = (item as any).discountValue !== undefined ? (item as any).discountValue : (item as any).lineDiscountValue;
+    const discountType = (item as any).discountType || (item as any).lineDiscountType || 'percentage';
+    const hasLineDiscount = discountValue !== undefined && Number(discountValue) > 0;
 
     if (hasLineDiscount) {
-      const unitDiscountAmt = originalPrice - item.price;
+      let origPrice = (item as any).originalPrice !== undefined && Number((item as any).originalPrice) > item.price
+        ? Number((item as any).originalPrice)
+        : 0;
+      
+      let unitDiscountAmt = 0;
+      if (origPrice > 0) {
+        unitDiscountAmt = origPrice - item.price;
+      } else {
+        if (discountType === 'percentage') {
+          const factor = 1 - Number(discountValue) / 100;
+          if (factor > 0 && factor < 1) {
+            origPrice = Number((item.price / factor).toFixed(2));
+            unitDiscountAmt = origPrice - item.price;
+          } else {
+            origPrice = item.price;
+            unitDiscountAmt = 0;
+          }
+        } else {
+          unitDiscountAmt = Number(discountValue);
+          origPrice = item.price + unitDiscountAmt;
+        }
+      }
       const totalDiscountAmt = unitDiscountAmt * item.quantity;
       
-      const origStr = originalPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const origStr = origPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const unitDescStr = unitDiscountAmt.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const finalStr = item.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const totalDescStr = totalDiscountAmt.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

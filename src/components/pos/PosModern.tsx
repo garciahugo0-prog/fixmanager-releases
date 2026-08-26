@@ -687,8 +687,9 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
                             quantity: i.quantity,
                             price: i.price,
                             originalPrice: i.originalPrice,
-                            discountValue: i.discountValue,
-                            discountType: i.discountType
+                            discountValue: i.discountValue ?? (i as any).lineDiscountValue,
+                            discountType: i.discountType ?? (i as any).lineDiscountType,
+                            fromWarehouseId: (i as any).fromWarehouseId
                           })),
                         };
                         let effectivePosWidth = config.hybridPrintMode

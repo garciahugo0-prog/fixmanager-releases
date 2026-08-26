@@ -678,6 +678,7 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
                           }
                         }));
                         const saleMapped = {
+                          ...sale,
                           id: sale.id,
                           items: (sale.items || []).map((i: any) => ({
                             description: i.description || i.name || '',
@@ -685,8 +686,9 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
                             quantity: i.quantity,
                             price: i.price,
                             originalPrice: i.originalPrice,
-                            discountValue: i.discountValue,
-                            discountType: i.discountType
+                            discountValue: i.discountValue ?? (i as any).lineDiscountValue,
+                            discountType: i.discountType ?? (i as any).lineDiscountType,
+                            fromWarehouseId: (i as any).fromWarehouseId
                           })),
                           total: sale.total,
                           createdAt: sale.createdAt || new Date().toISOString(),
@@ -694,6 +696,10 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
                           cashReceived: sale.cashReceived,
                           cardReceived: sale.cardReceived,
                           change: sale.change,
+                          discount: sale.discount,
+                          discountType: sale.discountType,
+                          discountValue: sale.discountValue,
+                          ticketNumber: sale.ticketNumber || sale.id,
                         };
                         let effectivePosWidth = config.hybridPrintMode
                           ? (config.posPaperWidth || '80mm')
