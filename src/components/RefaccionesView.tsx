@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Package, Search, PlusCircle, AlertTriangle, CheckCircle, RefreshCw, XCircle, 
   Coins, TrendingUp, Layers, Edit, Trash2, Plus, X, Barcode, Star, Upload, Check, 
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import QRCode from 'qrcode';
-import { RefaccionItem, InventoryItem, WorkshopConfig, AppUser } from '../types';
+import { RefaccionItem, InventoryItem, WorkshopConfig, AppUser, Warehouse } from '../types';
 import { buildProductLabelHtml } from '../utils/ticketBuilder';
 import { DEFAULT_OFFLINE_MODELS } from '../data';
 import { PosItemThumbnail } from './pos/PosItemThumbnail';
@@ -26,6 +26,7 @@ interface RefaccionesViewProps {
   config: WorkshopConfig;
   currentUser?: AppUser | null;
   onCreateOrder?: (item: RefaccionItem) => void;
+  warehouses?: Warehouse[];
 }
 
 const RefaccionMiniature: React.FC<{ imageUrl?: string; extraImages?: string[]; name: string; code?: string; category?: string; price?: number; currencySymbol?: string; isRetro?: boolean }> = ({ imageUrl, extraImages, name, code, category, price, currencySymbol = '$' }) => {
@@ -75,11 +76,10 @@ const inferCategory = (name: string): string => {
 const MAPPABLE_FIELDS = [
   { key: 'code', label: 'Código', synonyms: ['codigo', 'code', 'barcode', 'codigodebarras', 'ean', 'upc', 'clave', 'ref', 'sku', 'id'] },
   { key: 'name', label: 'Refacción *', synonyms: ['refaccion', 'nombre', 'name', 'articulo', 'pieza', 'descripcion', 'descarticulo', 'nomref', 'detalles'] },
+  { key: 'category', label: 'Categoría', synonyms: ['categoria', 'category', 'clasificacion', 'tipo', 'linea'] },
   { key: 'brand', label: 'Marca Pieza', synonyms: ['marcapieza', 'marca', 'brand', 'marcaref', 'marcarefaccion', 'fabricante'] },
-  { key: 'deviceCompatible', label: 'Celular Compatible', synonyms: ['celularcompatible', 'celular', 'compatible', 'equipo', 'modelo/marca', 'marcaymodelo', 'celular_compatible', 'modelos_compatibles'] },
   { key: 'deviceBrand', label: 'Marca Celular', synonyms: ['marcacelular', 'marcadispositivo', 'devicebrand', 'celularmarca', 'marcaequipo', 'marca_dispositivo'] },
   { key: 'deviceModel', label: 'Modelo Celular', synonyms: ['modelocelular', 'modelodispositivo', 'devicemodel', 'modelo', 'compatibilidad', 'modeloequipo', 'modelo_dispositivo'] },
-  { key: 'category', label: 'Categoría', synonyms: ['categoria', 'category', 'clasificacion', 'tipo', 'linea'] },
   { key: 'cost', label: 'Costo', synonyms: ['costo', 'cost', 'compra', 'preciodecompra', 'costounitario', 'preciocompra', 'costounidad', 'inversion'] },
   { key: 'price', label: 'Público / Instalado', synonyms: ['precio', 'price', 'venta', 'preciodeventa', 'preciopublico', 'preciolista', 'pvp', 'publico', 'precio_reparacion', 'reparacion_precio', 'preciorep', 'precio_rep', 'publico_instalado', 'precio_instalado', 'instalado', 'precio_publico_instalado'] },
   { key: 'wholesalePrice', label: 'Mayoreo', synonyms: ['mayoreo', 'preciomayoreo', 'wholesaleprice', 'distribuidor', 'wholesale', 'preciomayorista', 'mayorista', 'mayoreounitario'] },
@@ -88,7 +88,7 @@ const MAPPABLE_FIELDS = [
   { key: 'favorite', label: 'Favorito', synonyms: ['favorito', 'favorite', 'destacado', 'fav', 'esfavorito'] },
 ];
 
-const cleanHeader = (s: string) => s.toLowerCase().trim().replace(/[\s_:.-]+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const cleanHeader = (s: string) => s.toLowerCase().trim().replace(/[\s_:.\-\/]+/g, '').normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 const normalizeText = (text: string): string => {
   return (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
@@ -99,7 +99,7 @@ const autoMapHeaders = (headers: string[]): Record<string, string> => {
   MAPPABLE_FIELDS.forEach(field => {
     let match = headers.find(h => {
       const cleanedH = cleanHeader(h);
-      return field.synonyms.some(syn => cleanedH === syn);
+      return field.synonyms.some(syn => cleanedH === cleanHeader(syn));
     });
     if (match) {
       mapping[field.key] = match;
@@ -108,8 +108,8 @@ const autoMapHeaders = (headers: string[]): Record<string, string> => {
   return mapping;
 };
 
-export default function RefaccionesView({ refacciones, inventory = [], onSetRefacciones, onSetInventory, config, currentUser, onCreateOrder }: RefaccionesViewProps) {
-  console.log('[RefaccionesView Render] refacciones count:', refacciones.length, 'items:', refacciones.map(x => ({ id: x.id, name: x.name, category: x.category, active: x.active })));
+export default function RefaccionesView({ refacciones, inventory = [], onSetRefacciones, onSetInventory, config, currentUser, onCreateOrder, warehouses = [] }: RefaccionesViewProps) {
+  console.log('[RefaccionesView Render] refacciones count:', refacciones.length);
   const isRetro = config.theme === 'retro-window';
   const isLight = config.themeMode === 'light';
   const sym = config.currencySymbol || '$';
@@ -119,6 +119,41 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
   const [selectedCategory, setSelectedCategory] = useState('TODAS');
   const [selectedStatus, setSelectedStatus] = useState<'todos' | 'favoritos' | 'agotados' | 'bajoStock'>('todos');
   const [showInactive, setShowInactive] = useState(false);
+  const [restockAmount, setRestockAmount] = useState<Record<string, string>>({});
+  const [confirmRestockId, setConfirmRestockId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  // ─── Dropdown custom de filtro de categoría (barra de filtros) ─────────────
+  const [filterCatOpen, setFilterCatOpen] = useState(false);
+  const filterCatRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!filterCatOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (filterCatRef.current && !filterCatRef.current.contains(e.target as Node)) setFilterCatOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filterCatOpen]);
+
+  // Categorías realmente presentes en el inventario visible de refacciones
+  const activeCategoriesForFilter = useMemo(() => {
+    const cats = new Set<string>();
+    (refacciones || []).forEach(item => {
+      const isVisible = showInactive || (item.active !== false && !item.deletedAt);
+      if (isVisible && item.category) {
+        const trimmed = item.category.trim();
+        if (trimmed) cats.add(trimmed);
+      }
+    });
+    return Array.from(cats).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [refacciones, showInactive]);
+
+  // Si la categoría seleccionada ya no existe en el inventario, resetear a TODAS
+  useEffect(() => {
+    if (selectedCategory !== 'TODAS' && !activeCategoriesForFilter.includes(selectedCategory)) {
+      setSelectedCategory('TODAS');
+    }
+  }, [activeCategoriesForFilter, selectedCategory]);
   
   // Modales
   const [showAddEditModal, setShowAddEditModal] = useState(false);
@@ -324,6 +359,11 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
   const [headerMapping, setHeaderMapping] = useState<Record<string, string>>({});
   const [importError, setImportError] = useState('');
   const [importReplaceMode, setImportReplaceMode] = useState(false); // false = append, true = replace
+  const [tempImportedItems, setTempImportedItems] = useState<RefaccionItem[]>([]);
+  const [isDetailedPreviewOpen, setIsDetailedPreviewOpen] = useState(false);
+  const [previewSearchTerm, setPreviewSearchTerm] = useState('');
+  const [previewPage, setPreviewPage] = useState(1);
+  const previewRowsPerPage = 25;
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
@@ -346,7 +386,7 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
       setFormDeviceModel(item.deviceModel || '');
       setFormCategory(item.category || 'OTROS');
       setFormStock(String(item.stock));
-      setFormMinStock(String(item.minStock));
+      setFormMinStock(String(item.minStock ?? 0));
       setFormCost(String(item.cost));
       setFormPrice(String(item.price));
       setFormWholesalePrice(String(item.wholesalePrice !== undefined ? item.wholesalePrice : item.price));
@@ -601,6 +641,26 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
     onSetRefacciones(updated);
   };
 
+  const handleQuickRestock = (id: string, name: string) => {
+    const amountStr = restockAmount[id] !== undefined ? restockAmount[id] : '10';
+    const amount = Math.max(0, parseInt(amountStr) || 0);
+    if (amount <= 0) return;
+    
+    const updated = refacciones.map(item => {
+      if (item.id === id) {
+        const next = item.stock + amount;
+        return { ...item, stock: next };
+      }
+      return item;
+    });
+    onSetRefacciones(updated);
+    
+    setFeedback(`¡Se añadieron +${amount} unidades a "${name}" exitosamente!`);
+    setTimeout(() => {
+      setFeedback(null);
+    }, 4000);
+  };
+
   const handleToggleFavorite = (id: string) => {
     const updated = refacciones.map(item => {
       if (item.id === id) {
@@ -616,13 +676,14 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
     const dataToExport = refacciones.map(item => ({
       'Código': item.code,
       'Refacción': item.name,
-      'Marca Pieza': item.brand,
-      'Celular Compatible': `${item.deviceBrand} ${item.deviceModel}`.trim(),
       'Categoría': item.category,
-      'Stock': item.stock,
+      'Marca Pieza': item.brand,
+      'Marca Celular': item.deviceBrand,
+      'Modelo Celular': item.deviceModel,
       'Costo': item.cost,
       'Público / Instalado': item.price,
       'Mayoreo': item.wholesalePrice || 0,
+      'Stock': item.stock,
       'Mínimo': item.minStock,
       'Favorito': item.favorite ? 'SI' : 'NO',
       'Inversión Total': item.stock * item.cost,
@@ -637,9 +698,9 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
   };
 
   const handleDownloadTemplate = () => {
-    const headers = "Código,Refacción,Marca Pieza,Celular Compatible,Categoría,Stock,Costo,Público / Instalado,Mayoreo,Mínimo,Favorito\n";
-    const row1 = "REF-IPH11-PAN,PANTALLA INCELL,GENERICO,APPLE IPHONE 11,PANTALLAS,5,450.00,1200.00,1050.00,2,SI\n";
-    const row2 = "REF-IPH11-BAT,BATERIA PREMIUM,OEM,APPLE IPHONE 11,BATERIAS,3,250.00,800.00,700.00,1,NO\n";
+    const headers = "Código,Refacción,Categoría,Marca Pieza,Marca Celular,Modelo Celular,Costo,Público / Instalado,Mayoreo,Stock,Mínimo,Favorito\n";
+    const row1 = "REF-IPH11-PAN,PANTALLA INCELL,PANTALLAS,GENERICO,APPLE,IPHONE 11,450.00,1200.00,1050.00,5,2,SI\n";
+    const row2 = "REF-IPH11-BAT,BATERIA PREMIUM,BATERIAS,OEM,SAMSUNG,GALAXY S20,250.00,800.00,700.00,3,1,NO\n";
     const csvContent = "\uFEFF" + headers + row1 + row2;
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -689,18 +750,14 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
     reader.readAsBinaryString(file);
   };
 
-  const handleConfirmImport = () => {
-    const hasName = !!headerMapping['name'];
-    const hasBrandAndModel = !!headerMapping['deviceBrand'] && !!headerMapping['deviceModel'];
-    const hasCompatible = !!headerMapping['deviceCompatible'];
-
-    if (!hasName || (!hasBrandAndModel && !hasCompatible)) {
-      alert('Debes mapear al menos la Refacción y el Celular Compatible (ya sea en una sola columna o por separado en Marca y Modelo).');
+  // Efecto para parsear filas reactivamente cuando cambian filas o mapeo
+  useEffect(() => {
+    if (importRows.length === 0) {
+      setTempImportedItems([]);
       return;
     }
-
-    const importedItems: RefaccionItem[] = [];
     const headers = importHeaders;
+    const parsed: RefaccionItem[] = [];
 
     importRows.forEach((row, rIdx) => {
       const getVal = (key: string): any => {
@@ -712,26 +769,16 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
       };
 
       const name = String(getVal('name') || '').trim();
-      
-      let deviceBrand = '';
-      let deviceModel = '';
-      const compat = String(getVal('deviceCompatible') || '').trim();
-      if (compat) {
-        const parts = compat.split(' ');
-        deviceBrand = parts[0] || '';
-        deviceModel = parts.slice(1).join(' ') || '';
-      } else {
-        deviceBrand = String(getVal('deviceBrand') || '').trim();
-        deviceModel = String(getVal('deviceModel') || '').trim();
-      }
-      
+      const deviceBrand = String(getVal('deviceBrand') || '').trim();
+      const deviceModel = String(getVal('deviceModel') || '').trim();
+
       if (!name || !deviceBrand || !deviceModel) return;
 
       const code = String(getVal('code') || '').trim() || '—';
       const brand = String(getVal('brand') || 'GENERICO').trim().toUpperCase();
       const categoryRaw = String(getVal('category') || '').trim().toUpperCase();
       const category = CATEGORIES.includes(categoryRaw) ? categoryRaw : inferCategory(name);
-      
+
       const rawStock = getVal('stock');
       const manageStock = rawStock !== undefined && rawStock !== null && String(rawStock).trim() !== '';
       const stock = manageStock ? Math.max(0, parseInt(String(rawStock)) || 0) : 0;
@@ -742,10 +789,11 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
       const wholesalePrice = rawWholesalePrice !== undefined && rawWholesalePrice !== null && String(rawWholesalePrice).trim() !== ''
         ? Math.max(0, parseFloat(String(rawWholesalePrice)) || 0)
         : price;
-      const favorite = String(getVal('favorite') || '').toLowerCase() === 'true' || getVal('favorite') === 1;
+      const favRaw = String(getVal('favorite') || '').toLowerCase().trim();
+      const favorite = favRaw === 'true' || favRaw === 'si' || favRaw === 'yes' || favRaw === 's' || favRaw === 'y' || getVal('favorite') === 1;
 
-      importedItems.push({
-        id: 'REF-IMP-' + Date.now() + '-' + rIdx + '-' + Math.random().toString(36).substr(2,4).toUpperCase(),
+      parsed.push({
+        id: 'REF-IMP-' + rIdx + '-' + Math.random().toString(36).substr(2,4).toUpperCase(),
         code,
         name: name.toUpperCase(),
         brand,
@@ -762,27 +810,66 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
       });
     });
 
-    if (importedItems.length === 0) {
-      alert('No se importó ninguna fila válida.');
+    setTempImportedItems(parsed);
+  }, [importRows, headerMapping, importHeaders]);
+
+  // Filtrar en base al término de búsqueda para la previsualización completa
+  const filteredPreviewItems = useMemo(() => {
+    if (!previewSearchTerm.trim()) return tempImportedItems;
+    const normSearch = normalizeText(previewSearchTerm);
+    return tempImportedItems.filter(it =>
+      normalizeText(it.name).includes(normSearch) ||
+      normalizeText(it.code).includes(normSearch) ||
+      normalizeText(it.brand).includes(normSearch) ||
+      normalizeText(it.deviceBrand).includes(normSearch) ||
+      normalizeText(it.deviceModel).includes(normSearch) ||
+      normalizeText(it.category || '').includes(normSearch)
+    );
+  }, [tempImportedItems, previewSearchTerm]);
+
+  useEffect(() => {
+    setPreviewPage(1);
+  }, [previewSearchTerm]);
+
+  const totalPreviewPages = Math.ceil(filteredPreviewItems.length / previewRowsPerPage) || 1;
+  const paginatedPreviewItems = useMemo(() => {
+    const startIdx = (previewPage - 1) * previewRowsPerPage;
+    return filteredPreviewItems.slice(startIdx, startIdx + previewRowsPerPage);
+  }, [filteredPreviewItems, previewPage]);
+
+  const handleConfirmImport = () => {
+    const hasName = !!headerMapping['name'];
+    const hasBrand = !!headerMapping['deviceBrand'];
+    const hasModel = !!headerMapping['deviceModel'];
+
+    if (!hasName || !hasBrand || !hasModel) {
+      alert('Debes mapear obligatoriamente la Refacción, Marca Celular y Modelo Celular.');
+      return;
+    }
+
+    if (tempImportedItems.length === 0) {
+      alert('No se importó ninguna fila válida. Asegúrese de mapear los campos obligatorios correctamente.');
       return;
     }
 
     if (importReplaceMode) {
-      onSetRefacciones(importedItems);
+      onSetRefacciones(tempImportedItems);
     } else {
-      const merged = [...importedItems, ...refacciones];
+      const merged = [...tempImportedItems, ...refacciones];
       onSetRefacciones(merged);
     }
     setShowImportModal(false);
+    setIsDetailedPreviewOpen(false);
     setImportFile(null);
     setImportHeaders([]);
     setImportRows([]);
     setHeaderMapping({});
+    setTempImportedItems([]);
     
     if (importReplaceMode) {
-      alert(`Importación finalizada. Se REEMPLAZÓ el catálogo con ${importedItems.length} refacciones correctamente.`);
+      alert(`Importación finalizada. Se REEMPLAZÓ el catálogo con ${tempImportedItems.length} refacciones correctamente.`);
     } else {
-      alert(`Importación finalizada. Se AÑADIERON ${importedItems.length} refacciones al catálogo existente.`);
+      alert(`Importación finalizada. Se AÑADIERON ${tempImportedItems.length} refacciones al catálogo existente.`);
     }
   };
 
@@ -810,7 +897,6 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [refacciones, selectedCategory, selectedStatus, searchQuery, showInactive]);
 
-  // ─── ESTADÍSTICAS (KPIs) ───────────────────────────────────────────────────
   const stats = useMemo(() => {
     let inversion = 0;
     let valorEstimado = 0;
@@ -818,11 +904,16 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
     
     refacciones.forEach(item => {
       if (item.active !== false) {
-        if (item.stock > 0) {
-          inversion += (item.stock * item.cost);
-          valorEstimado += (item.stock * item.price);
+        const stockNum = Number(item.stock) || 0;
+        const costNum = Number(item.cost) || 0;
+        const priceNum = Number(item.price) || 0;
+        const minStockNum = Number(item.minStock) || 0;
+
+        if (stockNum > 0) {
+          inversion += (stockNum * costNum);
+          valorEstimado += (stockNum * priceNum);
         }
-        if (item.manageStock !== false && ((item.minStock > 0 && item.stock <= item.minStock) || item.stock === 0)) {
+        if (item.manageStock !== false && ((minStockNum > 0 && stockNum <= minStockNum) || stockNum === 0)) {
           piezasCriticas++;
         }
       }
@@ -940,6 +1031,12 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
         </div>
       </div>
 
+      {feedback && (
+        <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 text-xs rounded-md shadow-lg animate-fadeIn shrink-0">
+          {feedback}
+        </div>
+      )}
+
       {/* ─── Tarjetas de Resumen Financiero ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 shrink-0">
         
@@ -996,7 +1093,7 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
       </div>
 
       {/* ─── Filtros y Buscador ─── */}
-      <div className={`p-4 rounded-xl shrink-0 ${themeCardCls} flex flex-col md:flex-row gap-3 items-stretch md:items-center`}>
+      <div className={`p-4 rounded-xl shrink-0 ${themeCardCls} flex flex-col md:flex-row md:flex-wrap gap-3 items-stretch md:items-center`}>
         
         {/* Buscador en cápsula */}
         <div className="premium-search-container flex-1 shrink-0 select-none flex items-center">
@@ -1026,21 +1123,71 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
         </div>
 
         {/* Categoría */}
-        <div className="w-full md:w-56">
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className={`w-full ${themeInputCls}`}
+        <div className="w-full md:w-56 relative" ref={filterCatRef}>
+          <button
+            type="button"
+            onClick={() => setFilterCatOpen(!filterCatOpen)}
+            className={`w-full flex items-center justify-between text-xs font-bold px-3.5 py-2.5 rounded-lg border transition-all cursor-pointer ${
+              isRetro
+                ? 'bg-white border-2 border-t-zinc-400 border-l-zinc-400 border-b-white border-r-white text-black font-mono'
+                : isLight
+                  ? 'bg-white border-zinc-300 text-zinc-800 hover:border-zinc-400'
+                  : 'bg-zinc-900 border-zinc-700 text-white hover:border-zinc-500'
+            } ${filterCatOpen ? (isLight ? 'border-cyan-400 ring-1 ring-cyan-400/30' : 'border-cyan-500 ring-1 ring-cyan-500/20') : ''}`}
           >
-            <option value="TODAS">📁 TODAS LAS CATEGORÍAS</option>
-            {CATEGORIES.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+            <span className="flex items-center gap-1.5 truncate">
+              <span>📁</span>
+              <span className="truncate">{selectedCategory === 'TODAS' ? 'TODAS LAS CATEGORÍAS' : selectedCategory}</span>
+            </span>
+            <span className={`text-[10px] shrink-0 transition-transform ${filterCatOpen ? 'rotate-180' : ''} ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>▾</span>
+          </button>
+
+          {filterCatOpen && (
+            <div className={`absolute z-50 top-full mt-1 w-full min-w-[180px] rounded-lg shadow-2xl border overflow-hidden ${
+              isRetro
+                ? 'bg-[#ece9d8] border-zinc-500 text-black'
+                : isLight
+                  ? 'bg-white border-zinc-200 text-zinc-900'
+                  : 'bg-zinc-900 border-zinc-700 text-white shadow-black/80'
+            }`}>
+              <div className="max-h-52 overflow-y-auto">
+                {/* Opción TODOS */}
+                <div
+                  onClick={() => { setSelectedCategory('TODAS'); setFilterCatOpen(false); }}
+                  className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-xs font-semibold transition-colors ${
+                    selectedCategory === 'TODAS'
+                      ? (isRetro ? 'bg-blue-800 text-white' : 'bg-blue-600 text-white')
+                      : (isRetro ? 'hover:bg-blue-100 text-black' : isLight ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-zinc-800 text-zinc-200')
+                  }`}
+                >
+                  {selectedCategory === 'TODAS' && <span className="text-[10px]">✓</span>}
+                  <span className={selectedCategory !== 'TODAS' ? 'ml-3.5' : ''}>📁 TODAS LAS CATEGORÍAS</span>
+                </div>
+                {/* Divisor */}
+                <div className={`h-px mx-2 ${isLight ? 'bg-zinc-100' : 'bg-zinc-800'}`} />
+                {/* Categorías — solo las que existen en el inventario */}
+                {activeCategoriesForFilter.map(cat => (
+                  <div
+                    key={cat}
+                    onClick={() => { setSelectedCategory(cat); setFilterCatOpen(false); }}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-xs font-medium transition-colors ${
+                      selectedCategory === cat
+                        ? (isRetro ? 'bg-blue-800 text-white' : 'bg-blue-600 text-white')
+                        : (isRetro ? 'hover:bg-blue-100 text-black' : isLight ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-zinc-800 text-zinc-200')
+                    }`}
+                  >
+                    {selectedCategory === cat && <span className="text-[10px]">✓</span>}
+                    <span className={selectedCategory !== cat ? 'ml-3.5' : ''}>{cat}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Estado del Stock */}
-        <div className="flex items-center gap-1 bg-zinc-950/[0.25] p-1 border border-zinc-800 rounded-lg shrink-0">
+        <div className="overflow-x-auto shrink-0 max-w-full">
+        <div className="flex items-center gap-1 bg-zinc-950/[0.25] p-1 border border-zinc-800 rounded-lg min-w-max">
           {(['todos', 'favoritos', 'agotados', 'bajoStock'] as const).map(status => {
             const isActive = selectedStatus === status;
             const labels = { todos: 'Todos', favoritos: '⭐ Favoritos', agotados: 'Agotados', bajoStock: 'Stock Bajo' };
@@ -1060,6 +1207,7 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
               </button>
             );
           })}
+        </div>
         </div>
 
         {/* Mostrar Inactivos */}
@@ -1087,13 +1235,15 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
               <tr>
                 <th className={themeTableHeadCls}>Código</th>
                 <th className={themeTableHeadCls}>Refacción</th>
-                <th className={themeTableHeadCls}>Marca Pieza</th>
-                <th className={themeTableHeadCls}>Celular Compatible</th>
                 <th className={themeTableHeadCls}>Categoría</th>
-                <th className={`${themeTableHeadCls} text-center`}>Stock</th>
+                <th className={themeTableHeadCls}>Marca Pieza</th>
+                <th className={themeTableHeadCls}>Marca Celular</th>
+                <th className={themeTableHeadCls}>Modelo Celular</th>
                 <th className={`${themeTableHeadCls} text-right`}>Costo</th>
                 <th className={`${themeTableHeadCls} text-right`}>Público / Instalado</th>
                 <th className={`${themeTableHeadCls} text-right`}>Mayoreo</th>
+                <th className={`${themeTableHeadCls} text-center`}>Stock</th>
+                <th className={`${themeTableHeadCls} text-center`}>Mínimo</th>
                 <th className={`${themeTableHeadCls} text-center`}>Estado</th>
                 <th className={`${themeTableHeadCls} text-center`}>Favorito</th>
                 {canEdit && <th className={`${themeTableHeadCls} text-center`}>Acciones</th>}
@@ -1114,6 +1264,17 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                   const isBajoStock = controlsStock && ((item.minStock > 0 && item.stock <= item.minStock) || item.stock === 0);
                   const isInactive = item.active === false;
 
+                  const whStock = Object.values(item.warehouseStock || {}).reduce((a: any, b: any) => (a as number) + (b as number), 0) as number;
+                  const totalStock = item.stock + whStock;
+                  const breakdown = `Tienda: ${item.stock}${Object.entries(item.warehouseStock || {})
+                      .filter(([_, qty]) => (qty as number) > 0)
+                      .map(([whId, qty]) => {
+                        const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                        return ` | ${whName}: ${qty}`;
+                      })
+                      .join('')
+                    } · Total: ${totalStock}`;
+
                   return (
                     <tr key={item.id} className={`${themeTableRowCls(idx)} ${isInactive ? 'opacity-45 bg-rose-950/5' : ''}`}>
                       <td className={`${themeTableCellCls} font-mono font-bold text-zinc-500`}>
@@ -1125,6 +1286,9 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                           <span className="break-all whitespace-normal">{item.name}</span>
                         </div>
                       </td>
+                      <td className={`${themeTableCellCls} opacity-80 text-[11px]`}>
+                        {item.category}
+                      </td>
                       <td className={themeTableCellCls}>
                         <span className={`text-[10px] px-2 py-0.5 rounded font-black tracking-wide ${
                           isRetro ? 'bg-zinc-200 text-black border border-zinc-400'
@@ -1134,46 +1298,11 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                           {item.brand}
                         </span>
                       </td>
-                      <td className={`${themeTableCellCls} font-mono font-bold max-w-[200px] break-all whitespace-normal ${isLight ? 'text-indigo-800' : 'text-cyan-400'}`}>
-                        {item.deviceBrand} {item.deviceModel}
+                      <td className={`${themeTableCellCls} font-mono font-bold max-w-[140px] break-all whitespace-normal ${isLight ? 'text-indigo-800' : 'text-cyan-400'}`}>
+                        {item.deviceBrand || '—'}
                       </td>
-                      <td className={`${themeTableCellCls} opacity-80 text-[11px]`}>
-                        {item.category}
-                      </td>
-                      <td className={`${themeTableCellCls} text-center`}>
-                        {controlsStock ? (
-                          <div className="flex items-center justify-center gap-2">
-                            {canEdit && (
-                              <button 
-                                onClick={() => handleQuickStockAdjustment(item.id, -1)}
-                                className={`w-5 h-5 rounded flex items-center justify-center cursor-pointer transition-transform active:scale-90 font-bold border ${
-                                  isRetro ? 'bg-zinc-200 border-zinc-400 text-black'
-                                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-350 border-zinc-700'
-                                }`}
-                              >
-                                -
-                              </button>
-                            )}
-                            <span className={`font-mono font-black w-8 text-center text-xs ${isAgotado ? 'text-rose-500' : 'text-sky-400'}`}>
-                              {item.stock}
-                            </span>
-                            {canEdit && (
-                              <button 
-                                onClick={() => handleQuickStockAdjustment(item.id, 1)}
-                                className={`w-5 h-5 rounded flex items-center justify-center cursor-pointer transition-transform active:scale-90 font-bold border ${
-                                  isRetro ? 'bg-zinc-200 border-zinc-400 text-black'
-                                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-350 border-zinc-700'
-                                }`}
-                              >
-                                +
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <span className={`text-[11px] font-bold ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                            —
-                          </span>
-                        )}
+                      <td className={`${themeTableCellCls} font-mono font-bold max-w-[160px] break-all whitespace-normal ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
+                        {item.deviceModel || '—'}
                       </td>
                       <td className={`${themeTableCellCls} text-right font-mono font-bold text-zinc-400`}>
                         {sym}{item.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1187,6 +1316,30 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                         <span className={isLight ? 'text-zinc-700' : 'text-zinc-300'}>
                           {sym}{(item.wholesalePrice !== undefined ? item.wholesalePrice : item.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
+                      </td>
+                      <td className={`${themeTableCellCls} text-center`} title={config.enableWarehouses === true ? breakdown : undefined}>
+                        <div className="flex flex-col items-center justify-center cursor-help">
+                          {item.manageStock === false ? (
+                            <span className="bg-indigo-950/40 text-indigo-400 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-indigo-800/45 flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5" /> ILIMITADO
+                            </span>
+                          ) : isAgotado ? (
+                            <span className="bg-rose-950/40 text-rose-500 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-rose-800/45 flex items-center gap-1">
+                              <XCircle className="w-2.5 h-2.5" /> AGOTADO {config.enableWarehouses === true && whStock > 0 && <span className="text-[9px] bg-amber-500 text-black px-1 rounded ml-1 font-extrabold">+{whStock} en bodega</span>}
+                            </span>
+                          ) : isBajoStock ? (
+                            <span className="bg-amber-950/40 text-amber-500 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-amber-800/45 flex items-center gap-1">
+                              <AlertTriangle className="w-2.5 h-2.5" /> CRÍTICO ({item.stock}) {config.enableWarehouses === true && whStock > 0 && <span className="text-[9px] bg-amber-500 text-black px-1 rounded ml-1 font-extrabold">+{whStock}</span>}
+                            </span>
+                          ) : (
+                            <span className="bg-emerald-950/40 text-emerald-400 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-emerald-800/45 flex items-center gap-1">
+                              <CheckCircle className="w-2.5 h-2.5" /> OK ({item.stock}) {config.enableWarehouses === true && whStock > 0 && <span className="text-[9px] bg-amber-500 text-black px-1 rounded ml-1 font-extrabold">+{whStock}</span>}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className={`${themeTableCellCls} text-center font-mono text-[11px] ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-650' : 'text-zinc-400'}`}>
+                        {item.manageStock === false ? '—' : `${item.minStock ?? 0} pz`}
                       </td>
                       <td className={`${themeTableCellCls} text-center`}>
                         {!controlsStock ? (
@@ -1229,6 +1382,50 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                       {canEdit && (
                         <td className={`${themeTableCellCls} text-center`}>
                           <div className="flex items-center justify-center gap-1.5">
+                            {/* Acción Rápida: Surtir / Reabastecer */}
+                            {controlsStock ? (
+                              <div className={`flex items-center rounded overflow-hidden border ${isRetro
+                                  ? 'border-zinc-300'
+                                  : isLight
+                                    ? 'border-zinc-200 text-zinc-700'
+                                    : 'border-zinc-800'
+                                }`}>
+                                <input
+                                  type="number"
+                                  placeholder="Cant"
+                                  value={restockAmount[item.id] !== undefined ? restockAmount[item.id] : '10'}
+                                  onChange={(e) => setRestockAmount(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className={`w-11 text-center text-xs font-mono font-bold py-1 focus:outline-none border-r ${isRetro
+                                      ? 'bg-white text-zinc-900 border-r-zinc-300'
+                                      : isLight
+                                        ? 'bg-white text-zinc-900 border-r-zinc-200'
+                                        : 'bg-transparent text-emerald-450 border-r-zinc-700'
+                                    }`}
+                                  style={{
+                                    MozAppearance: 'textfield',
+                                    WebkitAppearance: 'none'
+                                  }}
+                                />
+                                <button
+                                  onClick={() => confirmRestockId === item.id ? (handleQuickRestock(item.id, item.name), setConfirmRestockId(null)) : setConfirmRestockId(item.id)}
+                                  className={`px-3 py-1 font-sans font-black uppercase text-[10px] tracking-wider transition-all select-none cursor-pointer ${confirmRestockId === item.id
+                                      ? 'bg-emerald-600 text-white'
+                                      : isRetro
+                                        ? 'bg-zinc-200 hover:bg-zinc-300 text-zinc-850'
+                                        : isLight
+                                          ? 'bg-zinc-105 hover:bg-zinc-200 text-zinc-700'
+                                          : 'bg-zinc-900 text-emerald-500 hover:bg-zinc-700 hover:text-white'
+                                     }`}
+                                  title="Reabastecer rápidamente"
+                                >
+                                  {confirmRestockId === item.id ? '✓ Confirmar' : 'Surtir'}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-zinc-550 font-mono italic opacity-60">
+                                Bajo Pedido
+                              </span>
+                            )}
                             {onCreateOrder && (
                               <button
                                 onClick={() => onCreateOrder(item)}
@@ -1460,6 +1657,18 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                     </div>
                   </div>
 
+                  {/* Código / SKU */}
+                  <div className="flex flex-col gap-1.5 col-span-2">
+                    <label className="text-[10px] uppercase font-black tracking-wider opacity-75">Código (Opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. REF-IP11-SCR"
+                      value={formCode}
+                      onChange={(e) => setFormCode(e.target.value)}
+                      className={themeInputCls}
+                    />
+                  </div>
+
                   {/* Nombre de Refacción */}
                   <div className="flex flex-col gap-1.5 col-span-2">
                     <label className="text-[10px] uppercase font-black tracking-wider opacity-75">Refacción *</label>
@@ -1565,7 +1774,7 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                   : isLight ? 'border-zinc-200 text-zinc-600'
                   : 'border-zinc-800 text-zinc-400'
                 }`}>
-                  💰 Costos, Inventario y SKU
+                  💰 Costos e Inventario
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   {/* Precios: Costo, Público y Mayoreo */}
@@ -1686,19 +1895,8 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                     </div>
                   )}
 
-                  {/* SKU */}
-                  <div className="flex flex-col gap-1.5 col-span-2">
-                    <label className="text-[10px] uppercase font-black tracking-wider opacity-75">Código (Opcional)</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. REF-IP11-SCR"
-                      value={formCode}
-                      onChange={(e) => setFormCode(e.target.value)}
-                      className={themeInputCls}
-                    />
-                  </div>
-                </div>
-              </div>
+                 </div>
+               </div>
 
               {/* Botones de Acción */}
               <div className="pt-4 flex items-center justify-end gap-2 border-t border-zinc-800">
@@ -1886,11 +2084,11 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 text-[9.5px] font-mono select-all">
-                  {['Código', 'Refacción', 'Marca Pieza', 'Celular Compatible', 'Categoría', 'Stock', 'Costo', 'Público / Instalado', 'Mayoreo', 'Mínimo', 'Favorito'].map(col => {
+                  {['Código', 'Refacción', 'Categoría', 'Marca Pieza', 'Marca Celular', 'Modelo Celular', 'Costo', 'Público / Instalado', 'Mayoreo', 'Stock', 'Mínimo', 'Favorito'].map(col => {
                     let badgeClass = isLight ? 'bg-zinc-100 border-zinc-300 text-zinc-700' : 'bg-zinc-900 border-zinc-800 text-zinc-200';
                     if (col === 'Refacción') {
                       badgeClass = isLight ? 'bg-amber-50 border-amber-300 text-amber-700 font-bold' : 'bg-zinc-900 border-zinc-800 text-amber-500 font-bold';
-                    } else if (col === 'Celular Compatible') {
+                    } else if (col === 'Marca Celular' || col === 'Modelo Celular') {
                       badgeClass = isLight ? 'bg-blue-50 border-blue-350 text-blue-700 font-bold' : 'bg-zinc-900 border-zinc-800 text-blue-400 font-bold';
                     } else if (col === 'Categoría') {
                       badgeClass = isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-zinc-900 border-zinc-800 text-emerald-400';
@@ -1906,7 +2104,7 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                   })}
                 </div>
                 <p className={`text-[10px] italic ${isLight ? 'text-zinc-500' : 'text-zinc-500'}`}>
-                  💡 Requerido: <span className="text-amber-500 font-bold">Refacción *</span> y la compatibilidad celular (puedes usar la columna única <span className="text-blue-500 font-bold">Celular Compatible</span>, o separar en tu archivo en <span className="text-zinc-400 font-bold">Marca Celular</span> y <span className="text-zinc-400 font-bold">Modelo Celular</span>).
+                  💡 Requerido: <span className="text-amber-500 font-bold">Refacción *</span>, <span className="text-blue-500 font-bold">Marca Celular *</span> y <span className="text-blue-500 font-bold">Modelo Celular *</span>.
                 </p>
               </div>
 
@@ -2072,12 +2270,28 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                         <div className="space-y-1">
                           <div className="flex items-center gap-2 font-bold text-xs">
                             <CheckCircle className={`w-4 h-4 ${isRetro ? 'text-zinc-800' : 'text-emerald-500'}`} />
-                            <span>Se procesaron {importRows.length} registros con éxito</span>
+                            <span>Se procesaron {tempImportedItems.length} registros con éxito</span>
                           </div>
                           <p className={`text-[10.5px] font-sans ${isLight ? 'text-zinc-650' : 'text-zinc-400'}`}>
                             Para garantizar una importación fiel y segura, debes revisar el listado completo y verificar los datos mapeados antes de confirmar.
                           </p>
                         </div>
+                        <button
+                          type="button"
+                          disabled={tempImportedItems.length === 0}
+                          onClick={() => setIsDetailedPreviewOpen(true)}
+                          className={`shrink-0 px-4 py-2 text-xs font-black rounded border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                            tempImportedItems.length === 0
+                              ? 'opacity-40 cursor-not-allowed bg-zinc-600 text-zinc-400'
+                              : isRetro
+                                ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-[#000080] hover:bg-[#eaeef3]'
+                                : isLight
+                                  ? 'bg-purple-655/10 hover:bg-purple-100 text-purple-700 border-purple-200'
+                                  : 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border-purple-500/20'
+                          }`}
+                        >
+                          <Search className="w-3.5 h-3.5" /> Ver Listado Completo ({tempImportedItems.length} art.)
+                        </button>
                       </div>
                     </div>
                   )}
@@ -2100,6 +2314,7 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                   setImportHeaders([]);
                   setImportRows([]);
                   setImportError(null);
+                  setTempImportedItems([]);
                 }}
                 className={`px-4 py-1.5 text-xs font-bold rounded transition-colors cursor-pointer ${
                   isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
@@ -2111,10 +2326,10 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
               </button>
               <button
                 type="button"
-                disabled={!importFile || importRows.length === 0}
+                disabled={!importFile || tempImportedItems.length === 0}
                 onClick={handleConfirmImport}
                 className={`px-5 py-1.5 text-xs font-black rounded flex items-center gap-1.5 transition-all shadow-md cursor-pointer ${
-                  (!importFile || importRows.length === 0)
+                  (!importFile || tempImportedItems.length === 0)
                     ? 'opacity-40 cursor-not-allowed bg-zinc-650 text-zinc-400'
                     : isRetro
                       ? 'bg-[#000080] text-white border-2 border-t-white border-l-white border-b-zinc-900 border-r-zinc-900'
@@ -2123,10 +2338,273 @@ export default function RefaccionesView({ refacciones, inventory = [], onSetRefa
                         : 'bg-indigo-600 hover:bg-indigo-500 text-white'
                 }`}
               >
-                <Check className="w-3.5 h-3.5" /> CONFIRMAR E IMPORTAR ({(importRows || []).length} ARTÍCULOS)
+                <Check className="w-3.5 h-3.5" /> CONFIRMAR E IMPORTAR ({tempImportedItems.length} ARTÍCULOS)
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {isDetailedPreviewOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-y-auto animate-fadeIn">
+          <div className={`rounded-lg max-w-7xl w-full overflow-hidden shadow-2xl my-8 relative flex flex-col max-h-[90vh] ${
+            isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-sans'
+            : isLight ? 'bg-white border border-zinc-200 text-zinc-900'
+            : 'bg-[#121316] border border-[#2d2f36] text-zinc-100'
+          }`}>
+            {/* Cabecera del Modal */}
+            <div className={`flex items-center justify-between p-4 border-b shrink-0 ${
+              isRetro ? 'bg-[#000080] border-[#808080] text-white'
+              : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-900'
+              : 'bg-[#0e0f12] border-[#1c1d22] text-white'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Search className={`w-4 h-4 ${isRetro ? 'text-white' : 'text-amber-500'}`} />
+                <h3 className={`text-sm font-black uppercase tracking-wider ${isRetro ? 'text-white' : isLight ? 'text-zinc-800' : 'text-white'}`}>
+                  🔍 Previsualización Detallada de Importación ({tempImportedItems.length} Refacciones)
+                </h3>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border tracking-wider font-mono ${
+                  importReplaceMode
+                    ? 'bg-rose-950/30 text-rose-450 border-rose-900/50'
+                    : 'bg-emerald-950/30 text-emerald-450 border-emerald-900/50'
+                }`}>
+                  Modo: {importReplaceMode ? 'Reemplazar todo' : 'Adicionar al almacén'}
+                </span>
+                <button
+                  onClick={() => setIsDetailedPreviewOpen(false)}
+                  className={`p-1 rounded-full cursor-pointer ${
+                    isRetro ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30'
+                    : isLight ? 'text-zinc-500 hover:text-zinc-900 bg-zinc-100 border border-zinc-300'
+                    : 'text-gray-400 hover:text-white bg-zinc-900 border border-zinc-600'
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Cuerpo del Modal */}
+            <div className={`p-6 space-y-4 overflow-y-auto flex-1 text-left ${
+              isRetro ? 'bg-[#eaeef3]' : isLight ? 'bg-white' : 'bg-[#121316]'
+            }`}>
+              {/* Buscador e info rápida */}
+              <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full sm:max-w-md">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-zinc-500">
+                    <Search className="w-4 h-4" />
+                  </span>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Buscar por refacción, código o marca en la lista..."
+                    value={previewSearchTerm}
+                    onChange={(e) => setPreviewSearchTerm(e.target.value)}
+                    className={`pl-9 pr-8 py-1.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-indigo-500/50 ${
+                      isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900'
+                      : isLight ? 'bg-white border border-zinc-300 rounded-lg text-zinc-900'
+                      : 'bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-250'
+                    }`}
+                  />
+                  {previewSearchTerm && (
+                    <button
+                      onClick={() => setPreviewSearchTerm('')}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                <div className={`text-xs px-3 py-1.5 border rounded-lg font-mono flex items-center gap-2 ${
+                  isRetro ? 'bg-blue-50 border-[#000080] text-[#000080]'
+                  : isLight ? 'bg-indigo-50 border-indigo-200 text-indigo-755'
+                  : 'bg-indigo-950/20 border-indigo-500/30 text-indigo-400'
+                }`}>
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  <span>
+                    Filtro: <strong>{filteredPreviewItems.length}</strong> de <strong>{tempImportedItems.length}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Tabla de Artículos */}
+              <div className={`border rounded-xl overflow-hidden shadow-sm ${
+                isRetro ? 'border-zinc-400 bg-white'
+                : isLight ? 'border-zinc-200 bg-white'
+                : 'border-zinc-800 bg-[#17181d]'
+              }`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className={`border-b ${
+                        isRetro ? 'bg-[#000080] text-white border-zinc-400'
+                        : isLight ? 'bg-zinc-50 text-zinc-650 border-zinc-200'
+                        : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                      }`}>
+                        <th className="p-3 font-bold">Código</th>
+                        <th className="p-3 font-bold">Refacción</th>
+                        <th className="p-3 font-bold text-center">Categoría</th>
+                        <th className="p-3 font-bold">Marca Pieza</th>
+                        <th className="p-3 font-bold">Marca Celular</th>
+                        <th className="p-3 font-bold">Modelo Celular</th>
+                        <th className="p-3 font-bold text-right">Costo</th>
+                        <th className="p-3 font-bold text-right">Público / Instalado</th>
+                        <th className="p-3 font-bold text-right">Mayoreo</th>
+                        <th className="p-3 font-bold text-center">Stock</th>
+                        <th className="p-3 font-bold text-center">Mínimo</th>
+                        <th className="p-3 font-bold text-center">Favorito</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y font-mono ${
+                      isRetro ? 'divide-zinc-200 text-zinc-900 bg-white'
+                      : isLight ? 'divide-zinc-200 text-zinc-800 bg-white'
+                      : 'divide-zinc-800/50 text-zinc-350 bg-[#121316]/20'
+                    }`}>
+                      {paginatedPreviewItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={12} className="p-8 text-center text-zinc-500 font-sans">
+                            No se encontraron refacciones que coincidan con la búsqueda.
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedPreviewItems.map((it, idx) => {
+                          const isBajo = it.manageStock !== false && it.minStock > 0 && it.stock <= it.minStock;
+                          return (
+                            <tr key={idx} className="hover:bg-zinc-500/5 transition-colors">
+                              <td className="p-3 text-[11px] max-w-[120px] truncate text-zinc-500 font-mono">
+                                {it.code}
+                              </td>
+                              <td className="p-3 font-sans font-bold max-w-[240px] truncate text-zinc-150">
+                                {it.name}
+                              </td>
+                              <td className="p-3 text-center font-sans">
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border tracking-wide uppercase ${
+                                  it.category === 'PANTALLAS' ? 'bg-sky-950/40 text-sky-400 border-sky-900/30'
+                                  : it.category === 'BATERIAS' ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30'
+                                  : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                }`}>
+                                  {it.category}
+                                </span>
+                              </td>
+                              <td className="p-3 font-sans">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-black tracking-wide ${
+                                  isRetro ? 'bg-zinc-200 text-black border border-zinc-400'
+                                  : isLight ? 'bg-slate-100 text-slate-700'
+                                  : 'bg-zinc-800/60 text-zinc-300'
+                                }`}>
+                                  {it.brand}
+                                </span>
+                              </td>
+                              <td className="p-3 font-sans">
+                                {it.deviceBrand}
+                              </td>
+                              <td className="p-3 font-sans">
+                                {it.deviceModel}
+                              </td>
+                              <td className="p-3 text-right text-zinc-400">
+                                {sym}{it.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="p-3 text-right font-bold text-emerald-400">
+                                {sym}{it.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="p-3 text-right text-zinc-350">
+                                {sym}{(it.wholesalePrice !== undefined ? it.wholesalePrice : it.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className={`p-3 text-center font-bold ${it.manageStock === false ? 'text-zinc-500' : 'text-sky-400'}`}>
+                                {it.manageStock === false ? '∞' : it.stock}
+                              </td>
+                              <td className={`p-3 text-center font-bold ${isBajo ? 'text-amber-500' : 'text-zinc-500'}`}>
+                                {it.manageStock === false ? '∞' : it.minStock}
+                              </td>
+                              <td className="p-3 text-center">
+                                {it.favorite ? (
+                                  <div className="flex items-center justify-center gap-1 text-amber-500 font-bold mx-auto">
+                                    <Star className="w-3.5 h-3.5 fill-amber-500" />
+                                    <span className="text-[10px]">Sí</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-zinc-500">No</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Paginación de la previsualización */}
+              {filteredPreviewItems.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 shrink-0">
+                  <div className={`text-[11px] ${isLight ? 'text-zinc-650' : 'text-zinc-400'}`}>
+                    Mostrando registros <strong>{Math.min(filteredPreviewItems.length, (previewPage - 1) * previewRowsPerPage + 1)}</strong> a{' '}
+                    <strong>{Math.min(filteredPreviewItems.length, previewPage * previewRowsPerPage)}</strong> de{' '}
+                    <strong>{filteredPreviewItems.length}</strong> (Página <strong>{previewPage}</strong> de <strong>{totalPreviewPages}</strong>)
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={previewPage === 1}
+                      onClick={() => setPreviewPage(prev => Math.max(1, prev - 1))}
+                      className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                        previewPage === 1
+                          ? 'opacity-40 cursor-not-allowed border-zinc-800 text-zinc-500'
+                          : isLight ? 'hover:bg-zinc-100 text-zinc-700 bg-white border-zinc-300' : 'hover:bg-zinc-800 text-zinc-200 border-zinc-800'
+                      }`}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={previewPage === totalPreviewPages}
+                      onClick={() => setPreviewPage(prev => Math.min(totalPreviewPages, prev + 1))}
+                      className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                        previewPage === totalPreviewPages
+                          ? 'opacity-40 cursor-not-allowed border-zinc-800 text-zinc-500'
+                          : isLight ? 'hover:bg-zinc-100 text-zinc-700 bg-white border-zinc-300' : 'hover:bg-zinc-800 text-zinc-200 border-zinc-800'
+                      }`}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer del Modal */}
+            <div className={`p-4 border-t flex justify-end gap-2 shrink-0 ${
+              isRetro ? 'bg-[#dfdfdf] border-zinc-500'
+              : isLight ? 'bg-zinc-50 border-zinc-200'
+              : 'bg-[#0e0f12] border-[#1c1d22]'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setIsDetailedPreviewOpen(false)}
+                className={`px-4 py-1.5 text-xs font-bold rounded transition-colors cursor-pointer ${
+                  isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
+                  : isLight ? 'bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-100'
+                  : 'text-gray-400 hover:text-white border border-zinc-800 bg-transparent'
+                }`}
+              >
+                Regresar al Mapeo
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmImport}
+                className={`px-5 py-1.5 text-xs font-bold rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                  isRetro ? 'bg-[#000080] text-white border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700'
+                  : isLight ? 'bg-indigo-650 hover:bg-indigo-700 text-white shadow'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg'
+                }`}
+              >
+                <CheckCircle className="w-3.5 h-3.5" /> Confirmar e Importar Ahora
+              </button>
+            </div>
           </div>
         </div>
       )}

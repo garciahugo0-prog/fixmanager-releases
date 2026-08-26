@@ -163,6 +163,9 @@ interface SidebarProps {
   licenseStatus?: 'checking' | 'active' | 'none' | 'invalid' | 'expired';
   licenseInfo?: Record<string, unknown> | null;
   onManageLicense?: () => void;
+  isSendingPromos?: boolean;
+  sendingCurrentIndex?: number;
+  sendingTotal?: number;
 }
 
 const renderTabIllustration = (tabId: string, size: number = 22, mono: boolean = false) => {
@@ -290,7 +293,23 @@ const renderTabIllustration = (tabId: string, size: number = 22, mono: boolean =
   }
 };
 
-export default function Sidebar({ activeTab, setActiveTab, config, appVersion = '1.0', pendingUpdateVersion = null, isCajaOpen = true, lowStockCount = 0, currentUser, onOpenMovimiento, licenseStatus, licenseInfo, onManageLicense }: SidebarProps) {
+export default function Sidebar({
+  activeTab,
+  setActiveTab,
+  config,
+  appVersion = '1.0',
+  pendingUpdateVersion = null,
+  isCajaOpen = true,
+  lowStockCount = 0,
+  currentUser,
+  onOpenMovimiento,
+  licenseStatus,
+  licenseInfo,
+  onManageLicense,
+  isSendingPromos = false,
+  sendingCurrentIndex = 0,
+  sendingTotal = 0,
+}: SidebarProps) {
   const primaryColor = config.primaryColor;
   const isLight = config.themeMode === 'light';
 
@@ -489,8 +508,7 @@ export default function Sidebar({ activeTab, setActiveTab, config, appVersion = 
           {tabId === 'Catalogo' && <span className="absolute bottom-1 right-1 text-[9px] z-20">🏷️</span>}
           {tabId === 'Gastos' && <span className="absolute bottom-1 right-1 text-[9px] z-20">💵</span>}
           {tabId === 'Reabastecer' && <span className="absolute bottom-1 right-1 text-[9px] z-20">📦</span>}
-          {tabId === 'Fiados' && <span className="absolute bottom-1 right-1 text-[7px] z-20">📋</span>}
-          {tabId === 'Stock' && lowStockCount > 0 && (
+                  {tabId === 'Stock' && lowStockCount > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] bg-rose-500 text-white text-[8px] font-black rounded-full flex items-center justify-center px-0.5 leading-none z-20 border border-white shadow">
               {lowStockCount > 99 ? '99+' : lowStockCount}
             </span>
@@ -505,7 +523,10 @@ export default function Sidebar({ activeTab, setActiveTab, config, appVersion = 
       if (!isTabAllowed(tabId)) return null;
       if (!isTabVisible(tabId)) return null;
       const isTabActive = activeTab === tab.id;
-      const labelText = tab.label;
+      const isClientesPromo = tab.id === 'Clientes' && isSendingPromos && sendingTotal > 0;
+      const labelText = isClientesPromo 
+        ? `${tab.label} (${Math.round((sendingCurrentIndex / sendingTotal) * 100)}%)`
+        : tab.label;
       const isDisabled = !isCajaOpen && restrictedModules.includes(tabId);
 
       return (
@@ -517,7 +538,7 @@ export default function Sidebar({ activeTab, setActiveTab, config, appVersion = 
               setActiveTab(tab.id);
             }
           }}
-          className={`w-full flex flex-col items-center justify-center p-2 rounded-xl transition-all border outline-none group relative ${
+          className={`w-full flex flex-col items-center justify-center p-2 rounded-xl transition-all border outline-none group relative overflow-hidden ${
             isDisabled
               ? 'bg-[#d2d6dc] border-2 border-dashed border-zinc-400 text-zinc-400 opacity-50 grayscale cursor-not-allowed select-none'
               : isTabActive
@@ -534,6 +555,12 @@ export default function Sidebar({ activeTab, setActiveTab, config, appVersion = 
           <span className={`text-[8.5px] font-sans font-black mt-1 leading-none uppercase truncate w-full text-center tracking-tight ${isDisabled ? 'text-zinc-500' : isTabActive ? 'text-blue-700 font-extrabold' : 'text-zinc-500'}`}>
             {labelText} {isDisabled && '🔒'}
           </span>
+          {isClientesPromo && (
+            <div 
+              className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500 transition-all duration-300"
+              style={{ width: `${(sendingCurrentIndex / sendingTotal) * 100}%` }}
+            />
+          )}
         </button>
       );
     };

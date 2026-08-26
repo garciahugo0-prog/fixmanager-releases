@@ -250,7 +250,7 @@ function NewQuoteModal({
     };
   }, []);
 
-  const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+  const isWaIntegratedOffline = !waConnected;
 
   const leftLogoInputRef = useRef<HTMLInputElement>(null);
   const rightLogoInputRef = useRef<HTMLInputElement>(null);
@@ -2128,7 +2128,7 @@ export default function CotizacionesView({
     };
   }, []);
 
-  const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+  const isWaIntegratedOffline = !waConnected;
 
   const getFormattedPhone = (phone: string, countryCode?: string) => {
     const cc = countryCode ? countryCode.replace(/\D/g, '') : '52';
@@ -2288,7 +2288,12 @@ export default function CotizacionesView({
     }
     if (searchTerm.trim()) {
       const q = searchTerm.replace(/,(?!\s)/g, '-').trim().toLowerCase();
-      list = list.filter(qt => qt.customerName.toLowerCase().includes(q) || qt.customerPhone.includes(q) || qt.id.toLowerCase().includes(q));
+      const searchDigits = searchTerm.replace(/\D/g, '');
+      list = list.filter(qt => {
+        const phoneDigits = (qt.customerPhone || '').replace(/\D/g, '');
+        const phoneMatch = qt.customerPhone.toLowerCase().includes(q) || (searchDigits.length > 0 && phoneDigits.includes(searchDigits));
+        return qt.customerName.toLowerCase().includes(q) || phoneMatch || qt.id.toLowerCase().includes(q);
+      });
     }
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [processedQuotes, activeFilter, searchTerm]);

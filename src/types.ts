@@ -43,6 +43,8 @@ export interface RepairOrder {
   receivedAccessories?: string[]; // Accessories received with the device (SIM, charger, etc.)
   faultDescription: string;
   diagnosticsNote?: string;
+  ticketNote?: string;
+  labelNote?: string;
   showNotesOnLabel?: boolean;
   hidePriceOnLabel?: boolean;
   assignedTechnician: string;
@@ -162,6 +164,15 @@ export interface InsumoCatalogItem {
   price: number;
 }
 
+export interface Warehouse {
+  id: string;
+  uuid?: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface InventoryItem {
   id: string;
   uuid?: string;
@@ -184,6 +195,7 @@ export interface InventoryItem {
   imageUrl?: string;
   extraImages?: string[];
   isChip?: boolean;
+  warehouseStock?: Record<string, number>;
 }
 
 export interface RefaccionItem {
@@ -208,6 +220,7 @@ export interface RefaccionItem {
   manageStock?: boolean;
   imageUrl?: string;
   extraImages?: string[];
+  warehouseStock?: Record<string, number>;
 }
 
 export interface DonorPart {
@@ -247,6 +260,7 @@ export interface ApartadoPayment {
   method: 'Efectivo' | 'Tarjeta' | 'Transferencia';
   note?: string;
   sessionId?: number;
+  itemId?: string;
 }
 
 export interface ApartadoEntry {
@@ -272,6 +286,11 @@ export interface SaleItem {
   name: string;
   quantity: number;
   price: number;
+  originalPrice?: number;
+  discountValue?: number;
+  discountType?: 'percentage' | 'fixed';
+  fromWarehouseId?: string;
+  description?: string;
 }
 
 export interface Sale {
@@ -335,6 +354,8 @@ export interface CreditPayment {
   method: 'Efectivo' | 'Tarjeta/Transfer' | 'Mixto (Efectivo + Tarjeta/Transfer)';
   note?: string;
   sessionId?: number;
+  entryId?: string;
+  itemId?: string;
 }
 
 export interface CreditAccount {
@@ -461,6 +482,20 @@ export interface CorteEntry {
   estimado?: number;
   fisico?: number;
   diferencia: number;
+  totals?: {
+    pos: number;
+    servicio: number;
+    entradas: number;
+    salidas: number;
+    neto: number;
+    abonosFiados?: number;
+    abonosApartados?: number;
+    entradasManuales?: number;
+    recargasCelular?: number;
+    pagosServicios?: number;
+    comisionesRecargas?: number;
+    [key: string]: any;
+  };
   [key: string]: unknown;
 }
 
@@ -485,6 +520,14 @@ export interface WorkshopConfig {
   logoUrl: string;
   slogan: string;
   address: string;
+  addressStreet?: string;
+  addressNumber?: string;
+  addressColonia?: string;
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
+  addressCountry?: string;
+  googleMapsLink?: string;
   ticketFooter: string;
   termsAndConditions: string;
   defaultCreditLimit?: number;
@@ -511,6 +554,7 @@ export interface WorkshopConfig {
   barcodeAsImage?: boolean;
   showBarcodeOnTicket?: boolean; // false = no imprime código de barras (default true)
   hideTicketSignature?: boolean; // true = no imprime áreas de firma
+  hideMapsQr?: boolean; // true = no imprime QR de Google Maps en tickets
   printerInterface?: 'USB' | 'Bluetooth' | 'Ethernet' | 'Default';
   printerIpAddress?: string;
   cutPaperAfterPrint?: boolean;
@@ -544,6 +588,7 @@ export interface WorkshopConfig {
   defaultStartView?: 'Panel' | 'POS' | 'Nueva';
   theme?: 'modern' | 'retro-window' | 'fluent';
   themeMode?: 'light' | 'dark';
+  allowOutOfStockSales?: boolean;
   defaultFullscreen?: boolean;
   customDeviceModels?: { brand: string; model: string; modelNumber?: string; type: 'Phone' | 'Tablet' | 'Laptop' | 'Desktop' | 'Other' }[];
   // Telegram Notifications
@@ -567,6 +612,7 @@ export interface WorkshopConfig {
   useDynamicHeight?: boolean; // Alto de ticket dinámico para impresoras térmicas (opcional)
   usePrinterDefaultPageSize?: boolean; // Utilizar tamaño de página predeterminado del controlador de la impresora (opcional)
   autoBackupEnabled?: boolean;
+  enableWarehouses?: boolean;
   autoBackupPath?: string;
   autoBackupLastTime?: string;
   cloudBackupEnabled?: boolean;
@@ -597,8 +643,8 @@ export interface WorkshopConfig {
   // Taecel API Integration
   taecelApiKey?: string;
   taecelNip?: string;
-  taecelSandboxMode?: boolean;
   taecelEnabled?: boolean;
+  taecelSandboxMode?: boolean;
   taecelComisionRecarga?: number;
   taecelComisionServicio?: number;
   promoActive?: boolean;

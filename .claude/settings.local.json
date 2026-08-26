@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(./node_modules/.bin/vite build *)",
+      "Bash(node node_modules/vite/bin/vite.js build)",
+      "Bash(npm install *)",
+      "Bash(node /Users/equipo/Desktop/smartec-electron/node_modules/vite/bin/vite.js build)",
+      "Bash(xattr -r -d com.apple.quarantine /Users/equipo/Desktop/smartec-electron/node_modules)",
+      "Bash(code /Users/equipo/Desktop/smartec-electron)",
+      "Bash(npm_config_cache=/tmp/npm-cache node node_modules/electron/install.js)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -L \"https://github.com/electron/electron/releases/download/v32.3.3/electron-v32.3.3-darwin-arm64.zip\" -o /tmp/electron.zip)",
+      "Bash(unzip -o /tmp/electron.zip -d /Users/equipo/Desktop/smartec-electron/node_modules/electron/dist/)",
+      "Bash(xattr -r -d com.apple.quarantine /Users/equipo/Desktop/smartec-electron/node_modules/electron/dist/)",
+      "Bash(ls ~/.claude/projects/ | head -20)",
+      "Bash(python3 -c ' *)",
+      "Bash(mkdir -p /Users/equipo/Desktop/smartec-electron/.claude && ls /Users/equipo/Desktop/smartec-electron/.claude/settings.json 2>/dev/null && cat /Users/equipo/Desktop/smartec-electron/.claude/settings.json || echo \"no existe\")",
+      "Bash(grep -n \"^  \\);\\\\|^}$\" /Users/equipo/Desktop/smartec-electron/src/App.tsx)",
+      "Bash(xargs sed -i '' 's/backdrop-blur-xs/backdrop-blur-md/g; s/backdrop-blur-sm/backdrop-blur-md/g')",
+      "Bash(sed -n '20,35p' /Users/equipo/Desktop/smartec-electron/src/components/NuevaView.tsx)",
+      "Bash(sed -n '10,25p' /Users/equipo/Desktop/smartec-electron/src/components/OrdenesView.tsx)",
+      "Bash(sed -n '10,25p' /Users/equipo/Desktop/smartec-electron/src/components/PosView.tsx)",
+      "Bash(sed -n '11,25p' /Users/equipo/Desktop/smartec-electron/src/components/StockView.tsx)",
+      "Bash(sed -n '25,38p' /Users/equipo/Desktop/smartec-electron/src/components/ReportesView.tsx)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(sed -i '' 's/Smartec Taller Dashboard/FixManager/g; s/Smartec Taller/FixManager/g; s/SMARTEC TALLER/FIXMANAGER/g; s/Smartec/FixManager/g; s/smartec\\\\.com/fixmanager.app/g' /Users/hugogarciasanchez/Desktop/Fixmanager-electron/index.html)",
+      "Bash(perl -pi -e ' *)",
+      "Bash(perl -pi -e \"s/Smartec Taller/FixManager/g; s/Smartec/FixManager/g;\" /Users/hugogarciasanchez/Desktop/Fixmanager-electron/dist/index.html)",
+      "Bash(perl -pi -e \"s/parsed\\\\.email\\\\.includes\\\\\\('contacto\\\\@smartec'\\\\\\)/parsed.email.includes\\('contacto\\\\@fixmanager'\\)/g\" /Users/hugogarciasanchez/Desktop/Fixmanager-electron/src/App.tsx)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(mkdir -p /Users/equipo/Desktop/Fixmanager-electron_v1.13.0/.claude/skills/run-app)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(mkdir -p /Users/hugogarciasanchez/.claude/projects/-Users-hugogarciasanchez-Desktop-Fixmanager-electron-v1-15-0/memory)"
+    ]
+  }
+}

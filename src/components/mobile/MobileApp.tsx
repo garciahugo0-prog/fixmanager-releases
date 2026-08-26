@@ -73,15 +73,16 @@ import {
   CloudOff
 } from 'lucide-react';
 import { PRINTER_PRESETS_DATABASE } from '../SecondaryViews';
-import { ActiveTab, RepairOrder, InventoryItem, RefaccionItem, Client, Sale, WorkshopConfig, AppUser, ServicePrice, Expense, CreditAccount, ApartadoEntry, DonorDevice, Quote } from '../../types';
+import { ActiveTab, RepairOrder, InventoryItem, RefaccionItem, Client, Sale, WorkshopConfig, AppUser, ServicePrice, Expense, CreditAccount, ApartadoEntry, DonorDevice, Quote, ChipActivation } from '../../types';
 import { buildTicketHtml, buildPosTicketHtml, buildServiceLabelHtml, buildWarrantyLabelHtml, buildProductLabelHtml, buildEntryTicketHtml, buildBatchEntryTicketHtml, buildConsolidatedTicketHtml, buildQuoteTicketHtml, buildTicketHeaderHtml, formatCustomerPhoneWithCountryCode } from '../../utils/ticketBuilder';
 import { formatPhoneForWhatsapp, buildWhatsappOrderStatusMessage } from '../../utils/whatsapp';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
-import { generateNextOrderId, generateNextSaleId } from '../../utils/folioUtils';
+import { generateNextOrderId, generateNextSaleId, isRechargeSale } from '../../utils/folioUtils';
 import { supabase } from '../../supabase';
 import { runSyncAudit, repairSyncIssues } from '../../utils/syncAudit';
 import { uploadEvidenceToSupabase } from '../../utils/evidenceUpload';
 import { INITIAL_SERVICES, DEFAULT_OFFLINE_MODELS } from '../../data';
+import { taecelRegisterAccount, taecelGetBalance } from '../../utils/taecel';
 import AperturaCajaView from '../AperturaCajaView';
 import MobileExtraEquipoModal from './MobileExtraEquipoModal';
 import MobileEtiquetasView from './MobileEtiquetasView';
@@ -453,6 +454,9 @@ interface MobileAppProps {
   cortesHistorial?: any[];
   quotes?: Quote[];
   onResetApp?: () => void;
+  chipActivations?: ChipActivation[];
+  onUpdateChipActivation?: (act: ChipActivation) => void;
+  onDeleteChipActivation?: (id: string) => void;
 }
 
 type OrderFilter = 'todas' | 'pendientes' | 'listas' | 'entregadas';
@@ -862,7 +866,10 @@ export default function MobileApp({
   expenses = [],
   cortesHistorial = [],
   quotes = [],
-  onResetApp
+  onResetApp,
+  chipActivations = [],
+  onUpdateChipActivation,
+  onDeleteChipActivation
 }: MobileAppProps) {
   const isLight = mobileTheme === 'light';
 
@@ -1879,6 +1886,106 @@ export default function MobileApp({
   const [editableConfig, setEditableConfig] = useState<WorkshopConfig>(config);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
+  // Estados para Registro de Taecel Móvil
+  const [showRegisterTaecelModal, setShowRegisterTaecelModal] = useState(false);
+  const [regNombre, setRegNombre] = useState('');
+  const [regApellidos, setRegApellidos] = useState('');
+  const [regCorreo, setRegCorreo] = useState('');
+  const [regTelefono, setRegTelefono] = useState('');
+  const [regNomComercial, setRegNomComercial] = useState('');
+  const [regLoading, setRegLoading] = useState(false);
+  const [showMobileManualConfig, setShowMobileManualConfig] = useState(!!config.taecelApiKey || !!config.taecelNip);
+  const [mobileIsVerifying, setMobileIsVerifying] = useState(false);
+  const [mobileVerificationResult, setMobileVerificationResult] = useState<{ success: boolean; message: string; balance?: number } | null>(null);
+
+  const handleMobileVerifyConnection = async () => {
+    const keyToTest = (editableConfig.taecelApiKey || '').trim();
+    const nipToTest = (editableConfig.taecelNip || '').trim();
+    if (!keyToTest || !nipToTest) {
+      setMobileVerificationResult({ success: false, message: 'Ingresa primero tu API Key y NIP para verificar.' });
+      return;
+    }
+    setMobileIsVerifying(true);
+    setMobileVerificationResult(null);
+    try {
+      const tempConfig = {
+        ...config,
+        taecelApiKey: keyToTest,
+        taecelNip: nipToTest
+      };
+      const res = await taecelGetBalance(tempConfig);
+      if (res.success) {
+        setMobileVerificationResult({
+          success: true,
+          message: `¡Conexión establecida con éxito! Saldo disponible: ${config.currencySymbol || '$'}${res.balance?.toFixed(2)} MXN`,
+          balance: res.balance
+        });
+      } else {
+        setMobileVerificationResult({
+          success: false,
+          message: res.message || 'Credenciales inválidas o error de respuesta de Taecel.'
+        });
+      }
+    } catch (err: any) {
+      setMobileVerificationResult({
+        success: false,
+        message: err.message || 'Error de conexión con el servidor de Taecel.'
+      });
+    } finally {
+      setMobileIsVerifying(false);
+    }
+  };
+
+  const mobileHasCredentials = (editableConfig.taecelApiKey || '').trim() !== '' && (editableConfig.taecelNip || '').trim() !== '';
+
+  const handleMobileRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regNombre.trim() || !regApellidos.trim() || !regCorreo.trim() || !regTelefono.trim()) {
+      alert('Por favor completa todos los campos obligatorios.');
+      return;
+    }
+    const cleanPhone = regTelefono.replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      alert('El número de teléfono debe tener exactamente 10 dígitos.');
+      return;
+    }
+    setRegLoading(true);
+    try {
+      const res = await taecelRegisterAccount({
+        nombre: regNombre,
+        apellidos: regApellidos,
+        correo: regCorreo,
+        telefono: cleanPhone,
+        nomComercial: regNomComercial,
+        forzarActivacion: 1
+      });
+
+      if (res.success && res.data && res.data.ws) {
+        const newKey = res.data.ws.key;
+        const newNip = res.data.ws.nip;
+        
+        setShowMobileManualConfig(true);
+        const newConfig = {
+          ...editableConfig,
+          taecelApiKey: newKey,
+          taecelNip: newNip,
+          taecelEnabled: true
+        };
+        
+        setEditableConfig(newConfig);
+        if (onSaveConfig) onSaveConfig(newConfig);
+        setShowRegisterTaecelModal(false);
+        triggerPrintToast('🎉', 'Cuenta Registrada', 'Tu cuenta de Taecel ha sido creada exitosamente.');
+      } else {
+        alert('Error en el registro: ' + (res.message || 'Respuesta de servidor inválida.'));
+      }
+    } catch (err: any) {
+      alert('Error de conexión: ' + (err.message || err));
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
   // Estados para Hub de Acción Rápida (+), Catálogo POS Flotante y Historial de Ventas POS
   const [showQuickActionHubModal, setShowQuickActionHubModal] = useState(false);
   const [showPosCatalogModal, setShowPosCatalogModal] = useState(false);
@@ -1889,6 +1996,9 @@ export default function MobileApp({
   const [showCancelSaleConfirm, setShowCancelSaleConfirm] = useState(false);
   const [isCancellationMode, setIsCancellationMode] = useState(false);
   const [refundQuantities, setRefundQuantities] = useState<number[]>([]);
+  const [mobilePosSubTab, setMobilePosSubTab] = useState<'ventas' | 'recargas' | 'activaciones'>('ventas');
+  const [mobileHistoryPage, setMobileHistoryPage] = useState(1);
+  const [selectedMobileActivation, setSelectedMobileActivation] = useState<ChipActivation | null>(null);
 
   const currentSaleDetail = selectedPosSaleDetail
     ? (sales.find((s) => s.id === selectedPosSaleDetail.id) || selectedPosSaleDetail)
@@ -8772,7 +8882,7 @@ export default function MobileApp({
             calculatedChange = Math.max(0, posCashPaid - totalCartAmount);
           }
 
-          const nextSaleId = generateNextSaleId(sales || [], 'C');
+          const nextSaleId = generateNextSaleId(sales || [], 'EC');
           const ticketNumberStr = nextSaleId.replace(/\D/g, '');
 
           const saleData = {
@@ -8963,43 +9073,101 @@ export default function MobileApp({
 
         // TAB 1: HISTORIAL DE VENTAS POS / MOSTRADOR
         const allSalesList = sales || [];
-        const todaySales = allSalesList.filter(s => {
-          const sDate = new Date(s.createdAt).toDateString();
-          return sDate === new Date().toDateString();
-        });
+        const allActivationsList = chipActivations || [];
 
-        const todayTotalRevenue = todaySales.reduce((acc, s) => acc + (s.total || 0), 0);
+        // Filter elements for the list
+        let filteredList: any[] = [];
 
-        const filteredSales = allSalesList.filter(s => {
-          const query = posSalesSearchQuery.toLowerCase().trim();
-          const matchesQuery = !query || 
-            (s.ticketNumber || s.id || '').toLowerCase().includes(query) ||
-            (s.clientName || '').toLowerCase().includes(query) ||
-            (s.items || []).some(i => (i.name || i.itemId || '').toLowerCase().includes(query));
+        if (mobilePosSubTab === 'ventas' || mobilePosSubTab === 'recargas') {
+          filteredList = allSalesList.filter(s => {
+            // First check subtab
+            const isRec = isRechargeSale(s);
+            if (mobilePosSubTab === 'ventas' && isRec) return false;
+            if (mobilePosSubTab === 'recargas' && !isRec) return false;
 
-          if (posSalesDateFilter === 'all') return matchesQuery;
+            // Search Term Filter
+            const query = posSalesSearchQuery.toLowerCase().trim();
+            const matchesQuery = !query || 
+              (s.ticketNumber || s.id || '').toLowerCase().includes(query) ||
+              (s.clientName || '').toLowerCase().includes(query) ||
+              (s.items || []).some(i => (i.name || i.itemId || '').toLowerCase().includes(query));
 
-          const saleDate = new Date(s.createdAt);
-          const now = new Date();
+            if (!matchesQuery) return false;
 
-          let matchesDate = true;
-          if (posSalesDateFilter === 'today') {
-            matchesDate = saleDate.getFullYear() === now.getFullYear() &&
-                          saleDate.getMonth() === now.getMonth() &&
-                          saleDate.getDate() === now.getDate();
-          } else if (posSalesDateFilter === 'week') {
-            const diffTime = now.getTime() - saleDate.getTime();
-            const diffDays = diffTime / (1000 * 60 * 60 * 24);
-            matchesDate = diffDays >= 0 && diffDays <= 7;
-          } else if (posSalesDateFilter === 'month') {
-            matchesDate = saleDate.getFullYear() === now.getFullYear() &&
-                          saleDate.getMonth() === now.getMonth();
-          } else if (posSalesDateFilter === 'year') {
-            matchesDate = saleDate.getFullYear() === now.getFullYear();
-          }
+            // Date Filter
+            if (posSalesDateFilter === 'all') return true;
 
-          return matchesQuery && matchesDate;
-        }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            const saleDate = new Date(s.createdAt);
+            const now = new Date();
+
+            if (posSalesDateFilter === 'today') {
+              return saleDate.getFullYear() === now.getFullYear() &&
+                     saleDate.getMonth() === now.getMonth() &&
+                     saleDate.getDate() === now.getDate();
+            } else if (posSalesDateFilter === 'week') {
+              const diffTime = now.getTime() - saleDate.getTime();
+              const diffDays = diffTime / (1000 * 60 * 60 * 24);
+              return diffDays >= 0 && diffDays <= 7;
+            } else if (posSalesDateFilter === 'month') {
+              return saleDate.getFullYear() === now.getFullYear() &&
+                     saleDate.getMonth() === now.getMonth();
+            } else if (posSalesDateFilter === 'year') {
+              return saleDate.getFullYear() === now.getFullYear();
+            }
+
+            return true;
+          }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        } else {
+          // Activaciones
+          filteredList = allActivationsList.filter(act => {
+            // Search Term Filter
+            const query = posSalesSearchQuery.toLowerCase().trim();
+            const matchesQuery = !query ||
+              (act.id || '').toLowerCase().includes(query) ||
+              (act.clientName || '').toLowerCase().includes(query) ||
+              (((act as any).company || act.carrier || '') || '').toLowerCase().includes(query) ||
+              (act.iccid || '').toLowerCase().includes(query) ||
+              (act.imei || '').toLowerCase().includes(query) ||
+              ((act.chipNumber || (act as any).phoneNumber || '') || '').toLowerCase().includes(query);
+
+            if (!matchesQuery) return false;
+
+            // Date Filter
+            if (posSalesDateFilter === 'all') return true;
+
+            const actDate = new Date((act as any).createdAt || act.date || act.updatedAt || '');
+            const now = new Date();
+
+            if (posSalesDateFilter === 'today') {
+              return actDate.getFullYear() === now.getFullYear() &&
+                     actDate.getMonth() === now.getMonth() &&
+                     actDate.getDate() === now.getDate();
+            } else if (posSalesDateFilter === 'week') {
+              const diffTime = now.getTime() - actDate.getTime();
+              const diffDays = diffTime / (1000 * 60 * 60 * 24);
+              return diffDays >= 0 && diffDays <= 7;
+            } else if (posSalesDateFilter === 'month') {
+              return actDate.getFullYear() === now.getFullYear() &&
+                     actDate.getMonth() === now.getMonth();
+            } else if (posSalesDateFilter === 'year') {
+              return actDate.getFullYear() === now.getFullYear();
+            }
+
+            return true;
+          }).sort((a, b) => new Date((b as any).createdAt || b.date || b.updatedAt || '').getTime() - new Date((a as any).createdAt || a.date || a.updatedAt || '').getTime());
+        }
+
+        // Calculate totals based on filteredList (overall)
+        const todayCount = filteredList.length;
+        const todayRevenue = mobilePosSubTab === 'activaciones'
+          ? filteredList.reduce((acc, act) => acc + (act.price || 0), 0)
+          : filteredList.filter(s => !s.isCancelled).reduce((acc, s) => acc + (s.total || 0), 0);
+
+        // Calculate paginated list for mobile
+        const mobileItemsPerPage = 20;
+        const totalMobilePages = Math.ceil(filteredList.length / mobileItemsPerPage);
+        const startIndex = (mobileHistoryPage - 1) * mobileItemsPerPage;
+        const paginatedList = filteredList.slice(startIndex, startIndex + mobileItemsPerPage);
 
         return (
           <>
@@ -9043,6 +9211,38 @@ export default function MobileApp({
                 </div>
               </div>
 
+              {/* Selector de Sub-pestaña */}
+              <div className={`flex gap-1.5 p-1 rounded-2xl mb-3 border ${
+                isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-zinc-950/40 border-zinc-800'
+              }`}>
+                {(['ventas', 'recargas', 'activaciones'] as const).map(tab => {
+                  const isSel = mobilePosSubTab === tab;
+                  const label = {
+                    ventas: '📊 Ventas',
+                    recargas: '⚡ Recargas',
+                    activaciones: '📱 Chips SIM'
+                  }[tab];
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => { setMobilePosSubTab(tab); setMobileHistoryPage(1); }}
+                      className={`flex-1 py-2 text-center text-xs font-extrabold rounded-xl transition-all active:scale-95 cursor-pointer ${
+                        isSel
+                          ? (isLight 
+                              ? 'bg-white text-blue-600 shadow-sm' 
+                              : 'bg-zinc-900 text-emerald-400 shadow')
+                          : (isLight 
+                              ? 'text-slate-500 hover:text-slate-800' 
+                              : 'text-zinc-400 hover:text-zinc-200')
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* Stats Bar */}
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <div className={`p-3 rounded-2xl border flex items-center gap-3 ${
@@ -9052,8 +9252,10 @@ export default function MobileApp({
                     🧾
                   </div>
                   <div>
-                    <span className="text-[9px] font-black uppercase text-zinc-400 block leading-none">Ventas de Hoy</span>
-                    <span className="text-sm font-black font-mono mt-0.5 block">{todaySales.length} comprobante(s)</span>
+                    <span className="text-[9px] font-black uppercase text-zinc-400 block leading-none">
+                      {mobilePosSubTab === 'ventas' ? 'Ventas Totales' : mobilePosSubTab === 'recargas' ? 'Recargas Totales' : 'Chips SIM Totales'}
+                    </span>
+                    <span className="text-sm font-black font-mono mt-0.5 block">{todayCount} registro(s)</span>
                   </div>
                 </div>
 
@@ -9064,8 +9266,12 @@ export default function MobileApp({
                     💵
                   </div>
                   <div>
-                    <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 block leading-none">Ingreso Total Hoy</span>
-                    <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5 block">{config.currencySymbol || '$'}{todayTotalRevenue.toFixed(2)}</span>
+                    <span className="text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 block leading-none">
+                      {mobilePosSubTab === 'ventas' ? 'Ingreso Total' : mobilePosSubTab === 'recargas' ? 'Monto Recargas' : 'Monto Cobrado'}
+                    </span>
+                    <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5 block">
+                      {config.currencySymbol || '$'}{todayRevenue.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -9075,7 +9281,7 @@ export default function MobileApp({
                 <input
                   type="text"
                   value={posSalesSearchQuery}
-                  onChange={(e) => setPosSalesSearchQuery(e.target.value)}
+                  onChange={(e) => { setPosSalesSearchQuery(e.target.value); setMobileHistoryPage(1); }}
                   placeholder="Buscar venta por folio, cliente o artículo..."
                   className={`w-full h-11 pl-10 pr-9 text-xs font-bold rounded-2xl focus:outline-none border ${
                     isLight 
@@ -9087,7 +9293,7 @@ export default function MobileApp({
                 {posSalesSearchQuery && (
                   <button 
                     type="button" 
-                    onClick={() => setPosSalesSearchQuery('')} 
+                    onClick={() => { setPosSalesSearchQuery(''); setMobileHistoryPage(1); }} 
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 font-bold text-xs cursor-pointer"
                   >
                     ✕
@@ -9110,7 +9316,7 @@ export default function MobileApp({
                     <button
                       key={f}
                       type="button"
-                      onClick={() => setPosSalesDateFilter(f)}
+                      onClick={() => { setPosSalesDateFilter(f); setMobileHistoryPage(1); }}
                       className={`px-3.5 py-1.5 rounded-2xl text-[10px] font-black uppercase whitespace-nowrap transition-all active:scale-95 cursor-pointer border ${
                         isSel
                           ? 'bg-blue-600 text-white border-blue-500 dark:bg-violet-600 dark:border-violet-500 shadow-sm'
@@ -9126,138 +9332,239 @@ export default function MobileApp({
 
             {/* List of Sales Cards */}
             <div data-view="pos-sales-list" className="flex-1 overflow-y-auto px-5 py-2 flex flex-col gap-3 pb-24">
-              {filteredSales.length === 0 ? (
+              {filteredList.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-2">
                   <FileText className="w-10 h-10 text-zinc-400 opacity-40" />
-                  <p className="text-xs font-bold text-zinc-400">No hay ventas registradas con este criterio.</p>
+                  <p className="text-xs font-bold text-zinc-400">
+                    {mobilePosSubTab === 'activaciones' 
+                      ? 'No hay activaciones de chips SIM registradas.' 
+                      : 'No hay ventas registradas con este criterio.'}
+                  </p>
                 </div>
               ) : (
-                filteredSales.map(sale => {
-                  const saleDate = new Date(sale.createdAt);
-                  const dateStr = saleDate.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                  const timeStr = saleDate.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-                  const itemsCount = (sale.items || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
-                  const isSaleCancelled = sale.isCancelled;
+                paginatedList.map(item => {
+                  if (mobilePosSubTab === 'ventas' || mobilePosSubTab === 'recargas') {
+                    const sale = item as Sale;
+                    const saleDate = new Date(sale.createdAt);
+                    const dateStr = saleDate.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    const timeStr = saleDate.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                    const itemsCount = (sale.items || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
+                    const isSaleCancelled = sale.isCancelled;
 
-                  return (
-                    <div
-                      key={sale.id}
-                      onClick={() => setSelectedPosSaleDetail(sale)}
-                      className={`p-4 rounded-3xl border flex flex-col gap-2.5 transition-all shadow-xs cursor-pointer active:scale-[0.99] ${
-                        isLight ? 'bg-white border-slate-200 hover:border-blue-300' : 'bg-zinc-900/90 border-zinc-800 hover:border-zinc-700'
-                      } ${isSaleCancelled ? 'opacity-60 bg-red-950/[0.01]' : ''}`}
-                    >
-                      {/* Top Row: Folio + Badge + Date */}
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-black font-mono ${isSaleCancelled ? 'line-through text-zinc-400' : 'text-blue-600 dark:text-violet-400'}`}>
-                            {sale.id}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                            isSaleCancelled
-                              ? (isLight ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-red-950/40 text-red-400 border border-red-900/30')
-                              : (sale.paymentMethod || '').toLowerCase().includes('tarjeta') || (sale.paymentMethod || '').toLowerCase().includes('digital')
-                                ? (isLight ? 'bg-purple-100 text-purple-700' : 'bg-purple-950/60 text-purple-300')
-                                : (sale.paymentMethod || '').toLowerCase().includes('mixto')
-                                  ? (isLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-950/60 text-amber-300')
-                                  : (isLight ? 'bg-emerald-100 text-emerald-850' : 'bg-emerald-950/65 text-emerald-300')
-                          }`}>
-                            {isSaleCancelled ? '⚠️ CANCELADA' : (sale.paymentMethod || 'Efectivo')}
-                          </span>
+                    return (
+                      <div
+                        key={sale.id}
+                        onClick={() => setSelectedPosSaleDetail(sale)}
+                        className={`p-4 rounded-3xl border flex flex-col gap-2.5 transition-all shadow-xs cursor-pointer active:scale-[0.99] ${
+                          isLight ? 'bg-white border-slate-200 hover:border-blue-300' : 'bg-zinc-900/90 border-zinc-800 hover:border-zinc-700'
+                        } ${isSaleCancelled ? 'opacity-60 bg-red-950/[0.01]' : ''}`}
+                      >
+                        {/* Top Row: Folio + Badge + Date */}
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-black font-mono ${isSaleCancelled ? 'line-through text-zinc-400' : 'text-blue-600 dark:text-violet-400'}`}>
+                              {sale.id}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                              isSaleCancelled
+                                ? (isLight ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-red-950/40 text-red-400 border border-red-900/30')
+                                : (sale.paymentMethod || '').toLowerCase().includes('tarjeta') || (sale.paymentMethod || '').toLowerCase().includes('digital')
+                                  ? (isLight ? 'bg-purple-100 text-purple-700' : 'bg-purple-950/60 text-purple-300')
+                                  : (sale.paymentMethod || '').toLowerCase().includes('mixto')
+                                    ? (isLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-950/60 text-amber-300')
+                                    : (isLight ? 'bg-emerald-100 text-emerald-850' : 'bg-emerald-950/65 text-emerald-300')
+                            }`}>
+                              {isSaleCancelled ? '⚠️ CANCELADA' : (sale.paymentMethod || 'Efectivo')}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono text-zinc-400 font-bold">{dateStr} {timeStr}</span>
                         </div>
-                        <span className="text-[10px] font-mono text-zinc-400 font-bold">{dateStr} {timeStr}</span>
-                      </div>
 
-                      {/* Middle: Client + Items */}
-                      <div className="flex justify-between items-end pt-1">
-                        <div className="min-w-0 flex-1 pr-2">
-                          <span className={`text-xs font-black block truncate ${isSaleCancelled ? 'line-through text-zinc-400' : 'text-slate-800 dark:text-white'}`}>
-                            👤 {sale.clientName || 'Cliente General'}
-                          </span>
-                          <span className={`text-[10.5px] font-medium block mt-0.5 break-all whitespace-normal ${isSaleCancelled ? 'line-through text-zinc-500 opacity-60' : 'text-zinc-400'}`}>
-                            📦 {itemsCount} artículo(s): {(sale.items || []).map(i => `${i.quantity}x ${i.name || i.itemId}`).join(', ')}
-                          </span>
+                        {/* Middle: Client + Items */}
+                        <div className="flex justify-between items-end pt-1">
+                          <div className="min-w-0 flex-1 pr-2">
+                            <span className={`text-xs font-black block truncate ${isSaleCancelled ? 'line-through text-zinc-400' : 'text-slate-800 dark:text-white'}`}>
+                              👤 {sale.clientName || 'Cliente General'}
+                            </span>
+                            <span className={`text-[10.5px] font-medium block mt-0.5 break-all whitespace-normal ${isSaleCancelled ? 'line-through text-zinc-500 opacity-60' : 'text-zinc-400'}`}>
+                              📦 {itemsCount} artículo(s): {(sale.items || []).map(i => `${i.quantity}x ${i.name || i.itemId}`).join(', ')}
+                            </span>
+                          </div>
+                          <div className="text-right shrink-0 ml-2">
+                            <span className="text-[9px] font-black text-zinc-400 uppercase block">Total Cobrado</span>
+                            <span className={`text-base font-black font-mono ${isSaleCancelled ? 'line-through text-red-500/50' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                              {config.currencySymbol || '$'}{(sale.total || 0).toFixed(2)}
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-right shrink-0 ml-2">
-                          <span className="text-[9px] font-black text-zinc-400 uppercase block">Total Cobrado</span>
-                          <span className={`text-base font-black font-mono ${isSaleCancelled ? 'line-through text-red-500/50' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                            {config.currencySymbol || '$'}{(sale.total || 0).toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
 
-                      {/* Action Buttons: WhatsApp + Imprimir */}
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            try {
-                              const ticketHtml = buildPosTicketHtml(sale as any, config);
-                              const customMsg = `🧾 *COMPROBANTE DE COMPRA EN MOSTRADOR*\n\n📋 *Nota:* #${sale.ticketNumber || sale.id}\n👤 *Cliente:* ${sale.clientName || 'Cliente General'}\n💵 *Total Cobrado:* ${config.currencySymbol || '$'}${(sale.total || 0).toFixed(2)} (${sale.paymentMethod || 'Efectivo'})\n\nLe adjunto la imagen digital de su nota de compra:`;
-                              renderTicketToImageAndShare(ticketHtml, sale.clientPhone || '', sale.clientCountryCode || '52', customMsg);
-                            } catch (err) {
-                              console.error('Error enviando ticket por WhatsApp:', err);
-                            }
-                          }}
-                          className="py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase flex items-center gap-1 active:scale-95 cursor-pointer shadow-xs"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 fill-white text-emerald-600" />
-                          <span>WhatsApp</span>
-                        </button>
-
-                         <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            try {
-                              const ticketHtml = buildPosTicketHtml(sale as any, config);
-                              const eAPI = (window as any).electronAPI;
-                              if (eAPI) {
-                                const effectivePosWidth = config.hybridPrintMode
-                                  ? (config.posPaperWidth || '80mm')
-                                  : (config.ticketPaperWidth || '80mm');
-                                const paperWidthMicrons = effectivePosWidth === '58mm' ? 48000 : effectivePosWidth === 'media-carta-duplicado' ? 210000 : effectivePosWidth === 'media-carta' ? 215900 : 72000;
-                                const paperHeightMicrons = effectivePosWidth === 'media-carta' ? 139700 : effectivePosWidth === 'media-carta-duplicado' ? 297000 : undefined;
-                                const deviceName = config.hybridPrintMode
-                                  ? (config.posPrinterBrand || config.ticketPrinterBrand || undefined)
-                                  : (config.ticketPrinterBrand || undefined);
-
-                                window.dispatchEvent(new CustomEvent('fm-silent-print', {
-                                  detail: {
-                                    html: ticketHtml,
-                                    deviceName,
-                                    paperWidthMicrons,
-                                    paperHeightMicrons,
-                                    copies: config.printCopies || 1,
-                                    isLabel: false
-                                  }
-                                }));
-
-                                const printerName = ticketConnectedPrinter || connectedPrinterName || 'Impresora del Sistema';
-                                triggerPrintToast(
-                                  '🖨️',
-                                  'Ticket Reimpreso',
-                                  `Reimpresión enviada automáticamente a ${printerName}`
-                                );
-                              } else {
-                                printMobileHtml(ticketHtml, false);
+                        {/* Action Buttons: WhatsApp + Imprimir */}
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              try {
+                                const ticketHtml = buildPosTicketHtml(sale as any, config);
+                                const customMsg = `🧾 *COMPROBANTE DE COMPRA EN MOSTRADOR*\n\n📋 *Nota:* #${sale.ticketNumber || sale.id}\n👤 *Cliente:* ${sale.clientName || 'Cliente General'}\n💵 *Total Cobrado:* ${config.currencySymbol || '$'}${(sale.total || 0).toFixed(2)} (${sale.paymentMethod || 'Efectivo'})\n\nLe adjunto la imagen digital de su nota de compra:`;
+                                renderTicketToImageAndShare(ticketHtml, sale.clientPhone || '', sale.clientCountryCode || '52', customMsg);
+                              } catch (err) {
+                                console.error('Error enviando ticket por WhatsApp:', err);
                               }
-                            } catch (err) {
-                              console.error('Error imprimiendo ticket POS:', err);
-                            }
-                          }}
-                          className={`py-1.5 px-3 rounded-xl font-black text-[10px] uppercase flex items-center gap-1 active:scale-95 cursor-pointer border ${
-                            isLight ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200' : 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-750'
-                          }`}
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>Imprimir</span>
-                        </button>
+                            }}
+                            className="py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase flex items-center gap-1 active:scale-95 cursor-pointer shadow-xs"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 fill-white text-emerald-600" />
+                            <span>WhatsApp</span>
+                          </button>
+
+                           <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              try {
+                                const ticketHtml = buildPosTicketHtml(sale as any, config);
+                                const eAPI = (window as any).electronAPI;
+                                if (eAPI) {
+                                  const effectivePosWidth = config.hybridPrintMode
+                                    ? (config.posPaperWidth || '80mm')
+                                    : (config.ticketPaperWidth || '80mm');
+                                  const paperWidthMicrons = effectivePosWidth === '58mm' ? 48000 : effectivePosWidth === 'media-carta-duplicado' ? 210000 : effectivePosWidth === 'media-carta' ? 215900 : 72000;
+                                  const paperHeightMicrons = effectivePosWidth === 'media-carta' ? 139700 : effectivePosWidth === 'media-carta-duplicado' ? 297000 : undefined;
+                                  const deviceName = config.hybridPrintMode
+                                    ? (config.posPrinterBrand || config.ticketPrinterBrand || undefined)
+                                    : (config.ticketPrinterBrand || undefined);
+
+                                  window.dispatchEvent(new CustomEvent('fm-silent-print', {
+                                    detail: {
+                                      html: ticketHtml,
+                                      deviceName,
+                                      paperWidthMicrons,
+                                      paperHeightMicrons,
+                                      copies: config.printCopies || 1,
+                                      isLabel: false
+                                    }
+                                  }));
+
+                                  const printerName = ticketConnectedPrinter || connectedPrinterName || 'Impresora del Sistema';
+                                  triggerPrintToast(
+                                    '🖨️',
+                                    'Ticket Reimpreso',
+                                    `Reimpresión enviada automáticamente a ${printerName}`
+                                  );
+                                } else {
+                                  printMobileHtml(ticketHtml, false);
+                                }
+                              } catch (err) {
+                                console.error('Error imprimiendo ticket POS:', err);
+                              }
+                            }}
+                            className={`py-1.5 px-3 rounded-xl font-black text-[10px] uppercase flex items-center gap-1 active:scale-95 cursor-pointer border ${
+                              isLight ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200' : 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-750'
+                            }`}
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>Imprimir</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
+                    );
+                  } else {
+                    const act = item as ChipActivation;
+                    const actDate = new Date((act as any).createdAt || act.date || act.updatedAt || '');
+                    const dateStr = actDate.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    const timeStr = actDate.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                    const carrier = (act as any).company || act.carrier || 'Desconocido';
+
+                    return (
+                      <div
+                        key={act.id}
+                        onClick={() => setSelectedMobileActivation(act)}
+                        className={`p-4 rounded-3xl border flex flex-col gap-2.5 transition-all shadow-xs cursor-pointer active:scale-[0.99] ${
+                          isLight 
+                            ? 'bg-white border-slate-200 hover:border-slate-350 shadow-sm text-slate-800' 
+                            : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-100'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-black font-mono px-2 py-0.5 rounded-lg ${
+                              isLight ? 'bg-slate-100 text-slate-600' : 'bg-zinc-800 text-zinc-400'
+                            }`}>
+                              📱 SIM
+                            </span>
+                            <span className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-lg ${
+                              carrier.toUpperCase().includes('TELCEL') ? 'bg-blue-105 text-blue-800' :
+                              carrier.toUpperCase().includes('MOVISTAR') ? 'bg-green-105 text-green-800' :
+                              carrier.toUpperCase().includes('AT&T') || carrier.toUpperCase().includes('ATT') ? 'bg-blue-950 text-blue-200' :
+                              'bg-zinc-100 text-zinc-800'
+                            }`}>
+                              {carrier}
+                            </span>
+                          </div>
+                          <span className={`text-[10px] font-black font-mono ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                            {dateStr} • {timeStr}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-end">
+                          <div>
+                            <div className="text-base font-black font-mono text-blue-500">{act.chipNumber || (act as any).phoneNumber || '—'}</div>
+                            <div className="text-[10.5px] font-bold text-zinc-400 mt-0.5">Cliente: {act.clientName || 'Público General'}</div>
+                            {act.iccid && <div className="text-[9px] font-mono text-zinc-500">ICCID: {act.iccid}</div>}
+                          </div>
+                          <div className="text-right shrink-0 ml-2">
+                            <div className="text-[9px] font-black text-zinc-400 uppercase block">Precio Cobrado</div>
+                            <div className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400">
+                              {config.currencySymbol || '$'}{(act.price || 0).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
                 })
+              )}
+
+              {/* Mobile Pagination Controls */}
+              {totalMobilePages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-zinc-150 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    disabled={mobileHistoryPage === 1}
+                    onClick={() => setMobileHistoryPage(prev => Math.max(prev - 1, 1))}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer border ${
+                      mobileHistoryPage === 1
+                        ? (isLight 
+                            ? 'opacity-40 cursor-not-allowed border-slate-200 text-slate-400 bg-slate-50/50' 
+                            : 'opacity-40 cursor-not-allowed border-zinc-800 text-zinc-650 bg-zinc-900/30')
+                        : (isLight 
+                            ? 'bg-white border-slate-250 text-slate-700 hover:bg-slate-50 shadow-xs' 
+                            : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800')
+                    }`}
+                  >
+                    ◀ Anterior
+                  </button>
+                  <span className="text-[10px] font-black uppercase text-zinc-500">
+                    Pág. {mobileHistoryPage} de {totalMobilePages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={mobileHistoryPage === totalMobilePages}
+                    onClick={() => setMobileHistoryPage(prev => Math.min(prev + 1, totalMobilePages))}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer border ${
+                      mobileHistoryPage === totalMobilePages
+                        ? (isLight 
+                            ? 'opacity-40 cursor-not-allowed border-slate-200 text-slate-400 bg-slate-50/50' 
+                            : 'opacity-40 cursor-not-allowed border-zinc-800 text-zinc-650 bg-zinc-900/30')
+                        : (isLight 
+                            ? 'bg-white border-slate-250 text-slate-700 hover:bg-slate-50 shadow-xs' 
+                            : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800')
+                    }`}
+                  >
+                    Siguiente ▶
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -11492,15 +11799,19 @@ export default function MobileApp({
           <button 
             type="button"
             onClick={() => {
-              if (currentUser?.role !== 'admin' && currentUser?.name?.toLowerCase() !== 'administrador' && currentUser?.permissions?.canAccessConfig !== true) {
-                alert('No tienes permisos de Administrador para acceder a los Ajustes de Sincronización.');
-                return;
+              if (localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true') {
+                (window as any).triggerCloudSync?.();
+              } else {
+                if (currentUser?.role !== 'admin' && currentUser?.name?.toLowerCase() !== 'administrador' && currentUser?.permissions?.canAccessConfig !== true) {
+                  alert('No tienes permisos de Administrador para acceder a los Ajustes de Sincronización.');
+                  return;
+                }
+                setSettingsActiveTab('negocio');
+                setNegocioSubTab('respaldos');
+                const stored = (() => { try { return JSON.parse(localStorage.getItem('fixmanager_config') || '{}'); } catch(e) { return {}; } })();
+                setEditableConfig({ ...config, ...stored });
+                setShowSystemSettingsModal(true);
               }
-              setSettingsActiveTab('negocio');
-              setNegocioSubTab('respaldos');
-              const stored = (() => { try { return JSON.parse(localStorage.getItem('fixmanager_config') || '{}'); } catch(e) { return {}; } })();
-              setEditableConfig({ ...config, ...stored });
-              setShowSystemSettingsModal(true);
             }}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90 cursor-pointer shadow-sm relative ${
               isLight ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30' : 'bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-700'
@@ -18424,7 +18735,13 @@ export default function MobileApp({
 
       {/* ── MODAL CENTRO DE CONFIGURACIÓN GENERAL DEL SISTEMA (AJUSTES MÓVIL) ── */}
       {showSystemSettingsModal && (
-        <div className="fixed inset-0 z-[100000] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in select-none">
+        <div 
+          style={{ 
+            bottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0px',
+            transition: 'bottom 0.22s cubic-bezier(0.32, 0.72, 0, 1)'
+          }}
+          className="fixed inset-0 z-[100000] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in select-none"
+        >
           {/* Backdrop Oscuro */}
           <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={() => setShowSystemSettingsModal(false)} />
 
@@ -19976,90 +20293,160 @@ export default function MobileApp({
 
                       {(editableConfig.taecelEnabled ?? (editableConfig.taecelApiKey ? true : false)) && (
                         <>
-                          {/* API Key */}
-                          <div>
-                            <label className="text-[10px] font-black uppercase tracking-wider block mb-1">API Key de Taecel</label>
-                            <input
-                              type="text"
-                              placeholder="Ingresa la API Key..."
-                              value={editableConfig.taecelApiKey || ''}
-                              onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelApiKey: e.target.value }))}
-                              className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
-                                isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
-                              }`}
-                            />
-                          </div>
+                          {/* BANNER REGISTRO DE RED MÓVIL */}
+                          {!mobileHasCredentials && (
+                            <div className={`p-4 rounded-2xl border flex flex-col gap-2 ${
+                              isLight ? 'bg-amber-50/50 border-amber-200' : 'bg-amber-500/5 border-amber-500/20'
+                            }`}>
+                              <div className="space-y-0.5 text-left">
+                                <span className={`text-[10px] font-black uppercase tracking-wider block ${isLight ? 'text-amber-800' : 'text-amber-450'}`}>
+                                  🔑 ¿Aún no perteneces a Taecel?
+                                </span>
+                                <span className="text-[9px] text-zinc-450 font-semibold leading-normal block">
+                                  Crea tu cuenta de recargas de forma inmediata desde aquí.
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setShowRegisterTaecelModal(true)}
+                                className="w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-wider bg-amber-600 active:bg-amber-700 text-white active:scale-95 transition-all shadow-md shadow-amber-650/15 cursor-pointer text-center"
+                              >
+                                Crea tu cuenta desde aquí
+                              </button>
+                            </div>
+                          )}
 
-                          {/* NIP */}
-                          <div>
-                            <label className="text-[10px] font-black uppercase tracking-wider block mb-1">NIP de Taecel</label>
-                            <input
-                              type="password"
-                              placeholder="Ingresa tu NIP de Taecel..."
-                              value={editableConfig.taecelNip || ''}
-                              onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelNip: e.target.value }))}
-                              className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
-                                isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
-                              }`}
-                            />
-                          </div>
+                          {!mobileHasCredentials && !showMobileManualConfig && (
+                            <div className="flex justify-start text-xs pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setShowMobileManualConfig(true)}
+                                className={`font-black uppercase tracking-wider text-[9px] hover:underline cursor-pointer ${
+                                  isLight ? 'text-slate-650 hover:text-slate-900' : 'text-zinc-455 hover:text-white'
+                                }`}
+                              >
+                                🔑 Ya tengo una cuenta (Configurar manualmente)
+                              </button>
+                            </div>
+                          )}
 
-                          {/* Comisión Recarga */}
-                          <div>
-                            <label className="text-[10px] font-black uppercase tracking-wider block mb-1">Comisión por Recarga ($ MXN)</label>
-                            <input
-                              type="number"
-                              step="0.50"
-                              placeholder="3.00"
-                              value={editableConfig.taecelComisionRecarga !== undefined ? editableConfig.taecelComisionRecarga : ''}
-                              onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelComisionRecarga: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                              className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
-                                isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
-                              }`}
-                            />
-                          </div>
+                          {(mobileHasCredentials || showMobileManualConfig) && (
+                            <div className="flex flex-col gap-3.5">
+                              {mobileHasCredentials && !showMobileManualConfig && (
+                                <div className="flex justify-start">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowMobileManualConfig(true)}
+                                    className="text-[9px] font-black uppercase text-amber-600 hover:text-amber-500 hover:underline cursor-pointer"
+                                  >
+                                    ✏️ Editar credenciales manualmente
+                                  </button>
+                                </div>
+                              )}
 
-                          {/* Comisión Servicio */}
-                          <div>
-                            <label className="text-[10px] font-black uppercase tracking-wider block mb-1">Comisión por Pago de Servicios ($ MXN)</label>
-                            <input
-                              type="number"
-                              step="0.50"
-                              placeholder="10.00"
-                              value={editableConfig.taecelComisionServicio !== undefined ? editableConfig.taecelComisionServicio : ''}
-                              onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelComisionServicio: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
-                              className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
-                                isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
-                              }`}
-                            />
-                          </div>
-
-                          {/* Sandbox Toggle */}
-                          <div 
-                            onClick={() => {
-                              const newVal = editableConfig.taecelSandboxMode !== false;
-                              setEditableConfig(prev => ({ ...prev, taecelSandboxMode: !newVal }));
-                            }}
-                            className={`p-3 rounded-2xl border flex items-center justify-between transition-all cursor-pointer ${
-                              editableConfig.taecelSandboxMode !== false
-                                ? 'bg-amber-500/10 border-amber-500/40 text-amber-700 dark:text-amber-300'
-                                : isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-zinc-950 border-zinc-800 text-zinc-300'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <span className="text-xl">⚙️</span>
+                              {/* API Key */}
                               <div>
-                                <span className="text-xs font-black uppercase block leading-tight">Modo Sandbox / Simulador</span>
-                                <span className="text-[8px] font-semibold opacity-80 block">Permite simular transacciones de prueba sin saldo real.</span>
+                                <label className="text-[10px] font-black uppercase tracking-wider block mb-1">API Key de Taecel</label>
+                                <input
+                                  type="text"
+                                  placeholder="Ingresa la API Key..."
+                                  value={editableConfig.taecelApiKey || ''}
+                                  onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelApiKey: e.target.value }))}
+                                  readOnly={mobileHasCredentials && !showMobileManualConfig}
+                                  className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
+                                    mobileHasCredentials && !showMobileManualConfig ? 'opacity-70 cursor-not-allowed' : ''
+                                  } ${
+                                    isLight 
+                                      ? (mobileHasCredentials && !showMobileManualConfig ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-slate-50 border-slate-300 text-slate-800 focus:bg-white') 
+                                      : (mobileHasCredentials && !showMobileManualConfig ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-zinc-950 border-zinc-855 text-white focus:bg-zinc-900/60')
+                                  }`}
+                                />
+                              </div>
+
+                              {/* NIP */}
+                              <div>
+                                <label className="text-[10px] font-black uppercase tracking-wider block mb-1">NIP de Taecel</label>
+                                <input
+                                  type="password"
+                                  placeholder="Ingresa tu NIP de Taecel..."
+                                  value={editableConfig.taecelNip || ''}
+                                  onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelNip: e.target.value }))}
+                                  readOnly={mobileHasCredentials && !showMobileManualConfig}
+                                  className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
+                                    mobileHasCredentials && !showMobileManualConfig ? 'opacity-70 cursor-not-allowed' : ''
+                                  } ${
+                                    isLight 
+                                      ? (mobileHasCredentials && !showMobileManualConfig ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-slate-50 border-slate-300 text-slate-800 focus:bg-white') 
+                                      : (mobileHasCredentials && !showMobileManualConfig ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-zinc-950 border-zinc-855 text-white focus:bg-zinc-900/60')
+                                  }`}
+                                />
+                              </div>
+
+                              {/* Comisión Recarga */}
+                              <div>
+                                <label className="text-[10px] font-black uppercase tracking-wider block mb-1">Comisión por Recarga ($ MXN)</label>
+                                <input
+                                  type="number"
+                                  step="0.50"
+                                  placeholder="3.00"
+                                  value={editableConfig.taecelComisionRecarga !== undefined ? editableConfig.taecelComisionRecarga : ''}
+                                  onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelComisionRecarga: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                                  className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
+                                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
+                                  }`}
+                                />
+                              </div>
+
+                              {/* Comisión Servicio */}
+                              <div>
+                                <label className="text-[10px] font-black uppercase tracking-wider block mb-1">Comisión por Pago de Servicios ($ MXN)</label>
+                                <input
+                                  type="number"
+                                  step="0.50"
+                                  placeholder="10.00"
+                                  value={editableConfig.taecelComisionServicio !== undefined ? editableConfig.taecelComisionServicio : ''}
+                                  onChange={(e) => setEditableConfig(prev => ({ ...prev, taecelComisionServicio: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                                  className={`w-full h-10 px-3 text-xs font-bold font-mono rounded-xl border focus:outline-none ${
+                                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
+                                  }`}
+                                />
+                              </div>
+
+                              {/* Botón de probar conexión */}
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  onClick={handleMobileVerifyConnection}
+                                  disabled={mobileIsVerifying}
+                                  className={`w-full h-10 px-4 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                                    mobileIsVerifying 
+                                      ? 'opacity-50 cursor-not-allowed' 
+                                      : 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-[0.98]'
+                                  }`}
+                                >
+                                  {mobileIsVerifying ? (
+                                    <>
+                                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                      Verificando...
+                                    </>
+                                  ) : (
+                                    '⚡ Probar Conexión'
+                                  )}
+                                </button>
+
+                                {mobileVerificationResult && (
+                                  <div className={`mt-2.5 p-3 rounded-xl border text-[11px] font-bold flex items-start gap-2 ${
+                                    mobileVerificationResult.success
+                                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                                      : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+                                  }`}>
+                                    <span>{mobileVerificationResult.success ? '✅' : '❌'}</span>
+                                    <span className="leading-tight">{mobileVerificationResult.message}</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                            <input
-                              type="checkbox"
-                              checked={editableConfig.taecelSandboxMode !== false}
-                              readOnly
-                              className="w-4 h-4 rounded accent-amber-500"
-                            />
-                          </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -23000,6 +23387,7 @@ export default function MobileApp({
                   } catch (e) {
                     if (onSaveConfig) onSaveConfig(editableConfig);
                   }
+                  setShowMobileManualConfig(false);
                   triggerPrintToast('⚙️', 'Ajustes Guardados', 'Configuración del sistema actualizada');
                 }}
                 className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/30 cursor-pointer flex items-center justify-center gap-2"
@@ -23009,6 +23397,145 @@ export default function MobileApp({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* MODAL MÓVIL DE REGISTRO EN LA RED DE TAECEL */}
+      {showRegisterTaecelModal && (
+        <div className="fixed inset-0 z-[100060] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in select-none">
+          <form
+            onSubmit={handleMobileRegisterSubmit}
+            className={`w-full max-w-sm flex flex-col relative overflow-hidden rounded-3xl shadow-2xl animate-scale-up ${
+              isLight 
+                ? 'bg-white border border-zinc-200 text-zinc-900'
+                : 'bg-zinc-950 border border-zinc-900 text-zinc-100'
+            }`}
+          >
+            {/* Cabecera */}
+            <div className={`flex items-center justify-between p-4 border-b shrink-0 ${
+              isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-900' : 'bg-zinc-900 border-zinc-900 text-zinc-100'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl flex items-center justify-center ${
+                  isLight ? 'bg-amber-100 border border-amber-300 text-amber-800' : 'bg-amber-500/10 text-amber-400 border border-amber-500/25'
+                }`}>
+                  <span className="text-base">📱</span>
+                </div>
+                <div>
+                  <h4 className="text-[9px] font-mono font-black uppercase tracking-widest text-zinc-500">ALTA DE CUENTA</h4>
+                  <p className="text-sm font-sans font-black">Registro Taecel</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRegisterTaecelModal(false)}
+                className={`w-8 h-8 flex items-center justify-center cursor-pointer transition-all rounded-xl ${
+                  isLight ? 'bg-zinc-100 border border-zinc-200 hover:bg-zinc-200 text-zinc-700' : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-400'
+                }`}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Formulario */}
+            <div className="p-5 space-y-3.5 overflow-y-auto max-h-[55vh] text-left text-xs font-semibold leading-relaxed">
+              <p className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>
+                Crea tu cuenta de recargas vinculada a nuestra red de distribución de forma automática.
+              </p>
+              
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Nombre *</label>
+                <input
+                  type="text"
+                  required
+                  value={regNombre}
+                  onChange={(e) => setRegNombre(e.target.value)}
+                  className={`w-full h-10 px-3 rounded-xl border focus:outline-none ${
+                    isLight ? 'bg-zinc-50 border-zinc-300 text-zinc-800 focus:bg-white' : 'bg-zinc-900 border-zinc-850 text-white focus:bg-zinc-900/60'
+                  }`}
+                  placeholder="Tu primer nombre"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Apellidos *</label>
+                <input
+                  type="text"
+                  required
+                  value={regApellidos}
+                  onChange={(e) => setRegApellidos(e.target.value)}
+                  className={`w-full h-10 px-3 rounded-xl border focus:outline-none ${
+                    isLight ? 'bg-zinc-50 border-zinc-300 text-zinc-800 focus:bg-white' : 'bg-zinc-900 border-zinc-850 text-white focus:bg-zinc-900/60'
+                  }`}
+                  placeholder="Tus apellidos"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Correo Electrónico *</label>
+                <input
+                  type="email"
+                  required
+                  value={regCorreo}
+                  onChange={(e) => setRegCorreo(e.target.value)}
+                  className={`w-full h-10 px-3 rounded-xl border focus:outline-none ${
+                    isLight ? 'bg-zinc-50 border-zinc-300 text-zinc-800 focus:bg-white' : 'bg-zinc-900 border-zinc-850 text-white focus:bg-zinc-900/60'
+                  }`}
+                  placeholder="correo@ejemplo.com"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Teléfono Celular *</label>
+                <input
+                  type="tel"
+                  required
+                  maxLength={14}
+                  value={regTelefono}
+                  onChange={(e) => setRegTelefono(formatPhoneNumber(e.target.value))}
+                  className={`w-full h-10 px-3 rounded-xl border focus:outline-none ${
+                    isLight ? 'bg-zinc-50 border-zinc-300 text-zinc-800 focus:bg-white' : 'bg-zinc-900 border-zinc-850 text-white focus:bg-zinc-900/60'
+                  }`}
+                  placeholder="(55) 1234-5678"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Nombre Comercial (Opcional)</label>
+                <input
+                  type="text"
+                  value={regNomComercial}
+                  onChange={(e) => setRegNomComercial(e.target.value)}
+                  className={`w-full h-10 px-3 rounded-xl border focus:outline-none ${
+                    isLight ? 'bg-zinc-50 border-zinc-300 text-zinc-800 focus:bg-white' : 'bg-zinc-900 border-zinc-850 text-white focus:bg-zinc-900/60'
+                  }`}
+                  placeholder="Nombre de tu local"
+                />
+              </div>
+            </div>
+
+            {/* Acciones */}
+            <div className={`p-4 border-t flex justify-end gap-2.5 shrink-0 ${
+              isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-zinc-900 border-zinc-900'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setShowRegisterTaecelModal(false)}
+                className={`px-4 h-10 text-xs font-bold rounded-xl border transition-all cursor-pointer select-none active:scale-95 shadow-sm ${
+                  isLight ? 'border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700' : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-850 text-zinc-400 hover:text-white'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={regLoading}
+                className="px-4 h-10 text-xs font-bold rounded-xl bg-amber-600 hover:bg-amber-500 text-white transition-all cursor-pointer select-none active:scale-95 shadow-md shadow-amber-600/10 flex items-center gap-1.5"
+              >
+                {regLoading ? 'Registrando...' : 'Registrar Cuenta'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -23600,6 +24127,121 @@ export default function MobileApp({
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL DETALLE DE ACTIVACION DE CHIP SELECCIONADA ───────────────────── */}
+      {selectedMobileActivation && (
+        <div className="fixed inset-0 z-[100000] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-xs animate-fade-in select-none">
+          <div className="absolute inset-0" onClick={() => setSelectedMobileActivation(null)} />
+          <div 
+            style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom, 0px))' }}
+            className={`relative w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl z-10 flex flex-col gap-3.5 max-h-[85vh] overflow-y-auto ${
+              isLight ? 'bg-white text-slate-900' : 'bg-[#0c1224] text-white border border-zinc-800'
+            }`}
+          >
+            <div className="w-12 h-1.5 rounded-full bg-zinc-400/40 mx-auto mb-1" />
+            <div className="flex justify-between items-center border-b pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 block">DETALLE DE ACTIVACIÓN DE CHIP</span>
+                <h3 className="text-base font-black uppercase tracking-tight font-mono text-blue-500">
+                  {selectedMobileActivation.company || selectedMobileActivation.carrier || 'Chip SIM'}
+                </h3>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-2xl border text-xs flex flex-col gap-3 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#151d36] border-[#222a48]'
+            }`}>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">Número:</span>
+                <span className="font-black text-sm font-mono text-blue-500">{selectedMobileActivation.chipNumber || selectedMobileActivation.phoneNumber || '—'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">ICCID:</span>
+                <span className="font-mono text-xs">{selectedMobileActivation.iccid || '—'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">IMEI:</span>
+                <span className="font-mono text-xs">{selectedMobileActivation.imei || '—'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">Cliente:</span>
+                <span className="font-bold">{selectedMobileActivation.clientName || 'Público General'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">Contacto:</span>
+                <span className="font-mono">{selectedMobileActivation.clientPhone || '—'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">Folio Venta:</span>
+                <span className="font-mono">{selectedMobileActivation.saleId || '—'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">Fecha:</span>
+                <span className="font-mono">{new Date(selectedMobileActivation.createdAt || selectedMobileActivation.date).toLocaleString('es-MX')}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 font-bold uppercase text-[9px]">Precio de Venta:</span>
+                <span className="font-mono font-black text-emerald-500 text-sm">{config.currencySymbol || '$'}{(selectedMobileActivation.price || 0).toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 mt-2">
+              {/* Botón Reimprimir Ticket Digital */}
+              {selectedMobileActivation.saleId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const matchedSale = sales.find(s => s.id === selectedMobileActivation.saleId || s.ticketNumber === selectedMobileActivation.saleId);
+                    if (matchedSale) {
+                      setSelectedPosSaleDetail(matchedSale);
+                      setSelectedMobileActivation(null);
+                    } else {
+                      alert('No se encontró la venta asociada a esta activación.');
+                    }
+                  }}
+                  className={`w-full h-11 rounded-2xl flex items-center justify-center gap-2 font-black text-xs uppercase tracking-wider transition-all border active:scale-95 cursor-pointer ${
+                    isLight 
+                      ? 'bg-slate-100 border-slate-350 hover:bg-slate-200 text-slate-700' 
+                      : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  <FileText className="w-4 h-4 text-blue-500" />
+                  Ver Ticket Digital
+                </button>
+              )}
+
+              {/* Botón Eliminar Activación */}
+              {onDeleteChipActivation && (!currentUser || currentUser.permissions.canCancelSales) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`¿Realmente desea eliminar la activación del número ${selectedMobileActivation.chipNumber}?`)) {
+                      onDeleteChipActivation(selectedMobileActivation.id);
+                      setSelectedMobileActivation(null);
+                    }
+                  }}
+                  className="w-full h-11 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 transition-all text-rose-500 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border border-rose-500/20"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Eliminar Registro
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSelectedMobileActivation(null)}
+                className={`w-full h-11 rounded-2xl flex items-center justify-center font-black text-xs uppercase tracking-wider transition-all border active:scale-95 cursor-pointer ${
+                  isLight
+                    ? 'bg-white border-slate-300 hover:bg-slate-50 text-slate-700'
+                    : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-300'
+                }`}
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -24533,6 +25175,9 @@ export default function MobileApp({
         <MobileFiadosView
           accounts={creditAccounts || []}
           apartados={apartados || []}
+          inventory={inventory || []}
+          refacciones={refacciones || []}
+          clients={clients || []}
           config={config}
           currentUser={currentUser}
           isLight={isLight}
@@ -24540,6 +25185,7 @@ export default function MobileApp({
           onAddEntry={onAddCreditEntry || (() => {})}
           onAddPayment={onAddCreditPayment || (() => {})}
           onDeleteAccount={onDeleteCreditAccount || (() => {})}
+          onCreateCreditAccount={onCreateCreditAccount || (() => {})}
           onCreateApartado={onCreateApartado || (() => {})}
           onAddApartadoPayment={onAddApartadoPayment || (() => {})}
           onUpdateApartadoStatus={onUpdateApartadoStatus || (() => {})}

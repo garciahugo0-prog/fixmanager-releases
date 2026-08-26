@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { Calculator, ShoppingCart, Trash2, Coins, CreditCard, Sparkles, CheckCircle, Search, X, CornerDownLeft, FolderHeart, Archive, Info, XCircle, Users, Edit, Lock, Unlock, ShieldCheck, Wrench, Printer, MessageSquare, Smartphone, Star } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Calculator, ShoppingCart, Trash2, Coins, CreditCard, Sparkles, CheckCircle, Search, X, CornerDownLeft, FolderHeart, Archive, Info, XCircle, Users, Edit, Lock, Unlock, ShieldCheck, Wrench, Printer, MessageSquare, Smartphone, Star, AlertTriangle, Tag } from 'lucide-react';
 import { PosLogic, normalizeSearchText } from '../../hooks/usePosLogic';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
 import { logPriceCheck, markAddedToCart } from '../../utils/priceCheckLog';
@@ -12,18 +13,23 @@ import { buildPosTicketHtml } from '../../utils/ticketBuilder';
 import { getIndividualAdvance } from '../../utils/orderHelpers';
 import { handleCaretPreservingChange } from '../../utils/domHelpers';
 import { PosItemThumbnail } from './PosItemThumbnail';
+import { sendPosQuoteByWhatsapp } from '../../utils/whatsapp';
 
-interface Props { logic: PosLogic; }
+interface Props {
+  logic: PosLogic;
+  warehouses?: any[];
+}
 
-export default function PosModern({ logic }: Props) {
+export default function PosModern({ logic, warehouses = [] }: Props) {
   const {
-    config, sales, users, setActiveTab, onCancelSale,
+    config, sales, users, setActiveTab, onCancelSale, currentUser,
     basket, setBasket, isAdminMode, setIsAdminMode,
     editingItemId, setEditingItemId, editingPriceValue, setEditingPriceValue,
     paymentMethod, setPaymentMethod, cashAmount, setCashAmount,
     payCash, setPayCash, payCard, setPayCard,
     cardCode, setCardCode,
     lastSaleReceipt, searchQuery, setSearchQuery, selectedCategory, setSelectedCategory,
+    selectedSaleWarehouseId, setSelectedSaleWarehouseId,
     showClearConfirm, setShowClearConfirm, confirmationCode, setConfirmationCode,
     showSaleConfirm, setShowSaleConfirm, changeAmount, setChangeAmount,
     discountType, setDiscountType, discountValue, setDiscountValue, discountEnabled, setDiscountEnabled, discountAmount,
@@ -62,19 +68,23 @@ export default function PosModern({ logic }: Props) {
     modalFastSaleNameInputRef, modalFastSalePriceInputRef,
     fastSaleModalNameInputRef, fastSaleModalPriceInputRef,
     softCoinsTotal, matchedProductsForModal, exactMatch,
+    modalCategoryFilter, setModalCategoryFilter,
     paginatedModalItems, modalTotalPages,
-    availableItems, inventory,
+    availableItems, inventory, getItemStock,
     basketTotal, basketTotalItems, saleType, setSaleType,
     triggerToast, handleCalcBtn, cancelAndCleanupFastSale, cancelAndCleanupSearchModal,
     addFastSaleItem, handleModalAddFastSaleItem,
     addToBasket, updateQuantity, removeFromBasket, toggleBasketItemPriceType,
+    updateLineDiscount,
     handleSavePrice, handleRequestEditPrice,
     handleConfirmAddChip, handleConfirmEditChip,
     handleAdminAuthSubmit, handleLockAdminMode,
     handleSaveSaleForLater, confirmSaveSaleForLater,
     handleLoadSavedSale, handleConfirmLoadCombine, handleConfirmLoadOverwrite, handleCancelLoadConflict,
     handleDeleteSavedSale, executeSale, validateAndConfirm, handleCheckout,
-    showFiarModal, setShowFiarModal, fiarClientName, setFiarClientName, fiarClientPhone, setFiarClientPhone, fiarCountryCode, setFiarCountryCode, fiarExistingAccount, setFiarExistingAccount, fiarCreditLimit, setFiarCreditLimit, executeFiar,
+    showFiarModal, setShowFiarModal, fiarClientName, setFiarClientName, fiarClientPhone, setFiarClientPhone, fiarCountryCode, setFiarCountryCode, fiarExistingAccount, setFiarExistingAccount, fiarCreditLimit, setFiarCreditLimit, fiarHasLimit, setFiarHasLimit, executeFiar,
+    fiarNameSuggestions, fiarPhoneSuggestions, selectExistingCreditAccount,
+    fiarInitialPayment, setFiarInitialPayment, fiarInitialMethod, setFiarInitialMethod, openFiarModal,
     showApartarModal, setShowApartarModal,
     apartarClientName, setApartarClientName,
     apartarClientPhone, setApartarClientPhone,
@@ -88,12 +98,48 @@ export default function PosModern({ logic }: Props) {
     showRepairSelectionModal, setShowRepairSelectionModal,
     repairSearchQuery, setRepairSearchQuery,
     addRepairOrderToBasket,
+    outOfStockAlertItem, setOutOfStockAlertItem,
   } = logic;
 
-  const isRetro = config.theme === 'retro-window';
   const isLight = config.themeMode === 'light';
 
-  const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+  // Estados para descuentos por artículo
+  const [editingDiscountItemId, setEditingDiscountItemId] = React.useState<string | null>(null);
+  const [editingDiscountValue, setEditingDiscountValue] = React.useState<string>('');
+  const [editingDiscountType, setEditingDiscountType] = React.useState<'percentage' | 'fixed'>('percentage');
+
+  // Estados para cotización express desde POS
+  const [showQuoteWhatsappModal, setShowQuoteWhatsappModal] = React.useState(false);
+  const [quoteClientName, setQuoteClientName] = React.useState('');
+  const [quoteWhatsappPhone, setQuoteWhatsappPhone] = React.useState('');
+  const [quoteCountryCode, setQuoteCountryCode] = React.useState('+52');
+  const [isQuoteMode, setIsQuoteMode] = React.useState(false);
+
+  React.useEffect(() => {
+    if (basket.length === 0) {
+      setIsQuoteMode(false);
+    }
+  }, [basket.length]);
+
+  const modalActiveInventory = React.useMemo(() => {
+    if (selectedSaleWarehouseId === 'local') {
+      return inventory.filter(item => item.manageStock === false || item.stock > 0);
+    } else if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all') {
+      return inventory.filter(item => {
+        const isAssigned = item.warehouseStock && (selectedSaleWarehouseId in item.warehouseStock);
+        if (!isAssigned) return false;
+        return item.manageStock === false || (item.warehouseStock?.[selectedSaleWarehouseId] || 0) > 0;
+      });
+    }
+    return inventory;
+  }, [inventory, selectedSaleWarehouseId]);
+
+  const modalCategoriesList = React.useMemo(() => {
+    return Array.from(new Set(modalActiveInventory.map(p => (p.category || '').trim().toUpperCase()).filter(Boolean))).sort();
+  }, [modalActiveInventory]);
+
+  const isWaIntegratedOffline = !waConnected;
+  const [activeSearchField, setActiveSearchField] = React.useState<'name' | 'phone' | null>(null);
 
   const [chipClientName, setChipClientName] = React.useState('');
   const [chipPhone, setChipPhone] = React.useState('');
@@ -195,6 +241,14 @@ export default function PosModern({ logic }: Props) {
   const filteredFavoriteItems = React.useMemo(() => {
     return allFavoriteItems.filter(item => {
       if (favSelectedCategory !== 'TODAS' && (item.category || '').trim().toUpperCase() !== favSelectedCategory) return false;
+      
+      // Filtrar por bodega seleccionada
+      if (selectedSaleWarehouseId === 'local') {
+        if (item.manageStock !== false && item.stock <= 0) return false;
+      } else if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all') {
+        if (item.manageStock !== false && (item.warehouseStock?.[selectedSaleWarehouseId] || 0) <= 0) return false;
+      }
+
       if (favSearchQuery.trim()) {
         const q = favSearchQuery.toLowerCase();
         const matchName = (item.name || '').toLowerCase().includes(q);
@@ -204,7 +258,7 @@ export default function PosModern({ logic }: Props) {
       }
       return true;
     });
-  }, [allFavoriteItems, favSelectedCategory, favSearchQuery]);
+  }, [allFavoriteItems, favSelectedCategory, favSearchQuery, selectedSaleWarehouseId]);
 
   const [favSelectedIndex, setFavSelectedIndex] = React.useState(0);
 
@@ -305,17 +359,16 @@ export default function PosModern({ logic }: Props) {
 
   const renderPriceCheckerModal = () => {
     const sym = config.currencySymbol || '$';
-    const isRetro = config.theme === 'retro-window';
     const isLight = config.themeMode === 'light';
     if (!showPriceChecker) return null;
     const results = priceCheckerResults;
-    const modalBg = isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600' : isLight ? 'bg-white border border-zinc-200' : 'bg-[#111318] border border-zinc-700';
-    const headerBg = `modal-dark-header ${isRetro ? 'bg-[#000080]' : isLight ? 'bg-[#1a3a6b]' : 'bg-[#11131e]'}`;
-    const inputCls = isRetro ? 'bg-white border-2 border-zinc-400 text-zinc-800 placeholder-zinc-400' : isLight ? 'bg-zinc-50 border border-zinc-300 text-zinc-800 placeholder-zinc-400' : 'bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-600';
-    const rowHover = isRetro ? 'hover:bg-zinc-200 cursor-pointer' : isLight ? 'hover:bg-zinc-50 cursor-pointer' : 'hover:bg-zinc-800/50 cursor-pointer';
-    const textMain = isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-800' : 'text-white';
-    const textSub = isRetro ? 'text-zinc-500' : isLight ? 'text-zinc-500' : 'text-zinc-400';
-    const divider = isRetro ? 'divide-zinc-400' : isLight ? 'divide-zinc-200' : 'divide-zinc-800';
+    const modalBg = isLight ? 'bg-white border border-zinc-200' : 'bg-[#111318] border border-zinc-700';
+    const headerBg = `modal-dark-header ${isLight ? 'bg-[#1a3a6b]' : 'bg-[#11131e]'}`;
+    const inputCls = isLight ? 'bg-zinc-50 border border-zinc-300 text-zinc-800 placeholder-zinc-400' : 'bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-600';
+    const rowHover = isLight ? 'hover:bg-zinc-50 cursor-pointer' : 'hover:bg-zinc-800/50 cursor-pointer';
+    const textMain = isLight ? 'text-zinc-800' : 'text-white';
+    const textSub = isLight ? 'text-zinc-500' : 'text-zinc-400';
+    const divider = isLight ? 'divide-zinc-200' : 'divide-zinc-800';
 
     const doSearch = () => {
       const q = priceCheckerQuery.trim().toLowerCase();
@@ -323,10 +376,14 @@ export default function PosModern({ logic }: Props) {
       const found = inventory.filter(i => i.active !== false && (i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q) || i.brand.toLowerCase().includes(q) || i.category.toLowerCase().includes(q)));
       if (found.length === 1) { priceCheckerEntryId.current = logPriceCheck(found[0]); setPriceCheckerSelected(found[0]); setPriceCheckerResults(null); }
       else { setPriceCheckerResults(found); setPriceCheckerSelected(null); setPriceCheckerHighlight(0); }
+      const input = priceCheckerInputRef.current;
+      if (input) {
+        input.value = '';
+        input.blur();
+      }
     };
 
-    const doAddToCart = (item: typeof inventory[0]) => {
-      if (priceCheckerEntryId.current) { markAddedToCart(priceCheckerEntryId.current); priceCheckerEntryId.current = null; }
+    const doAddToCart = (item: any) => {
       addToBasket(item);
       setPriceCheckerAdded(true);
       setTimeout(() => {
@@ -342,10 +399,7 @@ export default function PosModern({ logic }: Props) {
       const item = priceCheckerSelected;
       const isStockControlled = item.manageStock !== false;
       const stockColor = !isStockControlled ? (isLight ? 'text-indigo-650' : 'text-indigo-400') : item.stock <= 0 ? 'text-rose-500' : item.stock <= item.minStock ? 'text-amber-500' : isLight ? 'text-emerald-600' : 'text-emerald-400';
-      const addBtnCls = isRetro
-        ? 'bg-[#000080] hover:bg-[#0000aa] text-white border-2 border-t-[#8080ff] border-l-[#8080ff] border-b-[#000040] border-r-[#000040]'
-        : isLight ? 'bg-[#1a3a6b] hover:bg-[#14306b] text-white'
-        : 'bg-blue-600 hover:bg-blue-500 text-white';
+      const addBtnCls = isLight ? 'bg-[#1a3a6b] hover:bg-[#14306b] text-white' : 'bg-blue-600 hover:bg-blue-500 text-white';
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={() => { setPriceCheckerSelected(null); setPriceCheckerResults(null); setPriceCheckerQuery(''); setShowPriceChecker(false); }}>
           <div className={`w-full max-w-sm mx-4 rounded-2xl shadow-2xl flex flex-col overflow-hidden ${modalBg}`} onClick={e => e.stopPropagation()}
@@ -363,10 +417,18 @@ export default function PosModern({ logic }: Props) {
                 <div className={`text-lg font-black leading-tight ${textMain}`}>{item.name}</div>
                 {item.brand && <div className={`text-sm mt-1 ${textSub}`}>{item.brand}</div>}
               </div>
-              <div className={`w-full rounded-xl px-4 py-3 flex flex-col gap-1.5 ${isRetro ? 'bg-zinc-200' : isLight ? 'bg-zinc-50 border border-zinc-200' : 'bg-zinc-900/60 border border-zinc-800'}`}>
+              <div className={`w-full rounded-xl px-4 py-3 flex flex-col gap-1.5 ${isLight ? 'bg-zinc-50 border border-zinc-200' : 'bg-zinc-900/60 border border-zinc-800'}`}>
                 {item.code && <div className="flex justify-between text-xs"><span className={textSub}>Código</span><span className={`font-mono font-bold ${textMain}`}>{item.code}</span></div>}
                 {item.category && <div className="flex justify-between text-xs"><span className={textSub}>Categoría</span><span className={`font-bold ${textMain}`}>{item.category}</span></div>}
                 <div className="flex justify-between text-xs"><span className={textSub}>Stock</span><span className={`font-black ${stockColor}`}>{!isStockControlled ? 'Ilimitado' : item.stock <= 0 ? 'Sin stock' : `${item.stock} uds.`}</span></div>
+                {item.wholesalePrice !== undefined && item.wholesalePrice > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className={textSub}>P. Mayoreo</span>
+                    <span className={`font-mono font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                      {sym}{item.wholesalePrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
               </div>
               <button onClick={() => !priceCheckerAdded && doAddToCart(item)} className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-widest cursor-pointer transition-all ${priceCheckerAdded ? 'bg-emerald-500 text-white' : addBtnCls}`} ref={el => { if (el) el.style.setProperty('color','white','important'); }}>
                 {priceCheckerAdded ? '✓ Agregado al carrito' : '+ Agregar al carrito  [Enter]'}
@@ -384,7 +446,7 @@ export default function PosModern({ logic }: Props) {
             <span className="text-sm font-black uppercase tracking-widest">🏷️ Verificador de Precios</span>
             <button onClick={() => setShowPriceChecker(false)} className="cursor-pointer text-lg font-black" style={{ color: 'rgba(255,255,255,0.7)' }}>✕</button>
           </div>
-          <div className={`p-3 border-b ${isRetro ? 'border-zinc-400' : isLight ? 'border-zinc-200' : 'border-zinc-700'}`}>
+          <div className={`p-3 border-b ${isLight ? 'border-zinc-200' : 'border-zinc-700'}`}>
             <input
               ref={priceCheckerInputRef}
               autoFocus
@@ -405,7 +467,7 @@ export default function PosModern({ logic }: Props) {
             {results === null ? null : results.length === 0 ? (
               <div className={`py-8 text-center text-sm ${textSub}`}>Sin resultados</div>
             ) : results.map((item, idx) => (
-              <div key={item.id} className={`px-4 py-2.5 flex items-center justify-between gap-3 ${rowHover} ${idx === priceCheckerHighlight ? (isRetro ? 'bg-zinc-200' : isLight ? 'bg-blue-50 border-l-2 border-blue-400' : 'bg-zinc-700/60') : ''}`} onClick={() => { priceCheckerEntryId.current = logPriceCheck(item); setPriceCheckerSelected(item); }} onMouseEnter={() => setPriceCheckerHighlight(idx)}>
+              <div key={item.id} className={`px-4 py-2.5 flex items-center justify-between gap-3 ${rowHover} ${idx === priceCheckerHighlight ? (isLight ? 'bg-blue-50 border-l-2 border-blue-400' : 'bg-zinc-700/60') : ''}`} onClick={() => { priceCheckerEntryId.current = logPriceCheck(item); setPriceCheckerSelected(item); }} onMouseEnter={() => setPriceCheckerHighlight(idx)}>
                 <div className="flex-1 min-w-0">
                   <div className={`text-xs font-bold truncate ${textMain}`}>{item.name}</div>
                   <div className={`text-[10px] ${textSub}`}>{item.brand}{item.category ? ` · ${item.category}` : ''} · Stock: {item.manageStock === false ? 'Ilimitado' : item.stock}</div>
@@ -415,7 +477,7 @@ export default function PosModern({ logic }: Props) {
             ))}
           </div>
           {results !== null && (
-            <div className={`px-4 py-2 text-[10px] ${textSub} border-t ${isRetro ? 'border-zinc-400' : isLight ? 'border-zinc-200' : 'border-zinc-800'}`}>
+            <div className={`px-4 py-2 text-[10px] ${textSub} border-t ${isLight ? 'border-zinc-200' : 'border-zinc-800'}`}>
               {results.length} artículo{results.length !== 1 ? 's' : ''} — clic para ver detalle
             </div>
           )}
@@ -426,39 +488,25 @@ export default function PosModern({ logic }: Props) {
 
   const renderQuickHistoryModals = () => {
     const sym = config.currencySymbol || '$';
-    const isRetro = config.theme === 'retro-window';
     const isLight = config.themeMode === 'light';
-    const isDark = !isRetro && !isLight;
 
     // Clases adaptativas por tema
-    const modalBg    = isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600' : isLight ? 'bg-white border border-zinc-200' : 'bg-[#111318] border border-zinc-700';
-    const headerBg   = isRetro ? 'bg-[#000080] border-zinc-500' : isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-zinc-900 border-zinc-800';
-    const headerText = isRetro ? 'text-white' : isLight ? 'text-zinc-800' : 'text-white';
-    const subText    = isRetro ? 'text-white/70' : isLight ? 'text-zinc-500' : 'text-zinc-400';
-    const divider    = isRetro ? (isLight ? 'divide-zinc-400' : 'divide-[#383c48]') : isLight ? 'divide-zinc-200' : 'divide-zinc-800';
-    const rowHover   = isRetro ? (isLight ? 'hover:bg-zinc-200' : 'hover:bg-[#282b35]') : isLight ? 'hover:bg-zinc-50' : 'hover:bg-zinc-800/50';
-    const idText     = isRetro ? (isLight ? 'text-zinc-600' : 'text-zinc-450') : isLight ? 'text-zinc-500' : 'text-zinc-500';
-    const itemText   = isRetro ? (isLight ? 'text-zinc-700' : 'text-zinc-300') : isLight ? 'text-zinc-600' : 'text-zinc-400';
-    const dateText   = isRetro ? (isLight ? 'text-zinc-500' : 'text-zinc-450') : isLight ? 'text-zinc-400' : 'text-zinc-600';
-    const totalText  = isRetro ? (isLight ? 'text-zinc-900' : 'text-white') : isLight ? 'text-zinc-900' : 'text-white';
-    const emptyText  = isRetro ? (isLight ? 'text-zinc-500' : 'text-zinc-400') : isLight ? 'text-zinc-400' : 'text-zinc-500';
-    const btnUtil    = isRetro
-      ? (isLight
-          ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 text-zinc-800 hover:bg-zinc-200'
-          : 'bg-[#1a1c23] border-2 border-t-[#383c48] border-l-[#383c48] border-b-[#111317] border-r-[#111317] text-zinc-200 hover:bg-[#282b35]')
-      : isLight ? 'bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-zinc-600 hover:text-zinc-900'
+    const modalBg    = isLight ? 'bg-white border border-zinc-200' : 'bg-[#111318] border border-zinc-700';
+    const headerBg   = isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-zinc-900 border-zinc-800';
+    const headerText = isLight ? 'text-zinc-800' : 'text-white';
+    const subText    = isLight ? 'text-zinc-500' : 'text-zinc-400';
+    const divider    = isLight ? 'divide-zinc-200' : 'divide-zinc-800';
+    const rowHover   = isLight ? 'hover:bg-zinc-50' : 'hover:bg-zinc-800/50';
+    const idText     = isLight ? 'text-zinc-500' : 'text-zinc-500';
+    const itemText   = isLight ? 'text-zinc-600' : 'text-zinc-400';
+    const dateText   = isLight ? 'text-zinc-400' : 'text-zinc-600';
+    const totalText  = isLight ? 'text-zinc-900' : 'text-white';
+    const emptyText  = isLight ? 'text-zinc-400' : 'text-zinc-500';
+    const btnUtil    = isLight ? 'bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-zinc-600 hover:text-zinc-900'
       : 'bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 hover:text-white';
-    const btnCancel  = isRetro
-      ? (isLight
-          ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 text-rose-700 hover:bg-red-100'
-          : 'bg-[#1a1c23] border-2 border-t-[#383c48] border-l-[#383c48] border-b-[#111317] border-r-[#111317] text-rose-400 hover:bg-[#2c1d21]')
-      : isLight ? 'bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-600'
+    const btnCancel  = isLight ? 'bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-600'
       : 'bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-400';
-    const histBtn    = isRetro
-      ? (isLight
-          ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 text-[#000080] hover:bg-[#cbd6e2]'
-          : 'bg-[#1a1c23] border-2 border-t-[#383c48] border-l-[#383c48] border-b-[#111317] border-[#383c48] text-[#60a5fa] hover:bg-[#282b35]')
-      : isLight ? 'bg-zinc-700 hover:bg-zinc-600 text-white'
+    const histBtn    = isLight ? 'bg-zinc-700 hover:bg-zinc-600 text-white'
       : 'bg-zinc-700 hover:bg-zinc-600 text-zinc-200';
 
     return (
@@ -488,7 +536,7 @@ export default function PosModern({ logic }: Props) {
                         Ver historial completo →
                       </button>
                     )}
-                    <button onClick={() => setShowQuickHistory(false)} className={`cursor-pointer text-lg font-black ${isRetro ? 'text-white' : isLight ? 'text-zinc-400 hover:text-zinc-700' : 'text-zinc-500 hover:text-white'}`}>✕</button>
+                    <button onClick={() => setShowQuickHistory(false)} className={`cursor-pointer text-lg font-black ${isLight ? 'text-zinc-400 hover:text-zinc-700' : 'text-zinc-500 hover:text-white'}`}>✕</button>
                   </div>
                 </div>
 
@@ -543,30 +591,30 @@ export default function PosModern({ logic }: Props) {
                   </div>
                   <button onClick={() => setQuickHistoryDetail(null)} className="cursor-pointer text-lg font-black">✕</button>
                 </div>
-                <div className={`px-5 py-4 space-y-3 ${isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
+                <div className={`px-5 py-4 space-y-3 ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
                   {/* Artículos */}
-                  <div className={`rounded-lg border overflow-hidden ${isRetro ? 'border-zinc-400' : isLight ? 'border-zinc-200' : 'border-zinc-800'}`}>
-                    <div className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider ${isRetro ? 'bg-[#000080] text-white' : isLight ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-800 text-zinc-400'}`} ref={el => { if (el) el.style.setProperty('color','white','important'); }}>
+                  <div className={`rounded-lg border overflow-hidden ${isLight ? 'border-zinc-200' : 'border-zinc-800'}`}>
+                    <div className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-wider ${isLight ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-800 text-zinc-400'}`} ref={el => { if (el) el.style.setProperty('color','white','important'); }}>
                       Artículos
                     </div>
                     {sale.items.map((item, i) => (
-                      <div key={i} className={`flex justify-between px-3 py-2 text-xs border-t ${isRetro ? 'border-zinc-300' : isLight ? 'border-zinc-100' : 'border-zinc-800'}`}>
-                        <span className="truncate max-w-[60%]">{item.name} <span className={`font-mono ${isRetro ? 'text-zinc-500' : isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>×{item.quantity}</span></span>
+                      <div key={i} className={`flex justify-between px-3 py-2 text-xs border-t ${isLight ? 'border-zinc-100' : 'border-zinc-800'}`}>
+                        <span className="truncate max-w-[60%]">{item.name} <span className={`font-mono ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>×{item.quantity}</span></span>
                         <span className="font-black">{sym}{(item.price * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     ))}
                   </div>
                   {/* Resumen */}
-                  <div className={`flex justify-between items-center pt-2 border-t text-sm font-black ${isRetro ? 'border-zinc-400' : isLight ? 'border-zinc-200' : 'border-zinc-700'}`}>
-                    <span className={isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'}>TOTAL</span>
-                    <span className={isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-900' : 'text-white'}>{sym}{sale.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <div className={`flex justify-between items-center pt-2 border-t text-sm font-black ${isLight ? 'border-zinc-200' : 'border-zinc-700'}`}>
+                    <span className={isLight ? 'text-zinc-600' : 'text-zinc-400'}>TOTAL</span>
+                    <span className={isLight ? 'text-zinc-900' : 'text-white'}>{sym}{sale.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
-                  <div className={`text-[10px] ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-500' : 'text-zinc-500'}`}>
+                  <div className={`text-[10px] ${isLight ? 'text-zinc-500' : 'text-zinc-500'}`}>
                     Método de pago: <strong>{sale.paymentMethod}</strong>
                   </div>
                 </div>
                 <div className="px-5 pb-5">
-                  <button onClick={() => setQuickHistoryDetail(null)} className={`w-full py-2.5 text-xs font-bold uppercase rounded-xl cursor-pointer transition-all active:scale-95 ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 text-zinc-800' : isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'}`}>
+                  <button onClick={() => setQuickHistoryDetail(null)} className={`w-full py-2.5 text-xs font-bold uppercase rounded-xl cursor-pointer transition-all active:scale-95 ${isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'}`}>
                     ← Volver
                   </button>
                 </div>
@@ -581,11 +629,11 @@ export default function PosModern({ logic }: Props) {
           const isCancel = type === 'cancel';
           const hasFastItems = sale.items.some(i => !i.itemId || i.itemId === '');
           const confirmHeaderBg = isCancel
-            ? (isRetro ? 'bg-[#800000] border-zinc-500' : isLight ? 'bg-rose-50 border-rose-300' : 'bg-rose-950/40 border-rose-800/50')
-            : (isRetro ? 'bg-[#003c00] border-zinc-500' : isLight ? 'bg-emerald-50 border-emerald-200' : 'bg-zinc-800/60 border-zinc-700');
+            ? (isLight ? 'bg-rose-50 border-rose-300' : 'bg-rose-950/40 border-rose-800/50')
+            : (isLight ? 'bg-emerald-50 border-emerald-200' : 'bg-zinc-800/60 border-zinc-700');
           const confirmHeaderText = isCancel
-            ? (isRetro ? 'text-white' : isLight ? 'text-rose-800' : 'text-rose-300')
-            : (isRetro ? 'text-white' : isLight ? 'text-emerald-800' : 'text-white');
+            ? (isLight ? 'text-rose-800' : 'text-rose-300')
+            : (isLight ? 'text-emerald-800' : 'text-white');
           return (
             <div className="fixed inset-0 z-[999999] flex items-center justify-center p-4" style={{ backdropFilter: 'blur(14px)', backgroundColor: 'rgba(0,0,0,0.7)' }}>
               <div className={`w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl ${modalBg}`}>
@@ -593,20 +641,20 @@ export default function PosModern({ logic }: Props) {
                   <p className={`text-sm font-black uppercase tracking-wide ${confirmHeaderText}`}>
                     {isCancel ? '⚠️ Cancelar venta' : '🖨️ Reimprimir ticket'}
                   </p>
-                  <p className={`text-[10px] mt-0.5 ${isRetro ? 'text-white/70' : isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                  <p className={`text-[10px] mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
                     {isCancel ? 'Esta acción revertirá la venta y restaurará el stock' : 'Se enviará el ticket a la impresora configurada'}
                   </p>
                 </div>
-                <div className={`px-5 py-4 space-y-2 text-xs ${isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
+                <div className={`px-5 py-4 space-y-2 text-xs ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    <div><span className={`text-[9px] font-bold uppercase block ${isRetro ? 'text-zinc-500' : isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Venta</span><span className="font-black font-mono">{sale.id}</span></div>
-                    <div><span className={`text-[9px] font-bold uppercase block ${isRetro ? 'text-zinc-500' : isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Total</span><span className={`font-black ${isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-900' : 'text-white'}`}>{sym}{sale.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                    <div><span className={`text-[9px] font-bold uppercase block ${isRetro ? 'text-zinc-500' : isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Pago</span><span>{sale.paymentMethod}</span></div>
-                    <div><span className={`text-[9px] font-bold uppercase block ${isRetro ? 'text-zinc-500' : isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Artículos</span><span>{sale.items.length}</span></div>
+                    <div><span className={`text-[9px] font-bold uppercase block ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Venta</span><span className="font-black font-mono">{sale.id}</span></div>
+                    <div><span className={`text-[9px] font-bold uppercase block ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Total</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{sym}{sale.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                    <div><span className={`text-[9px] font-bold uppercase block ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Pago</span><span>{sale.paymentMethod}</span></div>
+                    <div><span className={`text-[9px] font-bold uppercase block ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Artículos</span><span>{sale.items.length}</span></div>
                   </div>
                   <div className={`p-2.5 rounded-lg border text-[10px] mt-1 ${isCancel
-                    ? (isRetro ? 'bg-red-50 border-red-300 text-red-800' : isLight ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-rose-950/20 border-rose-800/40 text-rose-300')
-                    : (isRetro ? 'bg-zinc-100 border-zinc-400 text-zinc-700' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-600' : 'bg-zinc-800/50 border-zinc-700 text-zinc-400')
+                    ? (isLight ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-rose-950/20 border-rose-800/40 text-rose-300')
+                    : (isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-600' : 'bg-zinc-800/50 border-zinc-700 text-zinc-400')
                   }`}>
                     {isCancel
                       ? hasFastItems
@@ -631,18 +679,16 @@ export default function PosModern({ logic }: Props) {
                           }
                         }));
                         const saleMapped = {
-                          id: sale.id,
+                          ...sale,
                           items: (sale.items || []).map((i: any) => ({
                             description: i.description || i.name || '',
+                            name: i.name || i.description || '',
                             quantity: i.quantity,
-                            price: i.price
+                            price: i.price,
+                            originalPrice: i.originalPrice,
+                            discountValue: i.discountValue,
+                            discountType: i.discountType
                           })),
-                          total: sale.total,
-                          createdAt: sale.createdAt || new Date().toISOString(),
-                          paymentMethod: sale.paymentMethod,
-                          cashReceived: sale.cashReceived,
-                          cardReceived: sale.cardReceived,
-                          change: sale.change,
                         };
                         let effectivePosWidth = config.hybridPrintMode
                           ? (config.posPaperWidth || '80mm')
@@ -673,7 +719,7 @@ export default function PosModern({ logic }: Props) {
                   >
                     {isCancel ? '✕ Confirmar Cancelación' : '🖨️ Confirmar Impresión'}
                   </button>
-                  <button onClick={() => setQuickHistoryConfirm(null)} className={`flex-1 py-2.5 text-xs font-bold uppercase rounded-xl cursor-pointer transition-all active:scale-95 ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 text-zinc-800' : isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'}`}>
+                  <button onClick={() => setQuickHistoryConfirm(null)} className={`flex-1 py-2.5 text-xs font-bold uppercase rounded-xl cursor-pointer transition-all active:scale-95 ${isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'}`}>
                     Cancelar
                   </button>
                 </div>
@@ -689,22 +735,26 @@ export default function PosModern({ logic }: Props) {
     return (
       <>
         {/* Real-time Integrated OS Notification Toast */}
-        {posToast && (
-          <div className={`fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4.5 py-3 rounded-xl border shadow-xl animate-fadeIn select-none max-w-sm ${
-            posToast.type === 'success' 
-              ? 'bg-[#121316] border-emerald-500/30 text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.15)]' 
-              : posToast.type === 'error'
-              ? 'bg-[#121316] border-rose-500/30 text-rose-100 shadow-[0_0_15px_rgba(244,63,94,0.15)]'
-              : posToast.type === 'warning'
-              ? 'bg-[#121316] border-amber-500/30 text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
-              : 'bg-[#121316] border-zinc-700 text-zinc-100 shadow-[0_0_15px_rgba(150,150,150,0.15)]'
-          }`}>
+        {posToast && createPortal(
+          <div 
+            className={`fixed top-4 right-4 z-[100000] flex items-center gap-2.5 px-4.5 py-3 rounded-xl border shadow-xl animate-fadeIn select-none max-w-sm ${
+              posToast.type === 'success' 
+                ? 'border-emerald-500/30 text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.15)]' 
+                : posToast.type === 'error'
+                ? 'border-rose-500/30 text-rose-100 shadow-[0_0_15px_rgba(244,63,94,0.15)]'
+                : posToast.type === 'warning'
+                ? 'border-amber-500/30 text-amber-100 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                : 'border-zinc-700 text-zinc-100 shadow-[0_0_15px_rgba(150,150,150,0.15)]'
+            }`}
+            style={{ backgroundColor: '#121316', opacity: 1 }}
+          >
             {posToast.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />}
             {posToast.type === 'error' && <XCircle className="w-5 h-5 text-rose-400 shrink-0" />}
             {posToast.type === 'warning' && <Info className="w-5 h-5 text-amber-400 shrink-0" />}
             {posToast.type === 'info' && <Info className="w-5 h-5 text-blue-400 shrink-0" />}
             <span className="text-xs font-bold leading-snug">{posToast.message}</span>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Modal 1: F2 (Clientes / Referencia) */}
@@ -1275,36 +1325,52 @@ export default function PosModern({ logic }: Props) {
 
     return (
       <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn text-left select-none">
-        <div className="w-full max-w-4xl max-h-[85vh] bg-[#121316] border border-zinc-800 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden text-white animate-slideUp font-sans">
+        <div className={`w-full max-w-4xl max-h-[85vh] rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden animate-slideUp font-sans border ${
+          isLight 
+            ? 'bg-white border-zinc-200 text-zinc-800' 
+            : 'bg-[#121316] border-zinc-800 text-white'
+        }`}>
           
           {/* Header */}
-          <div className="px-6 py-3.5 bg-[#000080] border-b border-blue-900 flex items-center justify-between shrink-0">
+          <div className={`px-6 py-3.5 flex items-center justify-between shrink-0 border-b ${
+            isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-[#18191e] border-zinc-850'
+          }`}>
             <div className="flex items-center gap-2.5">
               <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-              <h3 className="text-sm font-black tracking-wider text-white uppercase font-sans">
+              <h3 className={`text-sm font-black tracking-wider uppercase font-sans ${isLight ? 'text-zinc-800-important' : 'text-white'}`}>
                 ⭐ CATÁLOGO RÁPIDO DE FAVORITOS
               </h3>
             </div>
             <button
               onClick={() => setShowFavoritesModal(false)}
-              className="p-1 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              className={`p-1 rounded-full transition-colors cursor-pointer ${
+                isLight 
+                  ? 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100' 
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+              }`}
             >
               <X className="w-4.5 h-4.5" />
             </button>
           </div>
 
           {/* Sub-header: Search, Dynamic Categories & Info */}
-          <div className="p-4 bg-[#18191e] border-b border-zinc-800 space-y-3 shrink-0">
+          <div className={`p-4 border-b space-y-3 shrink-0 ${
+            isLight ? 'bg-zinc-100/70 border-zinc-200 text-zinc-800' : 'bg-[#18191e] border-zinc-850'
+          }`}>
             {/* Buscador */}
             <div className="relative">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <Search className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`} />
               <input
                 type="text"
                 autoFocus
                 placeholder="Buscar por nombre, código SKU o categoría..."
                 value={favSearchQuery}
                 onChange={(e) => setFavSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-9 py-2 bg-zinc-900 border border-zinc-750 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/50 font-sans"
+                className={`w-full pl-10 pr-9 py-2 rounded-xl text-xs placeholder-zinc-500 focus:outline-none font-sans border ${
+                  isLight 
+                    ? 'bg-white border-zinc-300 text-zinc-800 focus:border-indigo-500' 
+                    : 'bg-zinc-900 border-zinc-750 text-white focus:border-indigo-500/50'
+                }`}
               />
               {favSearchQuery && (
                 <button onClick={() => setFavSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-1">
@@ -1314,13 +1380,15 @@ export default function PosModern({ logic }: Props) {
             </div>
 
             {/* Categorías Dinámicas (Pills) */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            <div className="flex flex-wrap items-center gap-1.5 pb-1">
               <button
                 onClick={() => setFavSelectedCategory('TODAS')}
                 className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
                   favSelectedCategory === 'TODAS'
-                    ? 'bg-amber-500 text-zinc-950 font-black shadow-md'
-                    : 'bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750'
+                    ? 'bg-indigo-600 text-white-important font-black shadow-md'
+                    : isLight 
+                      ? 'bg-zinc-200 hover:bg-zinc-300 text-zinc-700 font-bold border border-zinc-300'
+                      : 'bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750'
                 }`}
               >
                 🌟 TODAS ({allFavoriteItems.length})
@@ -1334,8 +1402,10 @@ export default function PosModern({ logic }: Props) {
                     onClick={() => setFavSelectedCategory(cat)}
                     className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
                       isSelected
-                        ? 'bg-amber-500 text-zinc-950 font-black shadow-md'
-                        : 'bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750'
+                        ? 'bg-indigo-600 text-white-important font-black shadow-md'
+                        : isLight 
+                          ? 'bg-zinc-200 hover:bg-zinc-300 text-zinc-700 font-bold border border-zinc-300'
+                          : 'bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750'
                     }`}
                   >
                     📁 {cat} ({count})
@@ -1345,13 +1415,17 @@ export default function PosModern({ logic }: Props) {
             </div>
 
             {/* Instrucción igual al modal de búsqueda */}
-            <p className="text-xs text-zinc-400 font-medium leading-relaxed bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-800/60">
-              Se encontraron <span className="font-extrabold text-amber-400">{totalFavs}</span> coincidencias. Navegue con las teclas <span className="font-extrabold bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-750">↑ ↓</span> y confirme con <span className="font-extrabold bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-750 font-mono">Enter</span> o con clic.
+            <p className={`text-xs font-medium leading-relaxed p-2.5 rounded-lg border ${
+              isLight 
+                ? 'bg-zinc-50 border-zinc-250 text-zinc-650' 
+                : 'bg-zinc-900/60 border-zinc-800/60 text-zinc-400'
+            }`}>
+              Se encontraron <span className={`font-extrabold ${isLight ? 'text-indigo-700' : 'text-indigo-450'}`}>{totalFavs}</span> coincidencias. Navegue con las teclas <span className={`font-extrabold px-1.5 py-0.5 rounded border ${isLight ? 'bg-zinc-200 border-zinc-300 text-zinc-800 font-sans' : 'bg-zinc-800 border-zinc-750 text-zinc-300'}`}>↑ ↓</span> y confirme con <span className={`font-extrabold px-1.5 py-0.5 rounded border font-mono ${isLight ? 'bg-zinc-200 border-zinc-300 text-zinc-800' : 'bg-zinc-800 border-zinc-750 text-zinc-300'}`}>Enter</span> o con clic.
             </p>
           </div>
 
           {/* Tabla de Lista (Exactamente idéntica a Coincidencias de Búsqueda del Catálogo) */}
-          <div className="flex-1 overflow-hidden p-4 min-h-0 bg-[#0c0d0f]">
+          <div className={`flex-1 overflow-hidden p-4 min-h-0 ${isLight ? 'bg-zinc-50/50' : 'bg-[#0c0d0f]'}`}>
             {totalFavs === 0 ? (
               <div className="py-16 text-center text-zinc-500 flex flex-col items-center justify-center gap-3">
                 <Star className="w-12 h-12 opacity-20 text-amber-500" />
@@ -1365,20 +1439,27 @@ export default function PosModern({ logic }: Props) {
                 </p>
               </div>
             ) : (
-              <div id="pos-fav-modal-table-container" className="border border-zinc-800 rounded-xl overflow-hidden max-h-[440px] overflow-y-auto bg-zinc-950">
+              <div id="pos-fav-modal-table-container" className={`border rounded-xl overflow-hidden max-h-[440px] overflow-y-auto ${
+                isLight ? 'border-zinc-200 bg-white' : 'border-zinc-800 bg-zinc-950'
+              }`}>
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-zinc-900 border-b border-zinc-800 text-zinc-400 font-bold uppercase tracking-wider text-[10px] select-none">
-                      <th className="px-4 py-2 border-r border-zinc-800">Código</th>
-                      <th className="px-4 py-2 border-r border-zinc-800 w-1/2">Nombre / Categoría</th>
-                      <th className="px-4 py-2 border-r border-zinc-800 text-right">Precio</th>
+                    <tr className={`border-b font-bold uppercase tracking-wider text-[10px] select-none ${
+                      isLight ? 'bg-zinc-100 border-zinc-200 text-zinc-600' : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                    }`}>
+                      <th className={`px-4 py-2 border-r ${isLight ? 'border-zinc-200' : 'border-zinc-800'}`}>Código</th>
+                      <th className={`px-4 py-2 border-r ${isLight ? 'border-zinc-200' : 'border-zinc-800'} w-1/2`}>Nombre / Categoría</th>
+                      <th className={`px-4 py-2 border-r ${isLight ? 'border-zinc-200' : 'border-zinc-800'} text-right`}>Precio</th>
                       <th className="px-4 py-2 text-center">Existencia</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-900 font-mono text-[11px]">
                     {filteredFavoriteItems.map((item, idx) => {
                       const isStockControlled = item.manageStock !== false;
-                      const isAgotado = isStockControlled && item.stock === 0;
+                      const currentStock = (isStockControlled && selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all' && selectedSaleWarehouseId !== 'local')
+                        ? (item.warehouseStock?.[selectedSaleWarehouseId] || 0)
+                        : item.stock;
+                      const isAgotado = isStockControlled && currentStock === 0;
                       const isSelected = idx === favSelectedIndex;
 
                       return (
@@ -1389,48 +1470,82 @@ export default function PosModern({ logic }: Props) {
                             triggerToast?.('¡Agregado a la venta!', 'success');
                           }}
                           onMouseMove={() => { if (favSelectedIndex !== idx) setFavSelectedIndex(idx); }}
-                          className={`cursor-pointer ${
-                            isSelected ? 'pos-modal-row-selected pos-fav-row-selected text-white' : ''
+                          className={`cursor-pointer border-b ${
+                            isLight
+                              ? isSelected 
+                                ? 'bg-indigo-950/40 text-white font-semibold pos-fav-row-selected border-zinc-900/80' 
+                                : 'hover:bg-zinc-100 text-zinc-700 border-zinc-200'
+                              : isSelected 
+                                ? 'bg-indigo-950/40 text-white font-semibold pos-fav-row-selected border-zinc-900/80' 
+                                : 'hover:bg-zinc-900/30 text-zinc-350 border-zinc-900/80'
                           }`}
                         >
-                          <td className={`px-4 py-2 border-r border-zinc-800 font-mono text-[10.5px] ${
-                            isSelected ? 'bg-[#000080] text-white font-extrabold' : 'text-zinc-400 font-bold'
+                          <td className={`px-4 py-2 border-r font-mono text-[10.5px] ${
+                            isSelected 
+                              ? 'text-indigo-300 font-extrabold border-l-4 border-indigo-500 pl-3' 
+                              : isLight 
+                                ? 'text-zinc-500 border-zinc-200' 
+                                : 'text-zinc-400 font-bold border-zinc-800'
                           }`}>
                             {item.code || 'S/C'}
                           </td>
-                          <td className={`px-4 py-2 border-r border-zinc-800 max-w-0 ${
-                            isSelected ? 'bg-[#000080] text-white' : 'text-zinc-200'
+                          <td className={`px-4 py-2 border-r max-w-0 ${
+                            isSelected 
+                              ? 'text-white' 
+                              : isLight 
+                                ? 'text-zinc-800 border-zinc-200' 
+                                : 'text-zinc-200 border-zinc-800'
                           }`}>
                             <div className="flex items-center gap-2.5">
                               <PosItemThumbnail imageUrl={item.imageUrl} extraImages={item.extraImages} name={item.name} code={item.code} category={item.category} price={item.price} currencySymbol={config.currencySymbol} size={32} />
                               <div className="flex-1 min-w-0 break-words whitespace-normal">
-                                <span className={`block font-black uppercase text-[11.5px] font-sans break-words whitespace-normal ${isSelected ? 'text-white font-extrabold' : 'text-white'}`}>{item.name}</span>
+                                <span className={`block font-black uppercase text-[11.5px] font-sans break-words whitespace-normal ${
+                                  isSelected 
+                                    ? 'text-white font-extrabold' 
+                                    : isLight 
+                                      ? 'text-zinc-800-important' 
+                                      : 'text-white'
+                                }`}>{item.name}</span>
                                 <span className={`inline-block text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
-                                  isSelected ? 'bg-white/20 text-white border-white/40' : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                  isSelected 
+                                    ? 'bg-white/20 text-white border-white/40' 
+                                    : isLight 
+                                      ? 'bg-zinc-200 text-zinc-600 border-zinc-300' 
+                                      : 'bg-zinc-850 text-zinc-450 border-zinc-700'
                                 }`}>
                                   {item.category || 'GENERAL'}
                                 </span>
                               </div>
                             </div>
                           </td>
-                          <td className={`px-4 py-2 text-right font-mono font-black border-r border-zinc-800 text-sm ${
-                            isSelected ? 'bg-[#000080] text-white font-extrabold' : 'text-emerald-400'
+                          <td className={`px-4 py-2 text-right font-mono font-black border-r text-sm ${
+                            isSelected 
+                              ? 'text-indigo-300' 
+                              : isLight 
+                                ? 'text-zinc-800-important border-zinc-200' 
+                                : 'text-emerald-450 border-zinc-800'
                           }`}>
                             {config.currencySymbol}{item.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className={`px-4 py-2 text-center ${
-                            isSelected ? 'bg-[#000080] text-white' : ''
+                            isSelected ? 'text-white' : ''
                           }`}>
                             <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
                               isSelected
                                 ? 'bg-white/25 text-white border border-white/40'
                                 : !isStockControlled
-                                ? 'bg-indigo-950/40 text-indigo-400 border border-indigo-800/40'
+                                ? isLight 
+                                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                                  : 'bg-indigo-950/40 text-indigo-400 border border-indigo-800/40'
                                 : isAgotado
-                                ? 'bg-rose-950/40 text-rose-400 border border-rose-800/40'
-                                : 'bg-emerald-950/40 text-emerald-400 border border-emerald-800/40'
+                                ? isLight 
+                                  ? 'bg-rose-100 text-rose-700 border border-rose-250' 
+                                  : 'bg-rose-950/40 text-rose-400 border border-rose-800/40'
+                                : isLight 
+                                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-250' 
+                                  : 'bg-emerald-950/40 text-emerald-400 border border-emerald-800/40'
                             }`}>
-                              {!isStockControlled ? '∞' : `${item.stock} disp`}
+                              {!isStockControlled ? '∞' : `${currentStock} disp`}
                             </span>
                           </td>
                         </tr>
@@ -1443,9 +1558,13 @@ export default function PosModern({ logic }: Props) {
           </div>
 
           {/* Footer Bar */}
-          <div className="px-6 py-2 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between text-[11px] font-mono text-zinc-400 shrink-0 select-none">
+          <div className={`px-6 py-3 border-t flex items-center justify-between text-[11px] font-mono shrink-0 select-none ${
+            isLight 
+              ? 'bg-zinc-50 border-zinc-200 text-zinc-650' 
+              : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+          }`}>
             <span>[ESC] CERRAR</span>
-            <span>SEL: #{currentSelNum} DE {totalFavs}</span>
+            <span>SEL: <b className={`font-mono ${isLight ? 'text-indigo-700 font-black' : 'text-indigo-400 font-extrabold'}`}>#{currentSelNum} DE {totalFavs}</b></span>
           </div>
 
         </div>
@@ -1537,6 +1656,23 @@ export default function PosModern({ logic }: Props) {
             </button>
           )}
         </div>
+        {/* Selector de origen de venta */}
+        {config.enableWarehouses === true && (
+        <div className="ml-2 flex items-center gap-1.5 shrink-0 select-none">
+          <span className="text-[10px] uppercase font-black tracking-wider text-zinc-400">Vender desde:</span>
+          <select
+            value={selectedSaleWarehouseId}
+            onChange={(e) => setSelectedSaleWarehouseId(e.target.value)}
+            className="px-2.5 py-1 bg-zinc-900 border border-zinc-750 rounded text-xs text-white uppercase font-bold focus:outline-none focus:border-indigo-500/50 cursor-pointer transition-colors"
+          >
+            <option value="all">🌐 Todas las Bodegas</option>
+            <option value="local">🏠 Tienda Local</option>
+            {warehouses.map(w => (
+              <option key={w.id} value={w.id}>🏢 {w.name}</option>
+            ))}
+          </select>
+        </div>
+        )}
         {savedSales.length > 0 && (
           <button
             type="button"
@@ -1553,6 +1689,14 @@ export default function PosModern({ logic }: Props) {
           className="ml-2 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 select-none transition-colors"
         >
           ⭐ Favoritos
+        </button>
+        <button
+          type="button"
+          onClick={() => { setSearchQuery(''); setModalCurrentPage(1); setModalSelectedIndex(0); setIsSearchModalOpen(true); }}
+          title="Ver catálogo completo de productos y refacciones"
+          className="ml-2 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 select-none transition-colors"
+        >
+          📂 Catálogo
         </button>
         <button
           type="button"
@@ -1621,7 +1765,6 @@ export default function PosModern({ logic }: Props) {
             <div className="flex flex-col space-y-2 max-h-[340px] overflow-y-auto pr-1">
               {[
                 { key: 'F2', label: 'Clientes', action: 'Asignar cliente o referencia', color: 'bg-indigo-950/60 text-indigo-300 border-indigo-500/40 shadow-[0_2px_0_rgba(99,102,241,0.3)]' },
-                { key: 'F3', label: 'Reparación', action: 'Cobrar orden de servicio', color: 'bg-violet-950/60 text-violet-300 border-violet-500/40 shadow-[0_2px_0_rgba(139,92,246,0.3)]' },
                 { key: 'F5', label: 'Finalizar venta', action: 'Cobrar actual cesta de compras', color: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40 shadow-[0_2px_0_rgba(5,150,105,0.3)]' },
                 { key: 'F10', label: 'Guardar venta', action: 'Mandar venta activa a espera', color: 'bg-blue-950/60 text-blue-300 border-blue-500/40 shadow-[0_2px_0_rgba(12,102,228,0.3)]' },
                 { key: 'X', label: 'Cancelar', action: 'Vaciar cesta o cerrar menús', color: 'bg-rose-950/60 text-rose-300 border-rose-500/40 shadow-[0_2px_0_rgba(225,29,72,0.3)]' },
@@ -1671,6 +1814,20 @@ export default function PosModern({ logic }: Props) {
                 🛒 COMPROBANTE DE VENTA / CARRO ACTUAL ({basketTotalItems} {basketTotalItems === 1 ? 'artículo' : 'artículos'})
               </span>
             </div>
+
+            {/* TOGGLE ¿ES COTIZACIÓN? */}
+            <div className="flex items-center gap-2">
+              <input 
+                type="checkbox"
+                id="quote-active-chk-modern-header"
+                checked={isQuoteMode}
+                onChange={(e) => setIsQuoteMode(e.target.checked)}
+                className="w-4 h-4 accent-amber-500 cursor-pointer"
+              />
+              <label htmlFor="quote-active-chk-modern-header" className="text-[10px] uppercase font-black tracking-wider text-amber-500 cursor-pointer select-none">
+                ¿Es Cotización?
+              </label>
+            </div>
           </div>
 
           {/* Main Basket Table */}
@@ -1679,18 +1836,19 @@ export default function PosModern({ logic }: Props) {
               <thead>
                 <tr className="bg-[#0d0d10] border-b border-[#1b1c21] text-zinc-400 font-bold uppercase tracking-wider text-[10px] leading-tight select-none">
                   <th className="px-3 py-1 w-28">Código</th>
-                  <th className="px-3 py-1">Artículo / Descripción</th>
+                  <th className="px-3 py-1 w-full">Artículo / Descripción</th>
                   <th className="px-3 py-1 text-center w-24">Cantidad</th>
-                  <th className="px-3 py-1 text-right w-28">Precio Unit.</th>
-                  <th className="px-3 py-1 text-right w-24">Subtotal</th>
+                  <th className="px-3 py-1 text-right w-36 whitespace-nowrap">Precio Unit.</th>
+                  <th className="px-3 py-1 text-right w-28 whitespace-nowrap">Subtotal</th>
                   <th className="px-3 py-1 text-center w-12">Acc.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1b1c21] animate-fadeIn">
                 {basket.map((item) => {
-                  const currentPrice = item.customPrice !== undefined ? item.customPrice : item.item.price;
+                  const currentPrice = item.basePrice !== undefined ? item.basePrice : (item.customPrice !== undefined ? item.customPrice : item.item.price);
+                  const discountAmount = item.discountAmount !== undefined ? item.discountAmount : 0;
                   const isStockControlled = item.item.manageStock !== false;
-                  const availableStock = item.item.stock - (item.item.reservedQty || 0);
+                  const availableStock = item.fromWarehouseId ? (item.item.warehouseStock?.[item.fromWarehouseId] || 0) : item.item.stock - (item.item.reservedQty || 0);
                   const isOutOfStock = isStockControlled && availableStock <= 0;
                   const isInsufficient = isStockControlled && availableStock > 0 && item.quantity > availableStock;
                   const rowId = item.uniqueId || item.item.id;
@@ -1704,13 +1862,13 @@ export default function PosModern({ logic }: Props) {
                       <td className="px-3 py-1.5 font-mono text-[10px] text-zinc-500 truncate max-w-[112px]" title={item.item.code || 'S/C'}>
                         {item.item.code || 'S/C'}
                       </td>
-                      <td className="px-3 py-1.5 font-sans uppercase text-[11px] text-zinc-100 font-bold max-w-0">
-                        <div className="flex items-center gap-2.5">
-                          <PosItemThumbnail imageUrl={item.item.imageUrl} name={item.item.name} code={item.item.code} category={item.item.category} price={currentPrice} currencySymbol={config.currencySymbol} size={30} />
+                      <td className="px-3 py-1.5 font-sans uppercase text-[11px] text-zinc-100 font-bold max-w-0 w-full">
+                        <div className="flex items-center gap-2.5 w-full min-w-0">
+                          <PosItemThumbnail imageUrl={item.item.imageUrl} name={item.item.name} code={item.item.code} category={item.item.category} price={currentPrice - discountAmount} currencySymbol={config.currencySymbol} size={30} />
                           <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-center gap-2 w-full">
-                              <div className="flex flex-col">
-                                <span className="truncate">{item.item.name}</span>
+                              <div className="flex flex-col min-w-0">
+                                <span className="block whitespace-normal break-words leading-tight">{item.item.name}</span>
                                 {item.chipActivation && (
                                   <div className="text-[10px] font-mono font-bold text-emerald-400 flex items-center gap-1.5 mt-0.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg w-fit select-none">
                                     <span>📞 {item.chipActivation.chipNumber}</span>
@@ -1761,8 +1919,34 @@ export default function PosModern({ logic }: Props) {
                                 </span>
                               )}
                             </div>
-                            <div className="text-[9px] text-zinc-500 font-normal capitalize flex items-center gap-2 mt-0.5 select-none">
+                            <div className="text-[9px] text-zinc-500 font-normal capitalize flex items-center gap-2 mt-0.5 select-none flex-wrap">
                               <span>{item.item.brand} · {item.item.category}</span>
+                              {item.fromWarehouseId ? (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 select-none">
+                                  🏢 {warehouses.find(w => w.id === item.fromWarehouseId)?.name || 'Bodega'}
+                                </span>
+                              ) : (
+                                config.enableWarehouses === true && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-500/10 border border-zinc-500/20 text-zinc-400 select-none">
+                                    🏠 Tienda Local
+                                  </span>
+                                )
+                              )}
+                              {isStockControlled ? (
+                                availableStock > 0 ? (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 select-none">
+                                    Stock: {availableStock} {availableStock === 1 ? 'pza' : 'pzas'}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-450 select-none">
+                                    Sin Stock
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-[9px] font-semibold bg-zinc-500/10 border border-zinc-500/20 text-zinc-400 px-1.5 py-0.2 rounded-md select-none">
+                                  Ilimitado
+                                </span>
+                              )}
                               {item.item.wholesalePrice !== undefined && item.item.wholesalePrice > 0 && (
                                 <button
                                   type="button"
@@ -1803,7 +1987,49 @@ export default function PosModern({ logic }: Props) {
                         </div>
                       </td>
                       <td className="px-3 py-1.5 text-right font-mono font-bold text-zinc-300">
-                        {editingItemId === rowId ? (
+                        {editingDiscountItemId === rowId ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-[9px] text-zinc-500 font-bold select-none">
+                              Base: {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <div 
+                              className="flex items-center justify-end gap-1"
+                              onBlur={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                  const val = parseFloat(editingDiscountValue);
+                                  updateLineDiscount(rowId, isNaN(val) ? 0 : val, editingDiscountType);
+                                  setEditingDiscountItemId(null);
+                                }
+                              }}
+                            >
+                              <input
+                                type="number"
+                                min="0"
+                                value={editingDiscountValue}
+                                onChange={(e) => setEditingDiscountValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseFloat(editingDiscountValue);
+                                    updateLineDiscount(rowId, isNaN(val) ? 0 : val, editingDiscountType);
+                                    setEditingDiscountItemId(null);
+                                  }
+                                  if (e.key === 'Escape') setEditingDiscountItemId(null);
+                                }}
+                                className="w-12 text-right bg-[#0d0d10] border border-[#2d2f36] rounded px-1 py-0.5 text-xs font-mono font-bold text-white focus:outline-none focus:border-red-500"
+                                autoFocus
+                                onFocus={(e) => e.target.select()}
+                              />
+                              <select
+                                value={editingDiscountType}
+                                onChange={(e) => setEditingDiscountType(e.target.value as 'percentage' | 'fixed')}
+                                className="bg-[#0d0d10] border border-[#2d2f36] rounded text-white text-[10px] py-0.5 font-bold focus:outline-none"
+                              >
+                                <option value="percentage">%</option>
+                                <option value="fixed">{config.currencySymbol}</option>
+                              </select>
+                            </div>
+                          </div>
+                        ) : editingItemId === rowId ? (
                           <div className="flex items-center justify-end gap-1">
                             <span className="text-zinc-500">{config.currencySymbol}</span>
                             <input
@@ -1815,7 +2041,7 @@ export default function PosModern({ logic }: Props) {
                               onBlur={() => handleSavePrice(rowId)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') handleSavePrice(rowId);
-                                  if (e.key === 'Escape') setEditingItemId(null);
+                                if (e.key === 'Escape') setEditingItemId(null);
                               }}
                               className="w-20 text-right bg-[#0d0d10] border border-[#2d2f36] rounded px-1 py-0.5 text-xs font-mono font-bold text-white focus:outline-none focus:border-indigo-500"
                               autoFocus
@@ -1823,26 +2049,68 @@ export default function PosModern({ logic }: Props) {
                             />
                           </div>
                         ) : (
-                          <div className="flex items-center justify-end gap-1 group">
-                            <span className={item.customPrice !== undefined ? 'text-amber-400 font-black' : ''}>
-                              {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                            {item.customPrice !== undefined && (
-                              <span className="text-[9px] text-amber-400 font-bold bg-amber-950/30 border border-amber-500/20 px-0.5 rounded">MOD</span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleRequestEditPrice(rowId, currentPrice)}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-indigo-400 cursor-pointer ml-0.5"
-                              title={isAdminMode ? 'Editar precio' : 'Editar precio (requiere PIN de administrador)'}
-                            >
-                              <Edit className="w-3 h-3" />
-                            </button>
+                          <div className="flex items-center justify-end gap-1.5 group whitespace-nowrap">
+                            {/* Botones de acción (visibles solo en hover a la izquierda para mantener alineación) */}
+                            <div className="hidden group-hover:flex items-center gap-1 mr-1">
+                              <button
+                                type="button"
+                                onClick={() => handleRequestEditPrice(rowId, currentPrice)}
+                                className="text-zinc-500 hover:text-indigo-400 cursor-pointer"
+                                title={isAdminMode ? 'Editar precio (No se refleja en el ticket)' : 'Editar precio (requiere PIN de administrador - No se refleja en el ticket)'}
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingDiscountItemId(rowId);
+                                  setEditingDiscountValue(item.lineDiscountValue ? item.lineDiscountValue.toString() : '');
+                                  setEditingDiscountType(item.lineDiscountType || 'percentage');
+                                }}
+                                className="text-zinc-500 hover:text-red-400 cursor-pointer"
+                                title="Descuento (Se refleja en el ticket)"
+                              >
+                                <Tag className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Contenedor de precio y badges */}
+                            <div className="flex flex-col items-end">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {item.customPrice !== undefined && (
+                                  <span className="text-[9px] text-amber-400 font-bold bg-amber-950/30 border border-amber-500/20 px-0.5 rounded">MOD</span>
+                                )}
+                                {item.lineDiscountValue !== undefined && item.lineDiscountValue > 0 ? (
+                                  <>
+                                    <span className="line-through text-zinc-500 text-xs">
+                                      {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                    <span className="text-zinc-500 text-xs mx-0.5">-</span>
+                                    <span className="text-red-400 font-semibold text-xs">
+                                      {item.lineDiscountType === 'percentage' ? `${item.lineDiscountValue}%` : `${config.currencySymbol}${item.lineDiscountValue}`}
+                                    </span>
+                                    <span className="text-zinc-500 text-xs mx-0.5">=</span>
+                                    <span className="text-zinc-200 font-bold">
+                                      {config.currencySymbol}{(currentPrice - discountAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className={item.customPrice !== undefined ? 'text-amber-400 font-black' : ''}>
+                                    {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                )}
+                              </div>
+                              {item.quantity > 1 && item.lineDiscountValue !== undefined && item.lineDiscountValue > 0 && (
+                                <span className="text-[9px] text-zinc-500 font-medium select-none mt-0.5">
+                                  (Desc. total: -{config.currencySymbol}{(discountAmount * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </td>
                       <td className="px-3 py-1.5 text-right font-mono font-extrabold text-emerald-400 text-xs text-nowrap">
-                        {config.currencySymbol}{(currentPrice * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {config.currencySymbol}{((currentPrice - discountAmount) * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-1.5 text-center">
                         <button
@@ -1908,32 +2176,45 @@ export default function PosModern({ logic }: Props) {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowRepairSelectionModal(true)}
-            title="Agregar saldo de orden de servicio al carrito [F3]"
-            className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-violet-800"
-          >
-            <span className="hidden sm:inline">Reparación</span> <span className="font-mono font-normal text-[9px] bg-black/20 px-1 py-0.5 rounded text-violet-100">[F3]</span>
-          </button>
-          <button
-            type="button"
-            disabled={basket.length === 0}
-            onClick={handleSaveSaleForLater}
-            title="Guardar venta actual para después [F10]"
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-blue-800/80"
-          >
-            <span className="hidden sm:inline">Guardar</span> <span className="font-mono font-normal text-[9px] bg-black/20 px-1 py-0.5 rounded text-blue-100">[F10]</span>
-          </button>
-          <button
-            type="button"
-            disabled={basket.length === 0}
-            onClick={handleCheckout}
-            title="Finalizar la venta actual y registrar el pago [F5]"
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-emerald-700"
-          >
-            <span className="hidden sm:inline">Cobrar</span> <span className="font-mono font-normal text-[9px] bg-black/20 px-1 py-0.5 rounded text-emerald-100">[F5]</span>
-          </button>
+          {!isQuoteMode && (
+            <>
+              <button
+                type="button"
+                disabled={basket.length === 0}
+                onClick={handleSaveSaleForLater}
+                title="Guardar venta actual para después [F10]"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-blue-800/80"
+              >
+                <span className="hidden sm:inline">Guardar</span> <span className="font-mono font-normal text-[9px] bg-black/20 px-1 py-0.5 rounded text-blue-100">[F10]</span>
+              </button>
+            </>
+          )}
+          {isQuoteMode && basket.length > 0 && (
+            <button
+              type="button"
+              disabled={basket.length === 0}
+              onClick={() => {
+                setQuoteClientName('');
+                setQuoteWhatsappPhone('');
+                setShowQuoteWhatsappModal(true);
+              }}
+              title="Compartir cotización de los artículos del carrito actual por WhatsApp"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-amber-800"
+            >
+              <Smartphone className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Cotizar</span>
+            </button>
+          )}
+          {!isQuoteMode && (
+            <button
+              type="button"
+              disabled={basket.length === 0}
+              onClick={handleCheckout}
+              title="Finalizar la venta actual y registrar el pago [F5]"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-emerald-700"
+            >
+              <span className="hidden sm:inline">Cobrar</span> <span className="font-mono font-normal text-[9px] bg-black/20 px-1 py-0.5 rounded text-emerald-100">[F5]</span>
+            </button>
+          )}
           <button
             type="button"
             disabled={basket.length === 0}
@@ -1949,63 +2230,83 @@ export default function PosModern({ logic }: Props) {
       {/* Sale Confirmation Modal */}
       {showSaleConfirm && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-[#121318] border border-zinc-600 w-full max-w-2xl shadow-2xl flex flex-col font-sans text-gray-200 overflow-hidden select-none rounded-xl">
+          <div className={`w-full max-w-2xl shadow-2xl flex flex-col font-sans overflow-hidden select-none rounded-xl border ${
+            isLight ? 'bg-white border-zinc-200 text-zinc-800' : 'bg-[#121318] border border-zinc-600 text-gray-200'
+          }`}>
             {/* HEADER CONTAINER (ROYAL DECORATION IN DARK OR MODERN THEME) */}
-            <div className="bg-[#11131e] text-white p-4.5 flex flex-col md:flex-row md:items-center justify-between gap-3.5 border-b border-zinc-600">
+            <div className={`p-4.5 flex flex-col md:flex-row md:items-center justify-between gap-3.5 border-b ${
+              isLight ? 'bg-zinc-55/80 border-zinc-200 text-zinc-850' : 'bg-[#11131e] text-white border-zinc-600'
+            }`}>
               <div className="space-y-0.5 pointer-events-none">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase font-black tracking-wider bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded border border-indigo-500/30 select-none">
+                  <span className={`text-[10px] uppercase font-black tracking-wider px-2.5 py-1 rounded border select-none ${
+                    isLight ? 'bg-indigo-50 border-indigo-250 text-indigo-750' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                  }`}>
                     Cliente / Venta Pos
                   </span>
-                  <h3 className="text-sm font-black tracking-tight text-white uppercase truncate max-w-xs">
+                  <h3 className={`text-sm font-black tracking-tight uppercase truncate max-w-xs ${
+                    isLight ? 'text-zinc-800' : 'text-white'
+                  }`}>
                     {saveSaleLabel || 'PÚBLICO GENERAL'}
                   </h3>
                 </div>
-                <p className="text-[10px] text-zinc-300 font-mono">
+                <p className={`text-[10px] font-mono ${isLight ? 'text-zinc-500' : 'text-zinc-300'}`}>
                   IDENTIFICADOR: {saveSaleLabel ? 'ASIGNADO' : 'S/N'} | PUNTOS: 0 PTS
                 </p>
               </div>
               {/* BIG GIGANTIC DIGITAL COUNTBOARD */}
-              <div className="flex items-center gap-2.5 bg-black/80 px-4 py-2 border border-zinc-700/80 rounded-lg text-right min-w-[220px] justify-between md:justify-end">
-                <span className="text-[10px] text-zinc-400 font-mono uppercase">Monto Cobrado:</span>
-                <div className="text-xl md:text-2xl font-mono font-black tracking-widest text-[#22d3ee] drop-shadow-sm">
+              <div className={`flex items-center gap-2.5 px-4 py-2 border rounded-lg text-right min-w-[220px] justify-between md:justify-end ${
+                isLight ? 'bg-zinc-100 border-zinc-305' : 'bg-black/80 border-zinc-700/80'
+              }`}>
+                <span className={`text-[10px] font-mono uppercase ${isLight ? 'text-zinc-600 font-bold' : 'text-zinc-400'}`}>Monto Cobrado:</span>
+                <div className={`text-xl md:text-2xl font-mono font-black tracking-widest drop-shadow-sm ${
+                  isLight ? 'text-indigo-750' : 'text-[#22d3ee]'
+                }`}>
                   {config.currencySymbol}{(payCash + payCard).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} de {config.currencySymbol}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
             </div>
 
             {/* ACTION KEYS QUICK STAT BAR */}
-            <div className="bg-[#13151b] text-zinc-300 px-4 py-2 border-b border-zinc-600 text-[10px] font-mono flex flex-wrap items-center gap-x-4 gap-y-1 select-none font-bold">
-              <span className="text-zinc-500 uppercase">Teclas Rápidas:</span>
+            <div className={`px-4 py-2 border-b text-[10px] font-mono flex flex-wrap items-center gap-x-4 gap-y-1 select-none font-bold ${
+              isLight ? 'bg-zinc-100/50 border-zinc-200 text-zinc-600' : 'bg-[#13151b] text-zinc-300 border-zinc-600'
+            }`}>
+              <span className={isLight ? 'text-zinc-450 uppercase' : 'text-zinc-50 uppercase'}>Teclas Rápidas:</span>
               <span>[F2] {posShouldPrintTicket ? '✔' : '❌'} Imprimir Ticket</span>
               <span>[F5] Confirmar Venta</span>
             </div>
 
             {/* ACTIVE VALUE SLOTS */}
-            <div className="p-5 space-y-4.5 max-h-[60vh] overflow-y-auto bg-[#0a0b0e] scrollbar-thin">
+            <div className={`p-5 space-y-4.5 max-h-[60vh] overflow-y-auto scrollbar-thin ${
+              isLight ? 'bg-zinc-50/50 text-zinc-800' : 'bg-[#0a0b0e] text-zinc-200'
+            }`}>
               {/* INPUT FIELDS LIST */}
               <div className="space-y-4">
-                <h4 className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                <h4 className={`text-[10px] uppercase font-bold tracking-wider ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
                   Distribuya el importe de cobro del cliente:
                 </h4>
 
                 {/* 1. CASH INPUT CARD */}
-                <div className="bg-[#12141c] border border-zinc-800 p-4 rounded-xl flex items-center justify-between gap-4 hover:border-zinc-700 transition-all shadow-inner">
+                <div className={`border p-4 rounded-xl flex items-center justify-between gap-4 hover:border-zinc-700 transition-all shadow-inner ${
+                  isLight ? 'bg-white border-zinc-200 hover:border-zinc-300' : 'bg-[#12141c] border border-zinc-800'
+                }`}>
                   <div className="flex items-center gap-3.5 max-w-sm w-full">
-                    <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 flex items-center justify-center text-lg select-none">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg select-none border ${
+                      isLight ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
+                    }`}>
                       🪙
                     </div>
                     <div>
-                      <span className="block text-xs font-extrabold text-white leading-none">
-                        MXN Efectivo Recibido
+                      <span className={`block text-xs font-extrabold leading-none ${isLight ? 'text-zinc-800' : 'text-white'}`}>
+                        MXN Efectivo Received
                       </span>
-                      <span className="text-[9.5px] text-zinc-400 font-mono">Monedas o billetes físicos</span>
+                      <span className={`text-[9.5px] font-mono ${isLight ? 'text-zinc-600 leading-tight block mt-0.5' : 'text-zinc-400'}`}>Monedas o billetes físicos</span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <div className="relative">
-                      <span className="absolute left-3 top-3 text-base font-black text-zinc-400">{config.currencySymbol}</span>
+                      <span className="absolute left-3 top-3 text-base font-black text-zinc-450">{config.currencySymbol}</span>
                       <input
                         type="number"
                         min={0}
@@ -2014,7 +2315,11 @@ export default function PosModern({ logic }: Props) {
                         placeholder="0.00"
                         onChange={(e) => setPayCash(Number(e.target.value) || 0)}
                         onFocus={(e) => e.target.select()}
-                        className="w-48 bg-[#07080b] border border-zinc-700 focus:border-indigo-500 focus:outline-none rounded-lg px-3 pl-8 py-2.5 text-base text-yellow-400 font-mono font-black text-right shadow-sm"
+                        className={`w-48 border focus:outline-none rounded-lg px-3 pl-8 py-2.5 text-base font-mono font-black text-right shadow-sm ${
+                          isLight 
+                            ? 'bg-zinc-50 border-zinc-300 text-zinc-900 focus:border-indigo-500' 
+                            : 'bg-[#07080b] border border-zinc-700 focus:border-indigo-500 text-yellow-400'
+                        }`}
                         autoFocus
                       />
                     </div>
@@ -2022,23 +2327,27 @@ export default function PosModern({ logic }: Props) {
                 </div>
 
                 {/* 2. CARD INPUT CARD */}
-                <div className="bg-[#12141c] border border-zinc-800 p-4 rounded-xl flex flex-col gap-3 hover:border-zinc-700 transition-all shadow-inner">
+                <div className={`border p-4 rounded-xl flex flex-col gap-3 hover:border-zinc-700 transition-all shadow-inner ${
+                  isLight ? 'bg-white border-zinc-200 hover:border-zinc-300' : 'bg-[#12141c] border-zinc-800'
+                }`}>
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3.5 max-w-sm w-full">
-                      <div className="w-9 h-9 rounded-xl bg-blue-500/15 text-blue-400 border border-blue-500/25 flex items-center justify-center text-lg select-none">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg select-none border ${
+                        isLight ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-blue-500/15 text-blue-400 border-blue-500/25'
+                      }`}>
                         💳
                       </div>
                       <div>
-                        <span className="block text-xs font-extrabold text-white leading-none">
+                        <span className={`block text-xs font-extrabold leading-none ${isLight ? 'text-zinc-800' : 'text-white'}`}>
                           Terminal de Tarjeta (TDC/TDB)
                         </span>
-                        <span className="text-[9.5px] text-zinc-400 font-mono">Terminal bancaria o agregador</span>
+                        <span className={`text-[9.5px] font-mono ${isLight ? 'text-zinc-600 leading-tight block mt-0.5' : 'text-zinc-400'}`}>Terminal bancaria o agregador</span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <div className="relative">
-                        <span className="absolute left-3 top-3 text-base font-black text-zinc-400">{config.currencySymbol}</span>
+                        <span className="absolute left-3 top-3 text-base font-black text-zinc-450">{config.currencySymbol}</span>
                         <input
                           type="number"
                           min={0}
@@ -2047,14 +2356,20 @@ export default function PosModern({ logic }: Props) {
                           placeholder="0.00"
                           onChange={(e) => setPayCard(Number(e.target.value) || 0)}
                           onFocus={(e) => e.target.select()}
-                          className="w-48 bg-[#07080b] border border-zinc-700 focus:border-indigo-500 focus:outline-none rounded-lg px-3 pl-8 py-2.5 text-base text-yellow-400 font-mono font-black text-right shadow-sm"
+                          className={`w-48 border focus:outline-none rounded-lg px-3 pl-8 py-2.5 text-base font-mono font-black text-right shadow-sm ${
+                            isLight 
+                              ? 'bg-zinc-50 border-zinc-300 text-zinc-900 focus:border-indigo-500' 
+                              : 'bg-[#07080b] border border-zinc-700 focus:border-indigo-500 text-yellow-400'
+                          }`}
                         />
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-1.5 p-3 bg-[#080b12] border border-zinc-800 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
-                    <span className="text-[9.5px] uppercase font-black text-zinc-300">
+                  <div className={`mt-1.5 p-3 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-2 items-center border ${
+                    isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-[#080b12] border-zinc-800'
+                  }`}>
+                    <span className={`text-[9.5px] uppercase font-black ${isLight ? 'text-zinc-650' : 'text-zinc-300'}`}>
                       Referencia o Folio de Terminal TDC/TDB (Opcional):
                     </span>
                     <input
@@ -2062,23 +2377,31 @@ export default function PosModern({ logic }: Props) {
                       value={cardCode}
                       placeholder="Folio de voucher terminal..."
                       onChange={(e) => setCardCode(e.target.value)}
-                      className="bg-black/50 border border-zinc-700 focus:border-indigo-500 focus:outline-none rounded px-3 py-1.5 text-xs text-zinc-100 font-mono font-black w-full"
+                      className={`border focus:outline-none rounded px-3 py-1.5 text-xs font-mono font-black w-full ${
+                        isLight 
+                          ? 'bg-white border-zinc-300 text-zinc-800 focus:border-indigo-500' 
+                          : 'bg-black/50 border border-zinc-700 focus:border-indigo-500 text-zinc-100'
+                      }`}
                     />
                   </div>
                 </div>
 
                 {/* 3. DISCOUNT INPUT CARD */}
-                <div className="bg-[#12141c] border border-zinc-800 p-4 rounded-xl flex flex-col gap-3 hover:border-zinc-700 transition-all shadow-inner">
+                <div className={`border p-4 rounded-xl flex flex-col gap-3 hover:border-zinc-700 transition-all shadow-inner ${
+                  isLight ? 'bg-white border-zinc-200 hover:border-zinc-300' : 'bg-[#12141c] border-zinc-800'
+                }`}>
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3.5 max-w-sm w-full">
-                      <div className="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-400 border border-purple-500/25 flex items-center justify-center text-lg select-none">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg select-none border ${
+                        isLight ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-purple-500/15 text-purple-400 border-purple-500/25'
+                      }`}>
                         🏷️
                       </div>
                       <div>
-                        <span className="block text-xs font-extrabold text-white leading-none">
+                        <span className={`block text-xs font-extrabold leading-none ${isLight ? 'text-zinc-800' : 'text-white'}`}>
                           Descuento a la Venta
                         </span>
-                        <span className="text-[9.5px] text-zinc-400 font-mono">Descuento global en esta venta</span>
+                        <span className={`text-[9.5px] font-mono ${isLight ? 'text-zinc-600 leading-tight block mt-0.5' : 'text-zinc-400'}`}>Descuento global en esta venta</span>
                       </div>
                     </div>
 
@@ -2095,23 +2418,29 @@ export default function PosModern({ logic }: Props) {
                         }}
                         className="w-4.5 h-4.5 accent-purple-500 cursor-pointer"
                       />
-                      <label htmlFor="discount-active-chk" className="text-xs text-zinc-300 font-black cursor-pointer select-none">
+                      <label htmlFor="discount-active-chk" className={`text-xs font-black cursor-pointer select-none ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
                         Habilitar
                       </label>
                     </div>
                   </div>
 
                   {discountEnabled && (
-                    <div className="mt-1.5 p-3 bg-[#080b12] border border-zinc-800 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                    <div className={`mt-1.5 p-3 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-3 items-center border ${
+                      isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-[#080b12] border-zinc-800'
+                    }`}>
                       <div className="flex items-center gap-2">
-                        <span className="text-[9.5px] uppercase font-black text-zinc-300">Tipo:</span>
+                        <span className={`text-[9.5px] uppercase font-black ${isLight ? 'text-zinc-650' : 'text-zinc-300'}`}>Tipo:</span>
                         <select
                           value={discountType}
                           onChange={(e) => {
                             setDiscountType(e.target.value as 'percentage' | 'fixed');
                             setDiscountValue(0);
                           }}
-                          className="bg-black/50 border border-zinc-700 focus:border-indigo-500 focus:outline-none rounded px-2.5 py-1 text-xs text-zinc-100 font-black"
+                          className={`border focus:outline-none rounded px-2.5 py-1 text-xs font-black ${
+                            isLight 
+                              ? 'bg-white border-zinc-300 text-zinc-800 focus:border-indigo-500' 
+                              : 'bg-black/50 border border-zinc-700 focus:border-indigo-500 text-zinc-100'
+                          }`}
                         >
                           <option value="percentage">Porcentaje (%)</option>
                           <option value="fixed">Cantidad Fija ($)</option>
@@ -2119,7 +2448,7 @@ export default function PosModern({ logic }: Props) {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <span className="text-[9.5px] uppercase font-black text-zinc-300">
+                        <span className={`text-[9.5px] uppercase font-black ${isLight ? 'text-zinc-650' : 'text-zinc-300'}`}>
                           {discountType === 'percentage' ? 'Porcentaje:' : 'Cantidad:'}
                         </span>
                         <div className="relative flex-1">
@@ -2137,21 +2466,25 @@ export default function PosModern({ logic }: Props) {
                               const val = parseFloat(e.target.value) || 0;
                               setDiscountValue(val);
                             }}
-                            className="bg-black/50 border border-zinc-700 focus:border-indigo-500 focus:outline-none rounded px-2.5 pl-6 py-1 text-xs text-zinc-100 font-mono font-black w-full"
+                            className={`border focus:outline-none rounded px-2.5 pl-6 py-1 text-xs font-mono font-black w-full ${
+                              isLight 
+                                ? 'bg-white border-zinc-305 text-zinc-900 focus:border-indigo-500' 
+                                : 'bg-black/50 border border-zinc-700 focus:border-indigo-500 text-zinc-100'
+                            }`}
                           />
                         </div>
                       </div>
 
                       {/* QUICK PERCENTAGE BUTTONS (Only if type is percentage) */}
                       {discountType === 'percentage' && (
-                        <div className="col-span-1 sm:col-span-2 flex items-center gap-2 pt-1 border-t border-zinc-800">
-                          <span className="text-[9px] uppercase font-black text-zinc-450">Atajos:</span>
+                        <div className={`col-span-1 sm:col-span-2 flex items-center gap-2 pt-1 border-t ${isLight ? 'border-zinc-200' : 'border-zinc-800'}`}>
+                          <span className={`text-[9px] uppercase font-black ${isLight ? 'text-zinc-500' : 'text-zinc-450'}`}>Atajos:</span>
                           {[5, 10, 15, 20].map((pct) => (
                             <button
                               key={pct}
                               type="button"
                               onClick={() => setDiscountValue(pct)}
-                              className="px-2 py-0.5 text-[10px] bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 hover:border-purple-500/40 rounded transition-all cursor-pointer font-bold"
+                              className="px-2 py-0.5 text-[10px] bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 hover:text-purple-700 border border-purple-500/20 hover:border-purple-500/40 rounded transition-all cursor-pointer font-bold"
                             >
                               {pct}%
                             </button>
@@ -2161,11 +2494,6 @@ export default function PosModern({ logic }: Props) {
                     </div>
                   )}
                 </div>
-
-
-
-                {/* WhatsApp inline card removed in favor of beautiful focused modal on checkout */}
-
               </div>
 
               {/* STATUS CARD SUMMARY */}
@@ -2179,9 +2507,11 @@ export default function PosModern({ logic }: Props) {
                   <div className={`p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 font-mono transition-all duration-300 ${
                     hasChange
                       ? 'bg-emerald-950/40 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                      : 'bg-[#11131c] border border-zinc-600'
+                      : isLight 
+                        ? 'bg-zinc-50 border border-zinc-250 text-zinc-800'
+                        : 'bg-[#11131c] border border-zinc-600'
                   }`}>
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
+                    <div className={`flex items-center gap-1.5 text-xs font-bold ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
                       <span>ESTADO DEL PAGO:</span>
                       {isComplete ? (
                         <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded font-black text-[10px]">
@@ -2201,12 +2531,12 @@ export default function PosModern({ logic }: Props) {
                             CAMBIO AL CLIENTE: {config.currencySymbol}{difference.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         ) : (
-                          <span className="text-sm font-black text-emerald-400">
+                          <span className={`text-sm font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
                             CAMBIO AL CLIENTE: {config.currencySymbol}{difference.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         )
                       ) : (
-                        <span className="text-sm font-black text-rose-400 animate-pulse">
+                        <span className={`text-sm font-black animate-pulse ${isLight ? 'text-rose-700 font-extrabold' : 'text-rose-400'}`}>
                           FALTANTE POR COBRAR: {config.currencySymbol}{difference.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       )}
@@ -2223,7 +2553,7 @@ export default function PosModern({ logic }: Props) {
                   type="button"
                   onClick={() => setShowNoteOption(!showNoteOption)}
                   className={`w-full flex items-center justify-between px-4 py-2.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all select-none focus:outline-none ${
-                    isLight ? 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/20'
+                    isLight ? 'text-zinc-500 hover:text-zinc-850 hover:bg-zinc-150/50' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/20'
                   }`}
                 >
                   <span>{showNoteOption ? '[-] Ocultar Nota del Ticket' : '[+] Agregar Nota al Ticket de Venta'}</span>
@@ -2236,7 +2566,7 @@ export default function PosModern({ logic }: Props) {
                   <div className={`p-3.5 border-t space-y-2 ${
                     isLight ? 'border-zinc-200 bg-white' : 'border-zinc-800 bg-[#0a0b0e]'
                   }`}>
-                    <label className={`text-[10px] font-bold uppercase tracking-wider ${isLight ? 'text-zinc-550' : 'text-zinc-500'}`}>Nota / Observación para el Ticket:</label>
+                    <label className={`text-[10px] font-bold uppercase tracking-wider ${isLight ? 'text-zinc-650' : 'text-zinc-500'}`}>Nota / Observación para el Ticket:</label>
                     <textarea
                       value={saleNote}
                       onChange={(e) => setSaleNote(e.target.value)}
@@ -2251,11 +2581,15 @@ export default function PosModern({ logic }: Props) {
               </div>
 
               {/* ACCORDION/COLLAPSIBLE FOR SPECIAL OPTIONS */}
-              <div className="border border-zinc-850 rounded-xl overflow-hidden bg-[#11131c]/50 transition-all duration-350">
+              <div className={`border rounded-xl overflow-hidden transition-all duration-350 ${
+                isLight ? 'border-zinc-200 bg-zinc-50/50' : 'border-zinc-850 bg-[#11131c]/50'
+              }`}>
                 <button
                   type="button"
                   onClick={() => setShowSpecialOptions(!showSpecialOptions)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-all select-none hover:bg-zinc-800/20 focus:outline-none"
+                  className={`w-full flex items-center justify-between px-4 py-2.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all select-none focus:outline-none ${
+                    isLight ? 'text-zinc-500 hover:text-zinc-855 hover:bg-zinc-150/50' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/20'
+                  }`}
                 >
                   <span>{showSpecialOptions ? 'Ocultar Opciones de Cobro' : 'Opciones Especiales (Fiar / Apartar)'}</span>
                   <span className="text-xs transition-transform duration-200">
@@ -2264,12 +2598,18 @@ export default function PosModern({ logic }: Props) {
                 </button>
 
                 {showSpecialOptions && (
-                  <div className="p-3.5 border-t border-zinc-800/80 bg-[#0a0b0e] flex flex-col sm:flex-row gap-2.5">
+                  <div className={`p-3.5 border-t flex flex-col sm:flex-row gap-2.5 ${
+                    isLight ? 'border-zinc-200 bg-white' : 'border-zinc-800/80 bg-[#0a0b0e]'
+                  }`}>
                     <button
                       type="button"
-                      onClick={() => { setShowSpecialOptions(false); setShowSaleConfirm(false); setShowFiarModal(true); }}
+                      onClick={() => { setShowSpecialOptions(false); openFiarModal(); }}
                       title="Registrar esta venta como cuenta por cobrar / fiado [F6]"
-                      className="flex-1 py-2.5 bg-orange-500/10 hover:bg-orange-500/25 border border-orange-500/30 hover:border-orange-500 text-orange-400 font-extrabold text-[10px] sm:text-xs rounded-lg uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className={`flex-1 py-2.5 border font-extrabold text-[10px] sm:text-xs rounded-lg uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+                        isLight 
+                          ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100/50' 
+                          : 'bg-orange-500/10 hover:bg-orange-500/25 border-orange-500/30 hover:border-orange-500 text-orange-400'
+                      }`}
                     >
                       💳 Fiar Venta
                     </button>
@@ -2284,7 +2624,11 @@ export default function PosModern({ logic }: Props) {
                         setShowApartarModal(true);
                       }}
                       title="Apartar productos con pago inicial [F7]"
-                      className="flex-1 py-2.5 bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/30 hover:border-purple-500 text-purple-400 font-extrabold text-[10px] sm:text-xs rounded-lg uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className={`flex-1 py-2.5 border font-extrabold text-[10px] sm:text-xs rounded-lg uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+                        isLight 
+                          ? 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100/50' 
+                          : 'bg-purple-500/10 hover:bg-purple-500/25 border-purple-500/30 hover:border-purple-500 text-purple-400'
+                      }`}
                     >
                       📦 Apartar Productos
                     </button>
@@ -2294,7 +2638,9 @@ export default function PosModern({ logic }: Props) {
             </div>
 
             {/* LOWER COMMAND STEERING PANEL */}
-            <div className="bg-[#11131e] text-zinc-300 px-5 py-3.5 border-t border-zinc-600 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className={`px-5 py-3.5 border-t flex flex-col sm:flex-row items-center justify-between gap-3 ${
+              isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-[#11131e] text-zinc-305 border-zinc-600'
+            }`}>
               
               {/* LEFT FOOTER CONTAINER: CHECKBOX & SPECIAL METHODS */}
               <div className="flex flex-wrap items-center gap-3.5 w-full sm:w-auto justify-start">
@@ -2305,10 +2651,14 @@ export default function PosModern({ logic }: Props) {
                     id="pos-check-print-ticket-modern"
                     checked={posShouldPrintTicket}
                     onChange={(e) => setPosShouldPrintTicket(e.target.checked)}
-                    className="w-5 h-5 accent-emerald-500 bg-[#07080b] border border-zinc-700 rounded cursor-pointer shrink-0"
+                    className={`w-5 h-5 accent-emerald-500 cursor-pointer shrink-0 ${
+                      isLight ? 'bg-white border-zinc-300' : 'bg-[#07080b] border-zinc-700'
+                    }`}
                   />
-                  <label htmlFor="pos-check-print-ticket-modern" className="text-[10px] sm:text-xs font-black text-[#cbcbcb] cursor-pointer uppercase tracking-normal select-none">
-                    Imprimir ticket <span className="text-emerald-400 font-mono font-bold">[F2]</span>
+                  <label htmlFor="pos-check-print-ticket-modern" className={`text-[10px] sm:text-xs font-black cursor-pointer uppercase tracking-normal select-none ${
+                    isLight ? 'text-zinc-750' : 'text-[#cbcbcb]'
+                  }`}>
+                    Imprimir ticket <span className={`font-mono font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>[F2]</span>
                   </label>
                 </div>
               </div>
@@ -2318,7 +2668,9 @@ export default function PosModern({ logic }: Props) {
                 <button
                   type="button"
                   onClick={() => setShowSaleConfirm(false)}
-                  className="flex-1 sm:flex-none uppercase px-2.5 sm:px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-[10px] sm:text-xs tracking-wider cursor-pointer rounded-lg transition-all active:scale-98 shadow-sm text-center"
+                  className={`flex-1 sm:flex-none uppercase px-2.5 sm:px-6 py-2.5 text-white font-extrabold text-[10px] sm:text-xs tracking-wider cursor-pointer rounded-lg transition-all active:scale-98 shadow-sm text-center ${
+                    isLight ? 'bg-rose-600 hover:bg-rose-700' : 'bg-red-600 hover:bg-red-700'
+                  }`}
                 >
                   Cancelar
                 </button>
@@ -2356,59 +2708,220 @@ export default function PosModern({ logic }: Props) {
       )}
 
       {/* Modal Fiar */}
-      {showFiarModal && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); }}>
-          <div className="w-full max-w-sm mx-4 bg-[#121318] border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+      {showFiarModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); setActiveSearchField(null); }}>
+          <div className="w-full max-w-sm mx-4 bg-[#121318] border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden" onClick={e => { e.stopPropagation(); setActiveSearchField(null); }}>
             <div className="bg-[#11131e] px-4 py-3 flex items-center justify-between border-b border-zinc-800">
               <span className="font-black text-sm uppercase tracking-widest text-white">💳 Registrar Fiado</span>
-              <button onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); }} className="text-zinc-400 hover:text-white font-black text-lg cursor-pointer">✕</button>
+              <button onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); setActiveSearchField(null); }} className="text-zinc-400 hover:text-white font-black text-lg cursor-pointer">✕</button>
             </div>
             <div className="p-4 space-y-3">
-              <div className="text-xs font-bold text-zinc-400">Total a fiar: <span className="font-black text-white">{config.currencySymbol || '$'}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-zinc-500">Nombre del cliente *</label>
-                <input autoFocus value={fiarClientName} onChange={e => handleCaretPreservingChange(e, setFiarClientName, val => val.toUpperCase())}
-                  placeholder="NOMBRE COMPLETO..."
-                  className="w-full mt-1 bg-zinc-800 border border-zinc-600 text-white px-3 py-2 text-sm font-bold uppercase rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:normal-case placeholder:text-zinc-500"
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-tel-modern')?.focus(); } }} />
-              </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
-                <div className="flex mt-1 bg-zinc-800 border border-zinc-600 rounded-lg overflow-hidden focus-within:border-orange-500">
-                  <select
-                    value={fiarCountryCode}
-                    onChange={e => setFiarCountryCode(e.target.value)}
-                    className="bg-zinc-900 border-r border-zinc-700 text-white px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none"
+              {fiarExistingAccount ? (
+                /* Cuenta Existente Detectada: Resumen Claro */
+                <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-orange-400">
+                    <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
+                    <span>Confirmar Cargo en Cuenta Existente</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs text-zinc-300">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Cliente:</span>
+                      <span className="font-extrabold text-white">{fiarExistingAccount.clientName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Teléfono:</span>
+                      <span className="font-bold text-white">{fiarExistingAccount.clientPhone}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-zinc-800/80 pt-1.5">
+                      <span className="text-zinc-500">Saldo Anterior:</span>
+                      <span className="font-bold text-white">{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Nuevo Cargo:</span>
+                      <span className="font-extrabold text-orange-400">+{config.currencySymbol || '$'}{(basketTotal - (Number(fiarInitialPayment) || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    {fiarInitialPayment && Number(fiarInitialPayment) > 0 && (
+                      <div className="flex justify-between text-[11px] text-emerald-400">
+                        <span>Anticipo ({fiarInitialMethod}):</span>
+                        <span>-{config.currencySymbol || '$'}{Number(fiarInitialPayment).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                     {/* Detalle del Cargo */}
+                    <div className="border-t border-zinc-800/80 pt-1.5 space-y-1">
+                      <span className="text-[9px] font-black uppercase text-zinc-500 block">Detalle del cargo:</span>
+                      <div className="max-h-20 overflow-y-auto pr-1 space-y-1 scrollbar-thin scrollbar-thumb-zinc-700">
+                        {basket.map((bi, index) => {
+                          const price = bi.customPrice ?? bi.item.price;
+                          return (
+                            <div key={index} className="flex justify-between text-[10.5px]">
+                              <span className="text-zinc-350 truncate max-w-[210px]">{bi.quantity}x {bi.item.name}</span>
+                              <span className="text-zinc-400 font-mono">{config.currencySymbol || '$'}{(price * bi.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex justify-between border-t border-zinc-800/80 pt-1.5 text-sm font-black">
+                      <span className="text-zinc-400">Nuevo Saldo Total:</span>
+                      <span className="text-white">{config.currencySymbol || '$'}{(fiarExistingAccount.balance + basketTotal - (Number(fiarInitialPayment) || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Crear Nuevo Fiado: Inputs normal */
+                <>
+                  <div className="text-xs font-bold text-zinc-400">Total a fiar: <span className="font-black text-white">{config.currencySymbol || '$'}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                  {/* Detalle del Cargo */}
+                  <div className="mt-1 space-y-1 bg-zinc-900/40 p-2 rounded-lg border border-zinc-800">
+                    <span className="text-[9px] font-black uppercase text-zinc-500 block">Detalle del cargo:</span>
+                    <div className="max-h-16 overflow-y-auto pr-1 space-y-1 scrollbar-thin scrollbar-thumb-zinc-700">
+                      {basket.map((bi, index) => {
+                        const price = bi.customPrice ?? bi.item.price;
+                        return (
+                          <div key={index} className="flex justify-between text-[10.5px]">
+                            <span className="text-zinc-400 truncate max-w-[210px]">{bi.quantity}x {bi.item.name}</span>
+                            <span className="text-zinc-500 font-mono">{config.currencySymbol || '$'}{(price * bi.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="relative" onClick={e => e.stopPropagation()}>
+                    <label className="text-[10px] font-black uppercase text-zinc-500">Nombre del cliente *</label>
+                    <input autoFocus value={fiarClientName} onChange={e => handleCaretPreservingChange(e, setFiarClientName, val => val.toUpperCase())}
+                      onFocus={() => setActiveSearchField('name')}
+                      onClick={e => { e.stopPropagation(); setActiveSearchField('name'); }}
+                      placeholder="NOMBRE COMPLETO..."
+                      className="w-full mt-1 bg-zinc-800 border border-zinc-600 text-white px-3 py-2 text-sm font-bold uppercase rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:normal-case placeholder:text-zinc-500"
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-tel-modern')?.focus(); } }} />
+                    
+                    {/* Suggestions Dropdown */}
+                    {activeSearchField === 'name' && fiarClientName.trim() && !fiarExistingAccount && fiarNameSuggestions.length > 0 && (
+                      <div className="absolute top-[62px] left-0 right-0 z-[10000] bg-[#11131e] border border-zinc-700 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                        {fiarNameSuggestions.map(acc => {
+                          const debt = acc.entries.reduce((s, e) => s + e.subtotal, 0);
+                          const paid = acc.payments.reduce((s, p) => s + p.amount, 0);
+                          const balance = Math.max(0, debt - paid);
+                          return (
+                            <div key={acc.id}
+                              onClick={() => selectExistingCreditAccount(acc)}
+                              className="px-3 py-2 hover:bg-zinc-800 cursor-pointer border-b last:border-0 border-zinc-800 flex justify-between items-center"
+                            >
+                              <div>
+                                <div className="text-xs font-bold text-white">{acc.clientName}</div>
+                                <div className="text-[9px] text-zinc-400">{acc.clientPhone}</div>
+                              </div>
+                              <div className="text-[10px] font-black text-amber-400">
+                                Saldo: {config.currencySymbol || '$'}{balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
+                    <div className="flex mt-1 bg-zinc-800 border border-zinc-600 rounded-lg overflow-hidden focus-within:border-orange-500">
+                      <select
+                        value={fiarCountryCode}
+                        onChange={e => setFiarCountryCode(e.target.value)}
+                        className="bg-zinc-900 border-r border-zinc-700 text-white px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none"
+                      >
+                        <option value="+52">🇲🇽 +52</option>
+                        <option value="+1">🇺🇸 +1</option>
+                      </select>
+                      <input id="fiar-tel-modern" value={fiarClientPhone}
+                        onChange={e => setFiarClientPhone(formatPhoneNumber(e.target.value))}
+                        onFocus={() => setActiveSearchField('phone')}
+                        onClick={e => { e.stopPropagation(); setActiveSearchField('phone'); }}
+                        placeholder="(351) 000-0000"
+                        className="w-full bg-transparent border-none text-white px-3 py-2 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-500"
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-limit-modern')?.focus(); } }} />
+                    </div>
+                    
+                    {/* Suggestions Dropdown for Phone */}
+                    {activeSearchField === 'phone' && fiarClientPhone.trim() && !fiarExistingAccount && fiarPhoneSuggestions.length > 0 && (
+                      <div className="absolute top-[62px] left-0 right-0 z-[10000] bg-[#11131e] border border-zinc-700 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                        {fiarPhoneSuggestions.map(acc => {
+                          const debt = acc.entries.reduce((s, e) => s + e.subtotal, 0);
+                          const paid = acc.payments.reduce((s, p) => s + p.amount, 0);
+                          const balance = Math.max(0, debt - paid);
+                          return (
+                            <div key={acc.id}
+                              onClick={() => selectExistingCreditAccount(acc)}
+                              className="px-3 py-2 hover:bg-zinc-800 cursor-pointer border-b last:border-0 border-zinc-800 flex justify-between items-center"
+                            >
+                              <div>
+                                <div className="text-xs font-bold text-white">{acc.clientName}</div>
+                                <div className="text-[9px] text-zinc-400">{acc.clientPhone}</div>
+                              </div>
+                              <div className="text-[10px] font-black text-amber-400">
+                                Saldo: {config.currencySymbol || '$'}{balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-500 cursor-pointer select-none">
+                      <input 
+                        type="checkbox"
+                        checked={fiarHasLimit}
+                        onChange={e => {
+                          setFiarHasLimit(e.target.checked);
+                          if (!e.target.checked) setFiarCreditLimit('');
+                        }}
+                        className="w-4 h-4 accent-orange-500 bg-[#07080b] border border-zinc-700 rounded cursor-pointer shrink-0"
+                      />
+                      <span>¿Establecerle límite de crédito?</span>
+                    </label>
+                    {fiarHasLimit && (
+                      <input id="fiar-limit-modern" value={fiarCreditLimit} onChange={e => setFiarCreditLimit(e.target.value)}
+                        placeholder={`Ej: ${config.defaultCreditLimit ?? 1000}`}
+                        type="number"
+                        min="1"
+                        className="w-full bg-zinc-800 border border-zinc-600 text-white px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:text-zinc-500 animate-fadeIn"
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); } }} />
+                    )}
+                  </div>
+                </>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-zinc-500">Anticipo / Abono Inicial ($)</label>
+                  <input value={fiarInitialPayment} onChange={e => setFiarInitialPayment(e.target.value)}
+                    placeholder="0.00"
+                    type="number"
+                    min="0"
+                    className="w-full mt-1 bg-zinc-800 border border-zinc-600 text-white px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:text-zinc-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-zinc-500">Método de Anticipo</label>
+                  <select value={fiarInitialMethod} onChange={e => setFiarInitialMethod(e.target.value as any)}
+                    className="w-full mt-1 bg-zinc-800 border border-zinc-600 text-white px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 cursor-pointer"
                   >
-                    <option value="+52">🇲🇽 +52</option>
-                    <option value="+1">🇺🇸 +1</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Tarjeta">Tarjeta / Transf</option>
                   </select>
-                  <input id="fiar-tel-modern" value={fiarClientPhone}
-                    onChange={e => setFiarClientPhone(formatPhoneNumber(e.target.value))}
-                    placeholder="(351) 000-0000"
-                    className="w-full bg-transparent border-none text-white px-3 py-2 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-500"
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-limit-modern')?.focus(); } }} />
                 </div>
               </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-zinc-500">Límite de Crédito ($)</label>
-                <input id="fiar-limit-modern" value={fiarCreditLimit} onChange={e => setFiarCreditLimit(e.target.value)}
-                  placeholder={`Ej: ${config.defaultCreditLimit ?? 1000}`}
-                  type="number"
-                  min="0"
-                  className="w-full mt-1 bg-zinc-800 border border-zinc-600 text-white px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:text-zinc-500"
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); } }} />
-              </div>
-              <div className="flex flex-col gap-2 pt-1 border-t border-zinc-800">
-                <div className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all">
+              <div className="flex flex-col gap-2 pt-1.5 border-t border-dashed border-zinc-800">
+                <div 
+                  onClick={toggleFiarPrint}
+                  className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all cursor-pointer"
+                >
                   <input 
                     type="checkbox" 
                     id="fiar-check-print-modern"
                     checked={fiarPrint}
                     onChange={toggleFiarPrint}
-                    className="w-4.5 h-4.5 accent-orange-500 bg-[#07080b] border border-zinc-700 rounded cursor-pointer shrink-0"
+                    className="w-4.5 h-4.5 accent-orange-500 bg-[#07080b] border border-zinc-700 rounded shrink-0 pointer-events-none"
                   />
-                  <label htmlFor="fiar-check-print-modern" className="text-[10px] font-black text-[#cbcbcb] cursor-pointer uppercase tracking-normal select-none flex items-center gap-1">
+                  <label htmlFor="fiar-check-print-modern" className="text-[10px] font-black text-[#cbcbcb] uppercase tracking-normal select-none flex items-center gap-1 pointer-events-none">
                     <Printer className="w-3.5 h-3.5 text-zinc-400" /> Imprimir ticket
                   </label>
                 </div>
@@ -2416,11 +2929,11 @@ export default function PosModern({ logic }: Props) {
                 {config.whatsappMode && config.whatsappMode !== 'disabled' && (
                   <div 
                     title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
-                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : undefined}
-                    className={`flex items-center gap-2 select-none transition-all ${
+                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : toggleFiarWhatsapp}
+                    className={`flex items-center gap-2 select-none transition-all cursor-pointer ${
                       isWaIntegratedOffline 
-                        ? 'opacity-40 grayscale cursor-pointer' 
-                        : 'hover:opacity-95 active:scale-98 cursor-pointer'
+                        ? 'opacity-40 grayscale' 
+                        : 'hover:opacity-95 active:scale-98'
                     }`}
                   >
                     <input 
@@ -2437,48 +2950,41 @@ export default function PosModern({ logic }: Props) {
                   </div>
                 )}
               </div>
-              {fiarExistingAccount && (
-                <div className="bg-amber-950/30 border border-amber-600/50 rounded-lg p-3 space-y-2">
-                  <p className="text-xs font-black text-amber-400">⚠️ {fiarExistingAccount.matchType === 'phone' ? 'Teléfono ya registrado' : 'Nombre similar detectado'}</p>
-                  {fiarExistingAccount.matchType === 'phone' ? (
-                    <p className="text-[10px] text-amber-300">Ya existe una cuenta con ese teléfono a nombre de <strong>{fiarExistingAccount.clientName}</strong> (saldo: <strong>{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>). ¿Agregar a esa cuenta?</p>
-                  ) : (
-                    <p className="text-[10px] text-amber-300">Hay una cuenta llamada <strong>{fiarExistingAccount.clientName}</strong> ({fiarExistingAccount.clientPhone}) con saldo <strong>{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. ¿Es la misma persona o es alguien diferente?</p>
-                  )}
-                  <div className="flex flex-col gap-1.5">
-                    <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} className="w-full py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all">
-                      Agregar a cuenta de {fiarExistingAccount.clientName} ({fiarExistingAccount.clientPhone})
+              <div className="flex gap-2 pt-1">
+                {fiarExistingAccount ? (
+                  <>
+                    <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })}
+                      className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase rounded-lg cursor-pointer transition-all">
+                      Confirmar y Agregar Cargo ({fiarExistingAccount.clientName})
                     </button>
-                    {fiarExistingAccount.matchType === 'name-only' && (
-                      <button onClick={() => { executeFiar(true, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); }} className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all">
-                        Crear nueva cuenta para {fiarClientName.trim().toUpperCase()} ({fiarClientPhone.trim()})
-                      </button>
-                    )}
-                    <button onClick={() => setFiarExistingAccount(null)} className="w-full py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all">
+                    <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); setShowSaleConfirm(true); }}
+                      className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-black text-xs uppercase rounded-lg cursor-pointer transition-all">
                       Cancelar
                     </button>
-                  </div>
-                </div>
-              )}
-              <div className="flex gap-2 pt-1">
-                <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} disabled={!fiarClientName.trim() || !fiarClientPhone.trim() || !fiarCreditLimit.trim()}
-                  title="Confirmar y registrar el fiado para el cliente"
-                  className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                  Confirmar fiado
-                </button>
-                <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); setShowSaleConfirm(true); }}
-                  title="Cancelar y volver a la pantalla de cobro"
-                  className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-black text-xs uppercase rounded-lg cursor-pointer transition-all">
-                  Cancelar
-                </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} disabled={!fiarClientName.trim() || !fiarClientPhone.trim() || (fiarHasLimit && !fiarCreditLimit.trim())}
+                      title="Confirmar y registrar el fiado para el cliente"
+                      className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                      Confirmar fiado
+                    </button>
+                    <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); setShowSaleConfirm(true); }}
+                      title="Cancelar y volver a la pantalla de cobro"
+                      className="px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 font-black text-xs uppercase rounded-lg cursor-pointer transition-all">
+                      Cancelar
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal Apartar */}
-      {showApartarModal && (
+      {showApartarModal && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => { setShowApartarModal(false); setShowSaleConfirm(true); }}>
           <div className="w-full max-w-sm mx-4 bg-[#18191f] border border-zinc-700 rounded-xl shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="bg-[#11131e] px-4 py-3 flex items-center justify-between rounded-t-xl border-b border-zinc-700">
@@ -2532,15 +3038,18 @@ export default function PosModern({ logic }: Props) {
                   className="w-full mt-1 bg-zinc-800 border border-zinc-600 text-white px-3 py-1.5 text-sm font-bold rounded-lg outline-none focus:border-purple-500" />
               </div>
               <div className="flex flex-col gap-2 pt-1 border-t border-zinc-800">
-                <div className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all">
+                <div 
+                  onClick={toggleApartarPrint}
+                  className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all cursor-pointer"
+                >
                   <input 
                     type="checkbox" 
                     id="apartar-check-print-modern"
                     checked={apartarPrint}
                     onChange={toggleApartarPrint}
-                    className="w-4.5 h-4.5 accent-purple-500 bg-[#07080b] border border-zinc-700 rounded cursor-pointer shrink-0"
+                    className="w-4.5 h-4.5 accent-purple-500 bg-[#07080b] border border-zinc-700 rounded shrink-0 pointer-events-none"
                   />
-                  <label htmlFor="apartar-check-print-modern" className="text-[10px] font-black text-[#cbcbcb] cursor-pointer uppercase tracking-normal select-none flex items-center gap-1">
+                  <label htmlFor="apartar-check-print-modern" className="text-[10px] font-black text-[#cbcbcb] uppercase tracking-normal select-none flex items-center gap-1 pointer-events-none">
                     <Printer className="w-3.5 h-3.5 text-zinc-400" /> Imprimir ticket
                   </label>
                 </div>
@@ -2548,11 +3057,11 @@ export default function PosModern({ logic }: Props) {
                 {config.whatsappMode && config.whatsappMode !== 'disabled' && (
                   <div 
                     title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
-                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : undefined}
-                    className={`flex items-center gap-2 select-none transition-all ${
+                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : toggleApartarWhatsapp}
+                    className={`flex items-center gap-2 select-none transition-all cursor-pointer ${
                       isWaIntegratedOffline 
-                        ? 'opacity-40 grayscale cursor-pointer' 
-                        : 'hover:opacity-95 active:scale-98 cursor-pointer'
+                        ? 'opacity-40 grayscale' 
+                        : 'hover:opacity-95 active:scale-98'
                     }`}
                   >
                     <input 
@@ -2581,7 +3090,8 @@ export default function PosModern({ logic }: Props) {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Change Due Modal */}
@@ -2626,36 +3136,129 @@ export default function PosModern({ logic }: Props) {
       {/* Search Result and Fast Sale Modal */}
       {isSearchModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[100] p-4 animate-fadeIn">
-          <div className="bg-[#121316] border border-zinc-800 w-full max-w-4xl rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] p-7 space-y-5 text-white animate-slideUp premium-modal-card">
+          <div className={`w-full max-w-4xl rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] p-7 space-y-5 animate-slideUp premium-modal-card border ${
+            isLight 
+              ? 'bg-white border-zinc-200 text-zinc-800' 
+              : 'bg-[#121316] border-zinc-800 text-white'
+          }`}>
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-zinc-850 pb-3.5">
+            <div className={`flex items-center justify-between border-b pb-3.5 ${isLight ? 'border-zinc-200' : 'border-zinc-850'}`}>
               <div className="flex items-center gap-2.5">
-                <Search className="w-5.5 h-5.5 text-indigo-400 animate-pulse" />
-                <h3 className="text-sm font-black tracking-wider text-white uppercase font-sans">
+                <Search className={`w-5.5 h-5.5 animate-pulse ${isLight ? 'text-indigo-600' : 'text-indigo-400'}`} />
+                <h3 className={`text-sm font-black tracking-wider uppercase font-sans ${isLight ? 'text-zinc-800-important' : 'text-white'}`}>
                   {paginatedModalItems.length > 0 ? '🔍 Catálogo de Productos y Refacciones' : '✨ Crear Artículo / Venta Rápida'}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={cancelAndCleanupSearchModal}
-                className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                className={`p-1 rounded-full transition-colors cursor-pointer ${
+                  isLight 
+                    ? 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100' 
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                }`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {/* Buscador y Categorías dentro del Modal */}
+            <div className={`space-y-3 p-4 rounded-xl border shrink-0 ${isLight ? 'bg-zinc-100/70 border-zinc-200 text-zinc-800' : 'bg-[#18191e] border-zinc-850'}`}>
+              {/* Buscador */}
+              <div className="relative">
+                <Search className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`} />
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Buscar por nombre, código SKU o categoría..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setModalCurrentPage(1);
+                    setModalSelectedIndex(0);
+                  }}
+                  className={`w-full pl-10 pr-9 py-2 rounded-xl text-xs placeholder-zinc-500 focus:outline-none font-sans border ${
+                    isLight 
+                      ? 'bg-white border-zinc-300 text-zinc-800 focus:border-indigo-500' 
+                      : 'bg-zinc-900 border-zinc-750 text-white focus:border-indigo-500/50'
+                  }`}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setModalCurrentPage(1);
+                      setModalSelectedIndex(0);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-1 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Categorías (Pills) */}
+              <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setModalCategoryFilter('TODAS')}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
+                    modalCategoryFilter === 'TODAS'
+                      ? 'bg-indigo-600 text-white-important font-black shadow-md'
+                      : isLight 
+                        ? 'bg-zinc-200 hover:bg-zinc-300 text-zinc-700 font-bold border border-zinc-300'
+                        : 'bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750'
+                  }`}
+                >
+                  🌟 TODAS ({modalActiveInventory.length})
+                </button>
+                {modalCategoriesList.map(cat => {
+                  const count = modalActiveInventory.filter(p => (p.category || '').trim().toUpperCase() === cat).length;
+                  return (
+                    <button
+                      type="button"
+                      key={cat}
+                      onClick={() => setModalCategoryFilter(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
+                        modalCategoryFilter === cat
+                          ? 'bg-indigo-600 text-white-important font-black shadow-md'
+                          : isLight 
+                            ? 'bg-zinc-200 hover:bg-zinc-300 text-zinc-700 font-bold border border-zinc-300'
+                            : 'bg-zinc-850 hover:bg-zinc-800 text-zinc-300 border border-zinc-750'
+                      }`}
+                    >
+                      {cat} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Modal Body */}
             {paginatedModalItems.length > 0 ? (
               <div className="space-y-4">
-                <p className="text-xs text-zinc-400 font-medium leading-relaxed bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-800/60">
-                  Se encontraron <span className="font-extrabold text-indigo-400">{matchedProductsForModal.length}</span> coincidencias. Navegue con las teclas <span className="font-extrabold bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-750">↑ ↓</span> y confirme con <span className="font-extrabold bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-750 font-mono">Enter</span> o con clic.
+                <p className={`text-xs font-medium leading-relaxed p-3.5 rounded-xl border ${
+                  isLight 
+                    ? 'bg-zinc-50 border-zinc-250 text-zinc-600' 
+                    : 'bg-zinc-900/40 border-zinc-800/60 text-zinc-400'
+                }`}>
+                  Se encontraron <span className={`font-extrabold ${isLight ? 'text-indigo-700' : 'text-indigo-400'}`}>{matchedProductsForModal.length}</span> coincidencias. Navegue con las teclas <span className={`font-extrabold px-1.5 py-0.5 rounded border ${isLight ? 'bg-zinc-200 border-zinc-300 text-zinc-800 font-sans' : 'bg-zinc-800 border-zinc-750 text-zinc-300'}`}>↑ ↓</span> y confirme con <span className={`font-extrabold px-1.5 py-0.5 rounded border font-mono ${isLight ? 'bg-zinc-200 border-zinc-300 text-zinc-800' : 'bg-zinc-800 border-zinc-750 text-zinc-300'}`}>Enter</span> o con clic.
                 </p>
 
                 {/* Table wrapper */}
-                <div id="pos-modal-table-container" className="border border-zinc-800 rounded-xl overflow-hidden max-h-[460px] overflow-y-auto bg-zinc-950">
+                <div id="pos-modal-table-container" className={`border rounded-xl overflow-hidden max-h-[460px] overflow-y-auto ${
+                  isLight 
+                    ? 'border-zinc-250 bg-white' 
+                    : 'border-zinc-800 bg-zinc-950'
+                }`}>
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-zinc-900 border-b border-zinc-800 text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
+                      <tr className={`border-b font-bold uppercase tracking-wider text-[10px] ${
+                        isLight 
+                          ? 'bg-zinc-100 border-zinc-250 text-zinc-650' 
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                      }`}>
                         <th className="px-4 py-2">Código</th>
                         <th className="px-4 py-2">Nombre / Categoría</th>
                         <th className="px-4 py-2 text-right">Precio</th>
@@ -2665,6 +3268,31 @@ export default function PosModern({ logic }: Props) {
                     <tbody>
                       {paginatedModalItems.map((product, idx) => {
                         const isSelected = idx === modalSelectedIndex;
+                        const isStockControlled = product.manageStock !== false;
+                        const currentStock = getItemStock(product);
+
+                        const secondaryLocations: { name: string; qty: number }[] = [];
+                        if (isStockControlled) {
+                          if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all' && selectedSaleWarehouseId !== 'local') {
+                            if (product.stock > 0) {
+                              secondaryLocations.push({ name: 'Tienda Local', qty: product.stock });
+                            }
+                            Object.entries(product.warehouseStock || {}).forEach(([whId, qty]) => {
+                              if (whId !== selectedSaleWarehouseId && (qty as number) > 0) {
+                                const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                                secondaryLocations.push({ name: whName, qty: qty as number });
+                              }
+                            });
+                          } else {
+                            Object.entries(product.warehouseStock || {}).forEach(([whId, qty]) => {
+                              if ((qty as number) > 0) {
+                                const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                                secondaryLocations.push({ name: whName, qty: qty as number });
+                              }
+                            });
+                          }
+                        }
+
                         return (
                           <tr
                             key={product.id}
@@ -2675,39 +3303,86 @@ export default function PosModern({ logic }: Props) {
                               setTimeout(() => searchInputRef.current?.focus(), 50);
                             }}
                             onMouseMove={() => { if (modalSelectedIndex !== idx) setModalSelectedIndex(idx); }}
-                            className={`cursor-pointer border-b border-zinc-900/80 ${
-                              isSelected ? 'bg-indigo-950/40 text-white font-semibold pos-modal-row-selected' : 'hover:bg-zinc-900/30 text-zinc-350'
+                            className={`cursor-pointer border-b ${
+                              isLight 
+                                ? isSelected 
+                                  ? 'bg-indigo-950/40 text-white font-semibold pos-modal-row-selected border-zinc-900/80' 
+                                  : 'hover:bg-zinc-100 text-zinc-700 border-zinc-200' 
+                                : isSelected 
+                                  ? 'bg-indigo-950/40 text-white font-semibold pos-modal-row-selected border-zinc-900/80' 
+                                  : 'hover:bg-zinc-900/30 text-zinc-350 border-zinc-900/80'
                             }`}
                           >
                             <td className={`px-4 py-1.5 font-mono text-[10.5px] ${
-                              isSelected ? 'text-indigo-300 font-extrabold border-l-4 border-indigo-500 pl-3' : 'text-zinc-500'
+                              isSelected 
+                                ? 'text-indigo-300 font-extrabold border-l-4 border-indigo-500 pl-3' 
+                                : isLight 
+                                  ? 'text-zinc-500-important' 
+                                  : 'text-zinc-500'
                             }`}>
                               {product.code || 'S/C'}
                             </td>
-                            <td className="px-4 py-1.5 max-w-0">
+                            <td className={`px-4 py-1.5 max-w-0 border-r ${isLight ? 'border-zinc-200' : 'border-zinc-900'}`}>
                               <div className="flex items-center gap-2.5">
                                 <PosItemThumbnail imageUrl={product.imageUrl} name={product.name} code={product.code} category={product.category} price={product.price} currencySymbol={config.currencySymbol} size={32} />
-                                <div className="flex-1 min-w-0 break-words whitespace-normal">
-                                  <span className={`block font-black uppercase text-[11.5px] break-words whitespace-normal ${isSelected ? 'text-white' : 'text-zinc-200'}`}>{product.name}</span>
+                                <div className="flex-1 min-w-0 break-words whitespace-normal text-left">
+                                  <span className={`block font-black uppercase text-[11.5px] break-words whitespace-normal ${
+                                    isSelected 
+                                      ? 'text-white' 
+                                      : isLight 
+                                        ? 'text-zinc-800-important' 
+                                        : 'text-zinc-200'
+                                  }`}>{product.name}</span>
                                   <span className={`inline-block text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                                    isSelected ? 'bg-indigo-900/80 text-indigo-200' : 'bg-zinc-800 text-zinc-400'
+                                    isSelected 
+                                      ? 'bg-indigo-900/80 text-indigo-200' 
+                                      : isLight 
+                                        ? 'bg-zinc-200 text-zinc-600' 
+                                        : 'bg-zinc-800 text-zinc-400'
                                   }`}>{product.category}</span>
                                 </div>
                               </div>
                             </td>
                             <td className={`px-4 py-1.5 text-right font-mono font-black ${
-                              isSelected ? 'text-indigo-300' : 'text-zinc-100'
+                              isSelected 
+                                ? 'text-indigo-300' 
+                                : isLight 
+                                  ? 'text-zinc-800-important' 
+                                  : 'text-zinc-100'
                             }`}>
                               {config.currencySymbol}{product.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
                             <td className="px-4 py-1.5 text-center">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                                isSelected
-                                  ? 'bg-indigo-900 text-white border border-indigo-750'
-                                  : product.manageStock === false ? 'bg-indigo-950/50 text-indigo-400 border border-indigo-900/40' : product.stock > 5 ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-900/40' : 'bg-amber-950/50 text-amber-400 border border-amber-900/40'
-                              }`}>
-                                {product.manageStock === false ? '∞' : product.stock}
-                              </span>
+                              <div className="flex flex-col items-center">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                  isSelected
+                                    ? 'bg-indigo-900 text-white border border-indigo-750'
+                                    : !isStockControlled 
+                                      ? isLight 
+                                        ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                        : 'bg-indigo-950/50 text-indigo-400 border border-indigo-900/40' 
+                                      : currentStock > 5 
+                                        ? isLight 
+                                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-250'
+                                          : 'bg-emerald-950/50 text-emerald-400 border border-emerald-900/40' 
+                                        : isLight 
+                                          ? 'bg-amber-100 text-amber-700 border border-amber-250'
+                                          : 'bg-amber-950/50 text-amber-400 border border-amber-900/40'
+                                }`}>
+                                  {!isStockControlled ? '∞' : `${currentStock} disp`}
+                                </span>
+                                {secondaryLocations.map((loc, i) => (
+                                  <span key={i} className={`text-[8.5px] font-black mt-0.5 leading-none ${
+                                    isSelected 
+                                      ? 'text-indigo-300' 
+                                      : isLight 
+                                        ? 'text-amber-700' 
+                                        : 'text-amber-500'
+                                  }`}>
+                                    +{loc.qty} en {loc.name}
+                                  </span>
+                                ))}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2717,11 +3392,11 @@ export default function PosModern({ logic }: Props) {
                 </div>
 
                 {/* Pagination Controls */}
-                <div className="flex flex-col sm:flex-row gap-2 justify-between items-center border-t border-zinc-850 pt-3.5 text-[10.5px] text-zinc-450 font-sans">
+                <div className={`flex flex-col sm:flex-row gap-2 justify-between items-center border-t pt-3.5 text-[10.5px] font-sans ${isLight ? 'border-zinc-200 text-zinc-600' : 'border-zinc-850 text-zinc-450'}`}>
                   <div className="flex items-center gap-1.5 font-mono select-none text-[10px] uppercase font-bold text-zinc-500">
                     <span>[Esc] Cerrar</span>
                     <span>•</span>
-                    <span>Sel: <b className="text-indigo-400">#{modalSelectedIndex + 1 + (modalCurrentPage - 1) * 25} de {matchedProductsForModal.length}</b></span>
+                    <span>Sel: <b className={`font-mono ${isLight ? 'text-indigo-700 font-black' : 'text-indigo-400 font-extrabold'}`}>#{modalSelectedIndex + 1 + (modalCurrentPage - 1) * 25} de {matchedProductsForModal.length}</b></span>
                   </div>
 
                   {modalTotalPages > 1 && (
@@ -2733,11 +3408,15 @@ export default function PosModern({ logic }: Props) {
                           setModalCurrentPage((p) => Math.max(1, p - 1));
                           setModalSelectedIndex(0);
                         }}
-                        className="px-2.5 py-1 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-zinc-900 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer"
+                        className={`px-2.5 py-1 disabled:opacity-30 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer border ${
+                          isLight 
+                            ? 'bg-zinc-100 border-zinc-300 text-zinc-700 hover:bg-zinc-200 disabled:hover:bg-zinc-100' 
+                            : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 disabled:hover:bg-zinc-900'
+                        }`}
                       >
                         ◀ Ant [PageUp]
                       </button>
-                      <span className="font-black font-mono text-zinc-300 text-[10px]">
+                      <span className={`font-black font-mono text-[10px] ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
                         Página {modalCurrentPage} de {modalTotalPages}
                       </span>
                       <button
@@ -2747,7 +3426,11 @@ export default function PosModern({ logic }: Props) {
                           setModalCurrentPage((p) => Math.min(modalTotalPages, p + 1));
                           setModalSelectedIndex(0);
                         }}
-                        className="px-2.5 py-1 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-zinc-900 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer"
+                        className={`px-2.5 py-1 disabled:opacity-30 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer border ${
+                          isLight 
+                            ? 'bg-zinc-100 border-zinc-300 text-zinc-700 hover:bg-zinc-200 disabled:hover:bg-zinc-100' 
+                            : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 disabled:hover:bg-zinc-900'
+                        }`}
                       >
                         Sig [PageDn] ▶
                       </button>
@@ -3548,6 +4231,138 @@ export default function PosModern({ logic }: Props) {
         </div>
       )}
 
+      {/* MODAL DE NÚMERO DE WHATSAPP PARA COTIZACIÓN EXPRESS (MODERNO) */}
+      {showQuoteWhatsappModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-[60] animate-fadeIn no-blur-backdrop">
+          <div className="bg-[#121316] border border-zinc-700 max-w-md w-full rounded-2xl shadow-2xl p-6 relative text-white animate-scaleUp">
+            <button
+              type="button"
+              onClick={() => setShowQuoteWhatsappModal(false)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer select-none"
+              title="Cerrar (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2.5 mb-4 border-b border-zinc-800 pb-3">
+              <span className="text-xl">💬</span>
+              <h3 className="text-sm font-display font-black text-amber-400 uppercase tracking-wider select-none">
+                Cotizar Carrito por WhatsApp
+              </h3>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-[11px] text-zinc-400 leading-relaxed select-none">
+                Se generará una imagen digital de la cotización y se enviará por WhatsApp al cliente seleccionado.
+              </p>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wide block select-none">Nombre del Cliente (Opcional)</label>
+                <div className="flex bg-[#22252d] border border-zinc-650 rounded-lg overflow-hidden focus-within:border-amber-500">
+                  <input
+                    type="text"
+                    value={quoteClientName}
+                    onChange={(e) => setQuoteClientName(e.target.value)}
+                    placeholder="Nombre del cliente..."
+                    className="w-full bg-transparent border-none text-white px-3.5 py-2.5 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-550"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wide block select-none">Número de WhatsApp (Celular)</label>
+                <div className="flex bg-[#22252d] border border-zinc-650 rounded-lg overflow-hidden focus-within:border-amber-500">
+                  <select
+                    value={quoteCountryCode}
+                    onChange={e => setQuoteCountryCode(e.target.value)}
+                    className="bg-zinc-900 border-r border-zinc-700 text-white px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none"
+                  >
+                    <option value="+52">🇲🇽 +52</option>
+                    <option value="+1">🇺🇸 +1</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={quoteWhatsappPhone}
+                    onChange={(e) => setQuoteWhatsappPhone(formatPhoneNumber(e.target.value))}
+                    placeholder="(351) 000-0000"
+                    className="w-full bg-transparent border-none text-white px-3.5 py-2.5 text-sm font-bold text-right outline-none placeholder:font-normal placeholder:text-zinc-550 font-mono"
+                    style={{ WebkitTextFillColor: '#eab308', color: '#eab308' }}
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (!quoteWhatsappPhone.trim()) {
+                          alert('Por favor ingresa un número de WhatsApp válido.');
+                          return;
+                        }
+                        const res = await sendPosQuoteByWhatsapp(
+                          quoteWhatsappPhone,
+                          quoteClientName,
+                          basket,
+                          basketTotal,
+                          config,
+                          quoteCountryCode,
+                          discountEnabled ? discountAmount : undefined,
+                          discountEnabled ? discountType : undefined,
+                          discountEnabled ? discountValue : undefined,
+                          undefined,
+                          currentUser?.name,
+                          warehouses
+                        );
+                        if (res.ok) {
+                          setBasket([]);
+                          setShowQuoteWhatsappModal(false);
+                        }
+                      }
+                    }}
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800/60">
+                <button
+                  type="button"
+                  onClick={() => setShowQuoteWhatsappModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white transition-colors cursor-pointer select-none uppercase"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!quoteWhatsappPhone.trim()) {
+                      alert('Por favor ingresa un número de WhatsApp válido.');
+                      return;
+                    }
+                    const res = await sendPosQuoteByWhatsapp(
+                      quoteWhatsappPhone,
+                      quoteClientName,
+                      basket,
+                      basketTotal,
+                      config,
+                      quoteCountryCode,
+                      discountEnabled ? discountAmount : undefined,
+                      discountEnabled ? discountType : undefined,
+                      discountEnabled ? discountValue : undefined,
+                      undefined,
+                      currentUser?.name,
+                      warehouses
+                    );
+                    if (res.ok) {
+                      setBasket([]);
+                      setShowQuoteWhatsappModal(false);
+                    }
+                  }}
+                  className="px-5 py-2.5 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 rounded-xl cursor-pointer transition-all border border-amber-700 uppercase shadow-md flex items-center gap-1.5"
+                >
+                  <span>Enviar Cotización</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE ACTIVACIÓN DE CHIP - AGREGAR AL CARRITO */}
       {pendingChipToAdd && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-[70] animate-fadeIn no-blur-backdrop select-none">
@@ -3798,10 +4613,58 @@ export default function PosModern({ logic }: Props) {
         </div>
       )}
 
-      {renderShortcutModalsAndToasts()}
-      {renderQuickHistoryModals()}
-      {renderPriceCheckerModal()}
-      {renderFavoritesModal()}
+      {createPortal(
+        <>
+          {renderShortcutModalsAndToasts()}
+          {renderQuickHistoryModals()}
+          {renderPriceCheckerModal()}
+          {renderFavoritesModal()}
+
+          {outOfStockAlertItem && (
+            <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-[80] animate-fadeIn no-blur-backdrop select-none">
+              <div className="bg-[#121316] border border-red-500/30 max-w-md w-full rounded-2xl shadow-2xl p-6 relative text-white animate-scaleUp text-center">
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-500/10 border border-red-500/25 mb-4 text-red-500">
+                  <span className="text-xl">⚠️</span>
+                </div>
+                
+                <h3 className="text-sm font-display font-black text-red-450 uppercase tracking-wider mb-2">
+                  Sin Existencias Disponibles
+                </h3>
+                
+                <div className="space-y-2 mb-6">
+                  <p className="text-[11px] text-zinc-150 font-bold uppercase">
+                    {outOfStockAlertItem.item.name}
+                  </p>
+                  <p className="text-[10px] text-zinc-400 leading-relaxed font-sans font-medium">
+                    {outOfStockAlertItem.reason === 'outofstock' 
+                      ? 'Este artículo no cuenta con inventario registrado en la bodega seleccionada para realizar la venta.'
+                      : `La cantidad en carrito excede el stock disponible en inventario (Existencias: ${outOfStockAlertItem.maxStock} pzas).`}
+                  </p>
+                  {outOfStockAlertItem.warehouseName && (
+                    <p className="text-[9.5px] text-amber-400 font-bold uppercase tracking-wider mt-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded w-fit mx-auto">
+                      Bodega: {outOfStockAlertItem.warehouseName}
+                    </p>
+                  )}
+                  <div className="text-[9px] text-zinc-500 bg-black/35 py-2 px-3 rounded-xl leading-normal border border-zinc-800/40 font-medium">
+                    La opción de "Permitir Ventas Sin Stock" está desactivada en la Configuración General del Taller.
+                  </div>
+                </div>
+
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setOutOfStockAlertItem(null)}
+                    className="px-6 py-2.5 text-xs font-black text-white bg-red-650 hover:bg-red-700 border border-red-750 rounded-xl cursor-pointer transition-all uppercase shadow-md active:scale-95"
+                  >
+                    Entendido
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>,
+        document.body
+      )}
     </div>
   );
 }

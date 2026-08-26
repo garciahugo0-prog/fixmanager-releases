@@ -20,7 +20,8 @@ import {
   Quote,
   WorkshopConfig,
   CreditAccount,
-  ApartadoEntry
+  ApartadoEntry,
+  ChipActivation
 } from '../types';
 
 interface SyncConfig {
@@ -246,6 +247,22 @@ const TABLE_SYNC_CONFIGS: SyncConfig[] = [
       deleted_at: item.deletedAt || null,
       payload_json: item
     })
+  },
+  {
+    tableName: 'chip_activations_sync',
+    storageKey: 'fixmanager_chip_activations',
+    mapToDbRow: (item: ChipActivation, userId: string) => ({
+      id: item.uuid || generateUUID(),
+      user_id: userId,
+      chip_number: item.chipNumber,
+      client_name: item.clientName || 'Público General',
+      carrier: item.carrier || 'Genérico',
+      iccid: item.iccid || '',
+      imei: item.imei || '',
+      price: item.price || 0,
+      deleted_at: item.deletedAt || null,
+      payload_json: item
+    })
   }
 ];
 
@@ -282,14 +299,29 @@ export async function syncDataWithCloud(
       const localConfigRaw = localStorage.getItem('fixmanager_config');
       const localConfig: WorkshopConfig | null = localConfigRaw ? JSON.parse(localConfigRaw) : null;
 
-      // PULL Config
-      const { data: cloudConfigRow, error: configError } = await supabase
+      // PULL Config (solo traer updated_at primero para ahorrar ancho de banda egress)
+      const { data: cloudConfigHead, error: configHeadError } = await supabase
         .from('config_sync')
-        .select('*')
+        .select('updated_at')
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (configError) throw configError;
+      if (configHeadError) throw configHeadError;
+
+      const cloudConfigExists = !!cloudConfigHead;
+      const cloudUpdatedAt = cloudConfigHead?.updated_at || '1970-01-01T00:00:00.000Z';
+
+      let cloudConfigRow = null;
+      if (cloudConfigExists && new Date(cloudUpdatedAt) > new Date(lastSyncTime)) {
+        // Descargar la fila completa solo si realmente hay cambios en la nube
+        const { data: fullRow, error: configError } = await supabase
+          .from('config_sync')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (configError) throw configError;
+        cloudConfigRow = fullRow;
+      }
 
       let configToSave = localConfig;
       let success = true;
@@ -400,8 +432,8 @@ export async function syncDataWithCloud(
       }
 
       // PUSH Config si local fue editada (comparamos con el updatedAt del cliente en la nube)
-      const cloudLocalConfigUpdatedAt = cloudConfigRow ? (cloudConfigRow.config_json?.updatedAt || '1970-01-01T00:00:00.000Z') : '1970-01-01T00:00:00.000Z';
-      if (configToSave && (forcePush || !cloudConfigRow || new Date(configToSave.updatedAt || '1970-01-01T00:00:00.000Z') > new Date(cloudLocalConfigUpdatedAt))) {
+      const cloudLocalConfigUpdatedAt = cloudConfigExists ? cloudUpdatedAt : '1970-01-01T00:00:00.000Z';
+      if (configToSave && (forcePush || !cloudConfigExists || new Date(configToSave.updatedAt || '1970-01-01T00:00:00.000Z') > new Date(cloudLocalConfigUpdatedAt))) {
         const { error: pushConfigErr } = await supabase
           .from('config_sync')
           .upsert({
@@ -459,6 +491,25 @@ export async function syncDataWithCloud(
         let localItems: any[] = localItemsRaw ? JSON.parse(localItemsRaw) : [];
 
         let localChanged = false;
+
+        // 0. Asegurar metadatos de sincronización para registros legados (sin uuid)
+        let legacyMigrated = false;
+        localItems = localItems.map(item => {
+          if (item && !item.uuid) {
+            legacyMigrated = true;
+            return {
+              ...item,
+              uuid: generateUUID(),
+              updatedAt: item.updatedAt || new Date().toISOString(),
+              dirty: true
+            };
+          }
+          return item;
+        });
+        if (legacyMigrated) {
+          localStorage.setItem(conf.storageKey, JSON.stringify(localItems));
+          if (onUpdateState) onUpdateState(conf.storageKey, localItems);
+        }
 
         // Autolimpieza de duplicados locales basados en el ID de negocio
         const seenIds = new Set<string>();

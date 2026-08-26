@@ -4,10 +4,10 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Package, Search, PlusCircle, AlertTriangle, CheckCircle, RefreshCw, XCircle, Coins, TrendingUp, Layers, Edit, Trash2, Printer, Plus, X, Barcode, Star, Upload, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { Package, Search, PlusCircle, AlertTriangle, CheckCircle, RefreshCw, XCircle, Coins, TrendingUp, Layers, Edit, Trash2, Printer, Plus, X, Barcode, Star, Upload, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, ArrowLeftRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import QRCode from 'qrcode';
-import { InventoryItem, RefaccionItem, WorkshopConfig, AppUser } from '../types';
+import { InventoryItem, RefaccionItem, WorkshopConfig, AppUser, Warehouse } from '../types';
 import { buildProductLabelHtml } from '../utils/ticketBuilder';
 import { showUiToast } from '../utils/whatsapp';
 import { PosItemThumbnail } from './pos/PosItemThumbnail';
@@ -24,6 +24,9 @@ interface StockViewProps {
   setActiveTab?: (tab: string) => void;
   setConfigSubTab?: (tab: string) => void;
   currentUser?: AppUser | null;
+  warehouses?: Warehouse[];
+  onSetWarehouses?: (warehouses: Warehouse[]) => void;
+  users?: AppUser[];
 }
 
 const ProductMiniature: React.FC<{ imageUrl?: string; extraImages?: string[]; name: string; code?: string; category?: string; price?: number; currencySymbol?: string; isRetro?: boolean }> = ({ imageUrl, extraImages, name, code, category, price, currencySymbol = '$' }) => {
@@ -48,30 +51,30 @@ const inferCategory = (name: string): string => {
 
   // Palabras clave para Refacciones
   const refaccionKeywords = [
-    'pantalla', 'display', 'bateria', 'pila', 'pin de carga', 'centro de carga', 
-    'conector', 'flex', 'microfono', 'altavoz', 'bocina', 'camara', 
-    'tapa', 'cristal c', 'boton', 'tarjeta', 'logica', 'reparacion', 
+    'pantalla', 'display', 'bateria', 'pila', 'pin de carga', 'centro de carga',
+    'conector', 'flex', 'microfono', 'altavoz', 'bocina', 'camara',
+    'tapa', 'cristal c', 'boton', 'tarjeta', 'logica', 'reparacion',
     'refaccion', 'touch', 'tactil', 'modulo', 'jack', 'vibrador', 'centro carga'
   ];
 
   // Palabras clave para Herramientas
   const herramientaKeywords = [
-    'cautin', 'multimetro', 'pinza', 'destornillador', 'desarmador', 
-    'estacion', 'soldar', 'microscopio', 'fuente', 'espatula', 
+    'cautin', 'multimetro', 'pinza', 'destornillador', 'desarmador',
+    'estacion', 'soldar', 'microscopio', 'fuente', 'espatula',
     'herramienta', 'llave', 'alicate', 'extractor', 'sopladora', 'puntas'
   ];
 
   // Palabras clave para Consumibles
   const consumibleKeywords = [
-    'estaño', 'estano', 'soldadura', 'pegamento', 't7000', 'b7000', 'e8000', 't8000', 
-    'alcohol', 'isopropilico', 'limpiador', 'cinta', 'kapton', 'termica', 
+    'estaño', 'estano', 'soldadura', 'pegamento', 't7000', 'b7000', 'e8000', 't8000',
+    'alcohol', 'isopropilico', 'limpiador', 'cinta', 'kapton', 'termica',
     'flux', 'pasta', 'malla'
   ];
 
   // Palabras clave para Accesorios
   const accesorioKeywords = [
-    'funda', 'case', 'silicon', 'protector', 'mica', 'vidrio', 'templado', 'cristal templado', 
-    'cargador', 'cable', 'audifono', 'auricular', 'soporte', 'tripie', 
+    'funda', 'case', 'silicon', 'protector', 'mica', 'vidrio', 'templado', 'cristal templado',
+    'cargador', 'cable', 'audifono', 'auricular', 'soporte', 'tripie',
     'aro de luz', 'usb', 'memoria', 'adaptador', 'powerbank', 'micas', 'correa', 'llavero'
   ];
 
@@ -118,14 +121,14 @@ const normalizeText = (text: string): string => {
 
 const autoMapHeaders = (headers: string[]): Record<string, string> => {
   const mapping: Record<string, string> = {};
-  
+
   MAPPABLE_FIELDS.forEach(field => {
     // 1. Intentar coincidencia exacta o sinónimos directos
     let match = headers.find(h => {
       const cleanedH = cleanHeader(h);
       return field.synonyms.some(syn => cleanedH === syn);
     });
-    
+
     // 2. Si no hay match, intentar ver si algún sinónimo está contenido en el encabezado
     if (!match) {
       match = headers.find(h => {
@@ -133,14 +136,14 @@ const autoMapHeaders = (headers: string[]): Record<string, string> => {
         return field.synonyms.some(syn => cleanedH.includes(syn) || syn.includes(cleanedH));
       });
     }
-    
+
     if (match) {
       mapping[field.key] = match;
     } else {
       mapping[field.key] = ''; // No mapeado
     }
   });
-  
+
   return mapping;
 };
 
@@ -160,7 +163,7 @@ const parseRowsWithMapping = (rows: any[], mapping: Record<string, string>): any
     };
 
     const name = String(getVal('name') || '').trim() || `PROD IMPORTADO #${i + 1}`;
-    
+
     const rawCode = getVal('code');
     let code = '';
     if (rawCode !== undefined && rawCode !== null) {
@@ -169,7 +172,7 @@ const parseRowsWithMapping = (rows: any[], mapping: Record<string, string>): any
       } else {
         code = String(rawCode).trim();
       }
-      
+
       // Auto-pad leading zero for standard barcode lengths if it got parsed as a number and lost it
       if (/^\d+$/.test(code)) {
         if (code.length === 11) {
@@ -185,7 +188,7 @@ const parseRowsWithMapping = (rows: any[], mapping: Record<string, string>): any
       code = `7500${Math.floor(Math.random() * 9000 + 1000)}`;
     }
     const brand = String(getVal('brand') || '').trim().toUpperCase() || 'GENÉRICO';
-    
+
     let category = String(getVal('category') || '').trim();
     if (!category) {
       category = inferCategory(name);
@@ -210,7 +213,7 @@ const parseRowsWithMapping = (rows: any[], mapping: Record<string, string>): any
     const minStock = (rawMinStock !== undefined && rawMinStock !== null && String(rawMinStock).trim() !== '')
       ? parseNumberClean(rawMinStock)
       : 5;
-    
+
     const favVal = getVal('favorite');
     const favorite = favVal === true || String(favVal).toLowerCase() === 'si' || String(favVal).toLowerCase() === 'yes' || favVal === 1 || String(favVal) === '1' || String(favVal).toLowerCase() === 'activo';
 
@@ -237,13 +240,13 @@ const parseRowsWithMapping = (rows: any[], mapping: Record<string, string>): any
   });
 };
 
-export default function StockView({ inventory, refacciones = [], onRestockItem, config, initialFilter, onSetInventory, onSetRefacciones, setActiveTab, setConfigSubTab, currentUser }: StockViewProps) {
+export default function StockView({ inventory, refacciones = [], onRestockItem, config, initialFilter, onSetInventory, onSetRefacciones, setActiveTab, setConfigSubTab, currentUser, warehouses = [], onSetWarehouses, users = [] }: StockViewProps) {
   const isRetro = config.theme === 'retro-window';
   const isLight = config.themeMode === 'light';
 
   const getCategoryBadgeStyles = (category: string) => {
     const cat = (category || '').toLowerCase();
-    
+
     if (isRetro) {
       if (cat.includes('accesorio')) {
         return 'bg-[#e0d6ff] text-[#331188] border border-[#a38aff] font-bold';
@@ -311,7 +314,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
   };
   const [customBrands, setCustomBrands] = useState<string[]>(loadBrands);
   const saveBrands = (bList: string[]) => { setCustomBrands(bList); localStorage.setItem(BRANDS_KEY, JSON.stringify(bList)); };
-  
+
   const addBrand = (name: string) => {
     const n = name.trim().toUpperCase();
     if (!n) return;
@@ -348,14 +351,14 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
   const brandListRef = useRef<HTMLDivElement>(null);
 
   // Refs para navegación Enter entre campos del form
-  const refNombre   = useRef<HTMLInputElement>(null);
-  const refCodigo   = useRef<HTMLInputElement>(null);
-  const refCatBtn   = useRef<HTMLButtonElement>(null);
-  const refStock    = useRef<HTMLInputElement>(null);
+  const refNombre = useRef<HTMLInputElement>(null);
+  const refCodigo = useRef<HTMLInputElement>(null);
+  const refCatBtn = useRef<HTMLButtonElement>(null);
+  const refStock = useRef<HTMLInputElement>(null);
   const refMinStock = useRef<HTMLInputElement>(null);
-  const refCosto    = useRef<HTMLInputElement>(null);
-  const refPrecio   = useRef<HTMLInputElement>(null);
-  const refMayoreo  = useRef<HTMLInputElement>(null);
+  const refCosto = useRef<HTMLInputElement>(null);
+  const refPrecio = useRef<HTMLInputElement>(null);
+  const refMayoreo = useRef<HTMLInputElement>(null);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -496,6 +499,37 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     ? 'px-5 py-1.5 text-xs text-black font-sans font-bold bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 active:border-t-zinc-700 active:border-l-zinc-700 active:border-b-white active:border-r-white cursor-pointer'
     : 'px-5 py-1.5 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white rounded transition-colors shadow-lg cursor-pointer';
 
+  const themeCardCls = isRetro
+    ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-500 border-r-zinc-500 text-black shadow'
+    : isLight
+      ? 'bg-white border border-zinc-200 text-zinc-800 shadow-md'
+      : 'bg-[#121316] border border-[#1c1d22] text-zinc-100 shadow-xl';
+
+  const themeInputCls = isRetro
+    ? 'bg-white border-2 border-t-zinc-400 border-l-zinc-400 border-b-white border-r-white text-black font-mono focus:outline-none text-xs px-2.5 py-1.5'
+    : isLight
+      ? 'bg-white border border-zinc-300 rounded-lg text-zinc-850 focus:border-cyan-500 focus:outline-none text-xs px-3 py-2'
+      : 'bg-zinc-900 border border-zinc-800 rounded-lg text-white focus:border-cyan-500 focus:outline-none text-xs px-3 py-2';
+
+  const themeBtnCls = isRetro
+    ? 'bg-zinc-200 border-2 border-t-white border-l-white border-b-zinc-500 border-r-zinc-500 font-bold active:scale-[0.98] text-black px-3 py-1.5 cursor-pointer text-xs'
+    : 'bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg px-4 py-2 transition-transform active:scale-[0.97] cursor-pointer text-xs font-bold shadow-md';
+
+  const themeTableHeadCls = isRetro
+    ? 'bg-[#000080] text-white border-b-2 border-zinc-400 font-bold text-xs uppercase px-3 py-2 select-none'
+    : isLight
+      ? 'bg-slate-100/80 text-slate-700 font-bold text-xs uppercase px-3.5 py-2 border-b border-zinc-200 select-none'
+      : 'bg-[#0f1013] text-zinc-450 font-bold text-xs uppercase px-3.5 py-2.5 border-b border-zinc-800 select-none';
+
+  const themeTableRowCls = (idx: number) => {
+    if (isRetro) return 'hover:bg-zinc-100/50 border-b border-zinc-300 text-xs font-mono';
+    const isEven = idx % 2 === 0;
+    const base = isLight ? 'border-b border-zinc-100 hover:bg-zinc-50/70 text-xs' : 'border-b border-[#1c1d22] hover:bg-[#16171c]/60 text-xs';
+    return isEven ? base : base + (isLight ? ' bg-zinc-50/20' : ' bg-zinc-950/[0.15]');
+  };
+
+  const themeTableCellCls = 'px-3.5 py-2.5 vertical-align-middle';
+
   const [searchTerm, setSearchTermRaw] = useState('');
   const setSearchTerm = (val: string) => {
     setSearchTermRaw(val.replace(/,(?!\s)/g, '-'));
@@ -506,6 +540,38 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
   const [showInactive, setShowInactive] = useState(false);
   const [selectedSubcategoryFilter, setSelectedSubcategoryFilter] = useState<string>('TODOS');
 
+  // ─── Dropdown custom de filtro de categoría (barra de filtros) ─────────────
+  const [filterCatOpen, setFilterCatOpen] = useState(false);
+  const filterCatRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!filterCatOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (filterCatRef.current && !filterCatRef.current.contains(e.target as Node)) setFilterCatOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filterCatOpen]);
+
+  // Categorías realmente presentes en el inventario visible (para el filtro)
+  const activeCategoriesForFilter = useMemo(() => {
+    const cats = new Set<string>();
+    (inventory || []).forEach(item => {
+      const isVisible = showInactive || (item.active !== false && !item.deletedAt);
+      if (isVisible && item.category) {
+        const trimmed = item.category.trim();
+        if (trimmed) cats.add(trimmed);
+      }
+    });
+    return Array.from(cats).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [inventory, showInactive]);
+
+  // Si la categoría seleccionada ya no existe en el inventario, resetear
+  useEffect(() => {
+    if (selectedSubcategoryFilter !== 'TODOS' && !activeCategoriesForFilter.includes(selectedSubcategoryFilter)) {
+      setSelectedSubcategoryFilter('TODOS');
+    }
+  }, [activeCategoriesForFilter, selectedSubcategoryFilter]);
+
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, activeFilter, selectedSubcategoryFilter]);
@@ -515,11 +581,68 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
   // Modal and custom article actions states
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [formWarehouseStock, setFormWarehouseStock] = useState<Record<string, number>>({});
+  const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
+  const [warehouseModalTab, setWarehouseModalTab] = useState<'lista' | 'existencias' | 'traspasos'>('lista');
+
+  // Local states for Warehouse Management Modal
+  const [newWarehouseName, setNewWarehouseName] = useState('');
+  const [newWarehouseDesc, setNewWarehouseDesc] = useState('');
+  const [editingWarehouseId, setEditingWarehouseId] = useState<string | null>(null);
+  const [editingWarehouseName, setEditingWarehouseName] = useState('');
+  const [editingWarehouseDesc, setEditingWarehouseDesc] = useState('');
+  const [selectedInspectWarehouse, setSelectedInspectWarehouse] = useState('');
+  const [inspectSearchQuery, setInspectSearchQuery] = useState('');
+  const [inspectType, setInspectType] = useState<'inventory' | 'refacciones'>('inventory');
+  const [transferSource, setTransferSource] = useState('tienda');
+  const [transferDest, setTransferDest] = useState('');
+  const [transferItemType, setTransferItemType] = useState<'inventory' | 'refacciones'>('inventory');
+  const [transferSearchQuery, setTransferSearchQuery] = useState('');
+  const [selectedTransferItem, setSelectedTransferItem] = useState<any | null>(null);
+  const [transferQty, setTransferQty] = useState<number>(1);
+  const [batchSelectedItems, setBatchSelectedItems] = useState<Record<string, number>>({});
+
+  // States for location-specific filtering and quick transfers
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('tienda');
+  const [showOutofStock, setShowOutofStock] = useState<boolean>(false);
+  const [quickTransferItem, setQuickTransferItem] = useState<InventoryItem | null>(null);
+  const [quickTransferSource, setQuickTransferSource] = useState<string>('tienda');
+  const [quickTransferDest, setQuickTransferDest] = useState<string>('');
+  const [quickTransferQty, setQuickTransferQty] = useState<number>(1);
+
+  useEffect(() => {
+    if (quickTransferItem) {
+      const activeStock = selectedLocationId === 'tienda' ? quickTransferItem.stock : (quickTransferItem.warehouseStock?.[selectedLocationId] || 0);
+      if (activeStock > 0) {
+        setQuickTransferSource(selectedLocationId);
+        setQuickTransferDest(selectedLocationId === 'tienda' ? (warehouses[0]?.id || '') : 'tienda');
+      } else {
+        if (quickTransferItem.stock > 0) {
+          setQuickTransferSource('tienda');
+          setQuickTransferDest(warehouses[0]?.id || '');
+        } else {
+          const whWithStock = Object.entries(quickTransferItem.warehouseStock || {}).find(([_, q]) => (q as number) > 0);
+          if (whWithStock) {
+            setQuickTransferSource(whWithStock[0]);
+            setQuickTransferDest('tienda');
+          } else {
+            setQuickTransferSource('tienda');
+            setQuickTransferDest(warehouses[0]?.id || '');
+          }
+        }
+      }
+      setQuickTransferQty(1);
+    }
+  }, [quickTransferItem, selectedLocationId, warehouses]);
+
   const [printingItem, setPrintingItem] = useState<InventoryItem | null>(null);
   const [printCopies, setPrintCopies] = useState<number>(1);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmRestockId, setConfirmRestockId] = useState<string | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [showAdminAuthForStock, setShowAdminAuthForStock] = useState(false);
+  const [adminPinForStock, setAdminPinForStock] = useState('');
+  const [adminPinErrorForStock, setAdminPinErrorForStock] = useState('');
 
   // Excel and spreadsheet import states
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -541,7 +664,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     if (!editingItem) return [];
     const nameToMatch = editingItem.name.toUpperCase().trim();
     const history: { provider: string; date: string; qty: number; cost: number; note?: string }[] = [];
-    
+
     replenishmentLogs.forEach((log: any) => {
       if (log.items && Array.isArray(log.items)) {
         log.items.forEach((itemInLog: any) => {
@@ -735,7 +858,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
   const handleOpenImageSourceModal = () => {
     const sessId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
     setUploadSessionId(sessId);
-    
+
     const api = (window as any).electronAPI;
     if (api?.startLocalServer) {
       api.startLocalServer().then((res: any) => {
@@ -770,6 +893,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
       manageStock: true,
       imageUrl: ''
     });
+    setFormWarehouseStock({});
     setCatDropOpen(false);
     setFormError(null);
     setIsAddingNew(true);
@@ -779,6 +903,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     setCatDropOpen(false);
     setFormError(null);
     setEditingItem(item);
+    setFormWarehouseStock(item.warehouseStock || {});
     setFormData({
       code: item.code,
       name: item.name,
@@ -788,7 +913,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
       cost: item.cost,
       price: item.price,
       wholesalePrice: item.wholesalePrice !== undefined ? item.wholesalePrice : item.price,
-      stock: item.stock,
+      stock: selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0),
       minStock: item.minStock,
       favorite: !!item.favorite,
       manageStock: item.manageStock !== false,
@@ -802,7 +927,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     if (!onSetInventory) return;
 
     // Validación: costo de compra obligatorio
-    const cost  = Number(formData.cost)  || 0;
+    const cost = Number(formData.cost) || 0;
     const price = Number(formData.price) || 0;
     const wholesalePrice = Number(formData.wholesalePrice) || 0;
     if (cost <= 0) {
@@ -824,6 +949,22 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     }
     setFormError(null);
 
+    // Si estamos editando un artículo existente, comprobar si cambió el stock
+    if (!isAddingNew && editingItem) {
+      const currentLocStock = selectedLocationId === 'tienda' ? editingItem.stock : (editingItem.warehouseStock?.[selectedLocationId] || 0);
+      const stockChanged = Number(formData.stock) !== currentLocStock;
+      if (stockChanged) {
+        setAdminPinForStock('');
+        setAdminPinErrorForStock('');
+        setShowAdminAuthForStock(true);
+        return;
+      }
+    }
+
+    await executeSaveItemAfterAuth();
+  };
+
+  const executeSaveItemAfterAuth = async () => {
     const isStockManaged = formData.manageStock !== false;
     const api = (window as any).electronAPI;
     const targetId = isAddingNew ? `ACC-${Date.now().toString().slice(-4)}` : (editingItem?.id || '');
@@ -870,6 +1011,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     }
 
     if (isAddingNew) {
+      const isWh = selectedLocationId !== 'tienda';
+      const newItemStock = isWh ? 0 : (isStockManaged ? (Number(formData.stock) || 0) : 0);
+      const newItemWhStock = isWh
+        ? { ...formWarehouseStock, [selectedLocationId]: isStockManaged ? (Number(formData.stock) || 0) : 0 }
+        : formWarehouseStock;
+
       const newItem: InventoryItem = {
         id: targetId,
         code: formData.code.trim() || `7500${Math.floor(Math.random() * 9000 + 1000)}`,
@@ -880,12 +1027,13 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
         cost: Number(formData.cost) || 0,
         price: Number(formData.price) || 0,
         wholesalePrice: Number(formData.wholesalePrice) || Number(formData.price) || 0,
-        stock: isStockManaged ? (Number(formData.stock) || 0) : 0,
+        stock: newItemStock,
         minStock: isStockManaged ? (formData.minStock === '' || isNaN(Number(formData.minStock)) ? 3 : Number(formData.minStock)) : 0,
         favorite: formData.favorite,
         manageStock: isStockManaged,
         imageUrl: finalImageUrl,
-        isChip: formData.isChip
+        isChip: formData.isChip,
+        warehouseStock: newItemWhStock
       };
 
       onSetInventory([newItem, ...inventory]);
@@ -894,6 +1042,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     } else if (editingItem) {
       const updated = inventory.map(item => {
         if (item.id === editingItem.id) {
+          const isWh = selectedLocationId !== 'tienda';
+          const finalStock = isWh ? item.stock : (isStockManaged ? Number(formData.stock) : 0);
+          const finalWhStock = isWh
+            ? { ...formWarehouseStock, [selectedLocationId]: isStockManaged ? Number(formData.stock) : 0 }
+            : formWarehouseStock;
+
           return {
             ...item,
             code: formData.code.trim(),
@@ -904,12 +1058,13 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
             cost: Number(formData.cost),
             price: Number(formData.price),
             wholesalePrice: Number(formData.wholesalePrice) || Number(formData.price) || 0,
-            stock: isStockManaged ? Number(formData.stock) : 0,
+            stock: finalStock,
             minStock: isStockManaged ? Number(formData.minStock) : 0,
             favorite: formData.favorite,
             manageStock: isStockManaged,
             imageUrl: finalImageUrl,
-            isChip: formData.isChip
+            isChip: formData.isChip,
+            warehouseStock: finalWhStock
           };
         }
         return item;
@@ -927,13 +1082,43 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
   const handleDeleteItem = (id: string, name: string) => {
     if (!onSetInventory) return;
+    const itemToDelete = inventory.find(item => item.id === id);
+    if (!itemToDelete) return;
+
+    if (selectedLocationId !== 'tienda') {
+      const updated = inventory.map(item => {
+        if (item.id === id) {
+          const updatedWhStock = { ...item.warehouseStock };
+          delete updatedWhStock[selectedLocationId];
+          return { ...item, warehouseStock: updatedWhStock };
+        }
+        return item;
+      });
+      onSetInventory(updated);
+      setConfirmDeleteId(null);
+      showUiToast(`El artículo "${name}" ha sido eliminado por completo de esta bodega.`, 'info');
+      return;
+    }
+
+    // Tienda Local:
+    const hasWarehouseStock = itemToDelete.warehouseStock && Object.values(itemToDelete.warehouseStock).some(qty => qty > 0);
+    if (hasWarehouseStock) {
+      const updated = inventory.map(item => {
+        if (item.id === id) {
+          return { ...item, stock: 0 };
+        }
+        return item;
+      });
+      onSetInventory(updated);
+      setConfirmDeleteId(null);
+      showUiToast(`Stock de tienda local para "${name}" establecido en 0.`, 'info');
+      return;
+    }
+
     const updated = inventory.filter(item => item.id !== id);
     onSetInventory(updated);
     setConfirmDeleteId(null);
-    setFeedback(`¡El artículo "${name}" ha sido eliminado del inventario!`);
-    setTimeout(() => {
-      setFeedback(null);
-    }, 4500);
+    showUiToast(`El artículo "${name}" ha sido eliminado del inventario.`, 'success');
   };
 
   const handleToggleActive = (id: string) => {
@@ -958,6 +1143,304 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     onSetInventory(updated);
   };
 
+  const handleCreateWarehouse = () => {
+    if (!newWarehouseName.trim() || !onSetWarehouses) return;
+    const newWh: Warehouse = {
+      id: `wh-${Date.now()}`,
+      name: newWarehouseName.trim().toUpperCase(),
+      description: newWarehouseDesc.trim() || undefined,
+      createdAt: new Date().toISOString()
+    };
+    onSetWarehouses([...warehouses, newWh]);
+    setNewWarehouseName('');
+    setNewWarehouseDesc('');
+    showUiToast('✅ Bodega creada con éxito.', 'success');
+  };
+
+  const handleSaveWarehouseEdit = (id: string) => {
+    if (!editingWarehouseName.trim()) {
+      alert('El nombre de la bodega no puede estar vacío.');
+      return;
+    }
+    if (!onSetWarehouses) return;
+    const updated = warehouses.map(w => {
+      if (w.id === id) {
+        return {
+          ...w,
+          name: editingWarehouseName.trim().toUpperCase(),
+          description: editingWarehouseDesc.trim()
+        };
+      }
+      return w;
+    });
+    onSetWarehouses(updated);
+    setEditingWarehouseId(null);
+    showUiToast('✅ Bodega actualizada correctamente.', 'success');
+  };
+
+  const handleDeleteWarehouse = (id: string, name: string) => {
+    if (!onSetWarehouses) return;
+    const confirmDelete = window.confirm(
+      `⚠️ ¿Estás seguro de que deseas eliminar la bodega "${name}"?\n\nAl hacerlo, todas las existencias acumuladas en esta bodega se sumarán de vuelta al stock de la Tienda (Local) para evitar pérdida accidental de datos.`
+    );
+    if (!confirmDelete) return;
+
+    if (onSetInventory) {
+      const updatedInv = inventory.map(item => {
+        const qtyInWh = item.warehouseStock?.[id] || 0;
+        if (qtyInWh > 0) {
+          const newWhStock = { ...item.warehouseStock };
+          delete newWhStock[id];
+          return {
+            ...item,
+            stock: item.stock + qtyInWh,
+            warehouseStock: newWhStock
+          };
+        }
+        return item;
+      });
+      onSetInventory(updatedInv);
+    }
+
+    if (onSetRefacciones && refacciones) {
+      const updatedRef = refacciones.map(item => {
+        const qtyInWh = item.warehouseStock?.[id] || 0;
+        if (qtyInWh > 0) {
+          const newWhStock = { ...item.warehouseStock };
+          delete newWhStock[id];
+          return {
+            ...item,
+            stock: item.stock + qtyInWh,
+            warehouseStock: newWhStock
+          };
+        }
+        return item;
+      });
+      onSetRefacciones(updatedRef);
+    }
+
+    const filteredWh = warehouses.filter(w => w.id !== id);
+    onSetWarehouses(filteredWh);
+
+    if (selectedInspectWarehouse === id) setSelectedInspectWarehouse('');
+    if (transferSource === id) setTransferSource('tienda');
+    if (transferDest === id) setTransferDest('');
+
+    showUiToast('✅ Bodega eliminada y stock fusionado a la Tienda.', 'success');
+  };
+
+  const handleExecuteTransfer = () => {
+    if (!selectedTransferItem) {
+      showUiToast('⚠️ Por favor selecciona un artículo para el traspaso.', 'error');
+      return;
+    }
+    if (transferSource === transferDest) {
+      showUiToast('⚠️ La bodega de origen y destino deben ser diferentes.', 'error');
+      return;
+    }
+    const qty = Math.max(1, transferQty);
+
+    const sourceQty = transferSource === 'tienda'
+      ? selectedTransferItem.stock
+      : (selectedTransferItem.warehouseStock?.[transferSource] || 0);
+
+    if (qty > sourceQty) {
+      showUiToast(`⚠️ No hay suficiente stock en el origen (Disponible: ${sourceQty}).`, 'error');
+      return;
+    }
+
+    const itemId = selectedTransferItem.id;
+
+    if (transferItemType === 'inventory' && onSetInventory) {
+      const updatedInv = inventory.map(item => {
+        if (item.id === itemId) {
+          const updatedItem = { ...item };
+
+          if (transferSource === 'tienda') {
+            updatedItem.stock = Math.max(0, updatedItem.stock - qty);
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferSource] = Math.max(0, (newWhStock[transferSource] || 0) - qty);
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          if (transferDest === 'tienda') {
+            updatedItem.stock = updatedItem.stock + qty;
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferDest] = (newWhStock[transferDest] || 0) + qty;
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          return updatedItem;
+        }
+        return item;
+      });
+
+      onSetInventory(updatedInv);
+      const newlyUpdated = updatedInv.find(x => x.id === itemId);
+      if (newlyUpdated) setSelectedTransferItem(newlyUpdated);
+
+    } else if (transferItemType === 'refacciones' && onSetRefacciones && refacciones) {
+      const updatedRef = refacciones.map(item => {
+        if (item.id === itemId) {
+          const updatedItem = { ...item };
+
+          if (transferSource === 'tienda') {
+            updatedItem.stock = Math.max(0, updatedItem.stock - qty);
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferSource] = Math.max(0, (newWhStock[transferSource] || 0) - qty);
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          if (transferDest === 'tienda') {
+            updatedItem.stock = updatedItem.stock + qty;
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferDest] = (newWhStock[transferDest] || 0) + qty;
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          return updatedItem;
+        }
+        return item;
+      });
+
+      onSetRefacciones(updatedRef);
+      const newlyUpdated = updatedRef.find(x => x.id === itemId);
+      if (newlyUpdated) setSelectedTransferItem(newlyUpdated);
+    }
+
+    setTransferQty(1);
+    showUiToast('✅ Traspaso realizado correctamente.', 'success');
+  };
+
+  const handleExecuteBatchTransfer = (itemsToTransfer: { itemId: string; qty: number }[]) => {
+    if (!transferSource || !transferDest) {
+      showUiToast('⚠️ Selecciona bodega de origen y destino.', 'error');
+      return;
+    }
+    if (transferSource === transferDest) {
+      showUiToast('⚠️ La bodega de origen y destino deben ser diferentes.', 'error');
+      return;
+    }
+    if (itemsToTransfer.length === 0) {
+      showUiToast('⚠️ No has seleccionado ningún artículo para traspasar.', 'error');
+      return;
+    }
+
+    if (transferItemType === 'inventory' && onSetInventory && inventory) {
+      const updatedInv = inventory.map(item => {
+        const match = itemsToTransfer.find(x => x.itemId === item.id);
+        if (match) {
+          const qty = match.qty;
+          const updatedItem = { ...item };
+
+          if (transferSource === 'tienda') {
+            updatedItem.stock = Math.max(0, updatedItem.stock - qty);
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferSource] = Math.max(0, (newWhStock[transferSource] || 0) - qty);
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          if (transferDest === 'tienda') {
+            updatedItem.stock = updatedItem.stock + qty;
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferDest] = (newWhStock[transferDest] || 0) + qty;
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          return updatedItem;
+        }
+        return item;
+      });
+      onSetInventory(updatedInv);
+    } else if (transferItemType === 'refacciones' && onSetRefacciones) {
+      const updatedRef = refacciones.map(item => {
+        const match = itemsToTransfer.find(x => x.itemId === item.id);
+        if (match) {
+          const qty = match.qty;
+          const updatedItem = { ...item };
+
+          if (transferSource === 'tienda') {
+            updatedItem.stock = Math.max(0, updatedItem.stock - qty);
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferSource] = Math.max(0, (newWhStock[transferSource] || 0) - qty);
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          if (transferDest === 'tienda') {
+            updatedItem.stock = updatedItem.stock + qty;
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[transferDest] = (newWhStock[transferDest] || 0) + qty;
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          return updatedItem;
+        }
+        return item;
+      });
+      onSetRefacciones(updatedRef);
+    }
+
+    showUiToast('✅ Traspaso por lote realizado correctamente.', 'success');
+    setBatchSelectedItems({});
+  };
+
+  const handleExecuteQuickTransfer = (source: string, dest: string, qty: number) => {
+    if (!quickTransferItem) return;
+    if (source === dest) {
+      showUiToast('⚠️ La bodega de origen y destino deben ser diferentes.', 'error');
+      return;
+    }
+    const amount = Math.max(1, qty);
+    const sourceQty = source === 'tienda'
+      ? quickTransferItem.stock
+      : (quickTransferItem.warehouseStock?.[source] || 0);
+
+    if (amount > sourceQty) {
+      showUiToast(`⚠️ No hay suficiente stock en el origen (Disponible: ${sourceQty}).`, 'error');
+      return;
+    }
+
+    const itemId = quickTransferItem.id;
+    if (onSetInventory) {
+      const updatedInv = inventory.map(item => {
+        if (item.id === itemId) {
+          const updatedItem = { ...item };
+
+          if (source === 'tienda') {
+            updatedItem.stock = Math.max(0, updatedItem.stock - amount);
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[source] = Math.max(0, (newWhStock[source] || 0) - amount);
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          if (dest === 'tienda') {
+            updatedItem.stock = updatedItem.stock + amount;
+          } else {
+            const newWhStock = { ...updatedItem.warehouseStock };
+            newWhStock[dest] = (newWhStock[dest] || 0) + amount;
+            updatedItem.warehouseStock = newWhStock;
+          }
+
+          return updatedItem;
+        }
+        return item;
+      });
+
+      onSetInventory(updatedInv);
+    }
+    setQuickTransferItem(null);
+    showUiToast('✅ Traspaso realizado correctamente.', 'success');
+  };
+
   const renderBarcodeLines = (code: string) => {
     const cleanCode = code.replace(/[^a-zA-Z0-9]/g, '') || '750912300';
     const bars: React.ReactNode[] = [];
@@ -973,18 +1456,34 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
   // Inventario / Almacén cost and retail metrics
   const totalCostInvested = React.useMemo(() => {
-    return inventory.reduce((acc, item) => acc + (item.cost * item.stock), 0);
-  }, [inventory]);
+    return inventory.reduce((acc, item) => {
+      const qty = selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0);
+      return acc + (item.cost * qty);
+    }, 0);
+  }, [inventory, selectedLocationId]);
 
   const totalSalesValuation = React.useMemo(() => {
-    return inventory.reduce((acc, item) => acc + (item.price * item.stock), 0);
-  }, [inventory]);
+    return inventory.reduce((acc, item) => {
+      const qty = selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0);
+      return acc + (item.price * qty);
+    }, 0);
+  }, [inventory, selectedLocationId]);
 
   const totalEstimatedProfit = totalSalesValuation - totalCostInvested;
 
   const totalUnitsInStock = React.useMemo(() => {
-    return inventory.reduce((acc, item) => acc + item.stock, 0);
-  }, [inventory]);
+    return inventory.reduce((acc, item) => {
+      const qty = selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0);
+      return acc + qty;
+    }, 0);
+  }, [inventory, selectedLocationId]);
+
+  const totalCriticalItems = React.useMemo(() => {
+    return inventory.filter(item => {
+      const qty = selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0);
+      return item.active !== false && item.manageStock !== false && item.minStock > 0 && qty <= item.minStock;
+    }).length;
+  }, [inventory, selectedLocationId]);
 
   // Breakdown of models and total units by category
   const categorySummaryBreakdown = React.useMemo(() => {
@@ -1048,13 +1547,13 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
       const modelList = modelsByBrand[selectedBrand] || ['Universal'];
       const selectedModel = modelList[index % modelList.length];
 
-      const name = (type.brandSpecific 
+      const name = (type.brandSpecific
         ? `${type.prefix} (${selectedModel})`
         : `${type.prefix} - ${selectedBrand} Universal`).toUpperCase();
 
       const id = `ACC-${100 + itemCounter}`;
       const code = `750912300${(100 + itemCounter).toString().padStart(3, '0')}`;
-      
+
       const stock = Math.floor(Math.random() * 20) + 5; // 5 to 24 units
       const minStock = Math.floor(Math.random() * 5) + 3; // 3 to 7 units
       const favorite = itemCounter % 8 === 0;
@@ -1093,18 +1592,29 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
   const filteredItems = inventory.filter((item) => {
     if (!showInactive && item.active === false) return false;
 
+    if (selectedLocationId !== 'tienda') {
+      const isAssigned = item.warehouseStock && (selectedLocationId in item.warehouseStock);
+      if (!isAssigned) return false;
+    }
+
+    const activeStock = selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0);
+    if (selectedLocationId !== 'tienda' && !showOutofStock && item.manageStock !== false && activeStock <= 0) return false;
+
     const cleanSearch = searchTerm.replace(/,(?!\s)/g, '-');
     const normSearch = normalizeText(cleanSearch);
+    const isFavKeyword = 'favoritos'.startsWith(normSearch) && normSearch.startsWith('fav');
     const textMatch =
       normalizeText(item.name).includes(normSearch) ||
       normalizeText(item.code).includes(normSearch) ||
-      normalizeText(item.brand).includes(normSearch);
+      normalizeText(item.brand).includes(normSearch) ||
+      normalizeText(item.category || '').includes(normSearch) ||
+      (isFavKeyword && !!item.favorite);
 
     let matchesFilter = textMatch;
     if (activeFilter === 'todos') matchesFilter = textMatch;
     else if (activeFilter === 'favoritos') matchesFilter = textMatch && !!item.favorite;
-    else if (activeFilter === 'agotados') matchesFilter = textMatch && item.stock === 0;
-    else if (activeFilter === 'bajoStock') matchesFilter = textMatch && item.minStock > 0 && item.stock > 0 && item.stock <= item.minStock;
+    else if (activeFilter === 'agotados') matchesFilter = textMatch && activeStock === 0;
+    else if (activeFilter === 'bajoStock') matchesFilter = textMatch && item.minStock > 0 && activeStock > 0 && activeStock <= item.minStock;
 
     if (selectedSubcategoryFilter !== 'TODOS') {
       if (item.category !== selectedSubcategoryFilter) {
@@ -1153,6 +1663,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
       // Prepare the data to be exported
       const exportData = inventory.map((item) => {
         const itemSubcategory = item.category === 'Accesorio' ? (item.subcategory || inferSubcategory(item.name)) : '';
+        const activeStock = selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0);
         return {
           'CODIGO': item.code,
           'NOMBRE / ARTICULO': item.name.toUpperCase(),
@@ -1162,7 +1673,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
           'COSTO COMPRA': item.cost,
           'PRECIO VENTA': item.price,
           'PRECIO MAYOREO': item.wholesalePrice || 0,
-          'STOCK ACTUAL': item.stock,
+          'STOCK ACTUAL': activeStock,
           'STOCK MINIMO': item.minStock,
           'GANANCIA MARGEN': item.price - item.cost,
           'FAVORITO': item.favorite ? 'SI' : 'NO'
@@ -1171,7 +1682,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
       // Create sheet from json
       const worksheet = XLSX.utils.json_to_sheet(exportData);
-      
+
       // Auto-size columns to look super professional and elegant
       const colWidths = [
         { wch: 15 }, // Código
@@ -1206,15 +1717,16 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
     }
   };
 
+  const activeLocationName = selectedLocationId === 'tienda' ? 'Tienda' : (warehouses.find(w => w.id === selectedLocationId)?.name || 'Bodega');
+
   return (
     <div 
-      className={`flex-1 p-4 md:p-6 overflow-y-auto space-y-6 select-none ${
-        isRetro 
-          ? 'bg-[#eaeef3] text-black font-sans' 
-          : isLight 
-            ? 'bg-[#eaeef3] text-zinc-900 font-sans' 
+      className={`flex-1 p-4 md:p-6 overflow-y-auto space-y-6 select-none ${isRetro
+          ? 'bg-[#eaeef3] text-black font-sans'
+          : isLight
+            ? 'bg-[#eaeef3] text-zinc-900 font-sans'
             : 'bg-[#0c0c0e] text-gray-200'
-      }`}
+        }`}
       style={isLight ? { backgroundColor: '#eaeef3' } : undefined}
     >
       {/* Title section */}
@@ -1227,20 +1739,22 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(!currentUser || currentUser.permissions.canEditStock) && (
-          <button
-            onClick={handleOpenAdd}
-            className="px-3.5 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.2)] font-display font-semibold uppercase tracking-wider"
-          >
-            <Plus className="w-3.5 h-3.5" /> Registrar Producto
-          </button>
+            <button
+              onClick={handleOpenAdd}
+              className="px-3.5 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.2)] font-display font-semibold uppercase tracking-wider"
+            >
+              <Plus className="w-3.5 h-3.5" /> Registrar Producto ({activeLocationName})
+            </button>
           )}
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="px-3.5 py-1.5 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_12px_rgba(147,51,234,0.2)] font-display font-semibold uppercase tracking-wider text-left"
-            title="Importar base de datos de inventario desde archivo de Excel (.xlsx, .xls) o CSV"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" /> Importar Excel
-          </button>
+          {(!currentUser || currentUser.permissions.canEditStock) && (
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="px-3.5 py-1.5 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_12px_rgba(147,51,234,0.2)] font-display font-semibold uppercase tracking-wider text-left"
+              title="Importar base de datos de inventario desde archivo de Excel (.xlsx, .xls) o CSV"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Importar Excel ({activeLocationName})
+            </button>
+          )}
           <button
             onClick={() => setIsBatchPhotoModalOpen(true)}
             className="px-3.5 py-1.5 text-xs font-black bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-md font-display uppercase tracking-wider"
@@ -1253,7 +1767,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
             className="px-3.5 py-1.5 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.2)] font-display font-semibold uppercase tracking-wider"
             title="Exportar todo el inventario (artículos, accesorios, materiales, etc.) a un archivo de Excel"
           >
-            <Download className="w-3.5 h-3.5" /> Exportar a Excel
+            <Download className="w-3.5 h-3.5" /> Exportar a Excel ({activeLocationName})
           </button>
 
         </div>
@@ -1266,94 +1780,137 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
       )}
 
       {/* Resumen de Métrica de Inversión y Almacén */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Invertido */}
-        <div className="bg-[#121316] border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.05)] p-4 rounded-lg flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">Costo Total Invertido</p>
-            <p className="text-xl font-bold font-mono text-emerald-400">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 shrink-0">
+
+        <div className={`p-3.5 rounded-xl ${themeCardCls} flex flex-col justify-between`}>
+          <span className={`text-[10px] uppercase font-black tracking-wider ${isRetro ? 'text-zinc-500' : 'text-zinc-450'}`}>Inversión Stock</span>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-lg md:text-xl font-black font-mono">
               {config.currencySymbol}{totalCostInvested.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-[9px] text-emerald-500/70 font-sans">Capital de Trabajo en Almacén</p>
-          </div>
-          <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/20 rounded text-emerald-400">
-            <Coins className="w-5 h-5" />
+            </span>
+            <Coins className="w-5 h-5 opacity-40 text-cyan-500" />
           </div>
         </div>
 
-        {/* Valor de Venta Público */}
-        <div className="bg-[#121316] border border-[#1b1c21] p-4 rounded-lg flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">Valor Estimado de Venta</p>
-            <p className="text-xl font-bold font-mono text-white">
+        <div className={`p-3.5 rounded-xl ${themeCardCls} flex flex-col justify-between`}>
+          <span className={`text-[10px] uppercase font-black tracking-wider ${isRetro ? 'text-zinc-500' : 'text-zinc-450'}`}>Valor Estimado</span>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-lg md:text-xl font-black font-mono">
               {config.currencySymbol}{totalSalesValuation.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-[9px] text-zinc-500 font-sans">Precio Público de Todo el Stock</p>
-          </div>
-          <div className="p-2.5 bg-zinc-900 border border-zinc-800 rounded text-zinc-400">
-            <Layers className="w-5 h-5" />
+            </span>
+            <TrendingUp className="w-5 h-5 opacity-40 text-emerald-500" />
           </div>
         </div>
 
-        {/* Ganancia Proyectada */}
-        <div className="bg-[#121316] border border-cyan-500/30 p-4 rounded-lg flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">Ganancia Teórica</p>
-            <p className="text-xl font-bold font-mono text-cyan-400">
-              +{config.currencySymbol}{totalEstimatedProfit.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <p className="text-[9px] text-zinc-500 font-sans">
-              Retorno Estimado ({totalCostInvested > 0 ? ((totalEstimatedProfit / totalCostInvested) * 100).toFixed(0) : 0}%)
-            </p>
-          </div>
-          <div className="p-2.5 bg-cyan-950/40 border border-cyan-500/20 rounded text-cyan-400">
-            <TrendingUp className="w-5 h-5" />
+        <div className={`p-3.5 rounded-xl ${themeCardCls} flex flex-col justify-between`}>
+          <span className={`text-[10px] uppercase font-black tracking-wider ${isRetro ? 'text-zinc-500' : 'text-zinc-450'}`}>Ganancia Estimada</span>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-lg md:text-xl font-black font-mono text-emerald-500">
+              {config.currencySymbol}{totalEstimatedProfit.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <CheckCircle className="w-5 h-5 opacity-40 text-emerald-500" />
           </div>
         </div>
 
-        {/* Cantidad Total de Artículos */}
-        <div className="bg-[#121316] border border-[#1b1c21] p-4 rounded-lg flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2 w-full">
-            <div className="space-y-1">
-              <p className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">Unidades Disponibles</p>
-              <p className="text-xl font-bold font-mono text-amber-500">
-                {totalUnitsInStock} <span className="text-xs text-zinc-400 font-normal font-sans">piezas</span>
-              </p>
-              <p className="text-[9px] text-zinc-500 font-sans">{inventory.length} modelos únicos activos</p>
-            </div>
-            <div className="p-2 bg-zinc-900 border border-zinc-800 rounded text-amber-500 flex items-center justify-center">
-              <Package className="w-5 h-5 text-amber-500" />
-            </div>
-          </div>
-
-          <div className="border-t border-zinc-900 pt-2.5 mt-1.5 w-full">
-            <p className="text-[8px] text-zinc-500 uppercase font-mono tracking-widest mb-1.5 w-full">Resumen por Categoría</p>
-            <div className="grid grid-cols-2 gap-1.5 text-[10px] w-full">
-              <div className="flex items-center justify-between bg-zinc-950/40 px-2 py-0.5 rounded border border-zinc-900/60" title={`${categorySummaryBreakdown['Refacción'].models} modelos`}>
-                <span className="text-zinc-400 text-[9px] font-sans">🔧 Refacciones</span>
-                <span className="font-mono font-bold text-sky-400">{categorySummaryBreakdown['Refacción'].units}</span>
-              </div>
-              <div className="flex items-center justify-between bg-zinc-950/40 px-2 py-0.5 rounded border border-zinc-900/60" title={`${categorySummaryBreakdown['Accesorio'].models} modelos`}>
-                <span className="text-zinc-400 text-[9px] font-sans">🔌 Accesorios</span>
-                <span className="font-mono font-bold text-emerald-400">{categorySummaryBreakdown['Accesorio'].units}</span>
-              </div>
-              <div className="flex items-center justify-between bg-zinc-950/40 px-2 py-0.5 rounded border border-zinc-900/60" title={`${categorySummaryBreakdown['Consumible'].models} modelos`}>
-                <span className="text-zinc-400 text-[9px] font-sans">🧪 Consumibles</span>
-                <span className="font-mono font-bold text-purple-400">{categorySummaryBreakdown['Consumible'].units}</span>
-              </div>
-              <div className="flex items-center justify-between bg-[#1f1915]/50 px-2 py-0.5 rounded border border-amber-950/20" title={`${categorySummaryBreakdown['Herramienta'].models} modelos`}>
-                <span className="text-zinc-400 text-[9px] font-sans">🛠️ Herramientas</span>
-                <span className="font-mono font-bold text-amber-500">{categorySummaryBreakdown['Herramienta'].units}</span>
-              </div>
-            </div>
+        <div className={`p-3.5 rounded-xl ${themeCardCls} flex flex-col justify-between`}>
+          <span className={`text-[10px] uppercase font-black tracking-wider ${isRetro ? 'text-zinc-500' : 'text-zinc-450'}`}>Artículos Críticos</span>
+          <div className="mt-2 flex items-center justify-between">
+            <span className={`text-lg md:text-xl font-black font-mono ${totalCriticalItems > 0 ? 'text-rose-500 animate-pulse' : ''}`}>
+              {totalCriticalItems}
+            </span>
+            <AlertTriangle className={`w-5 h-5 opacity-40 ${totalCriticalItems > 0 ? 'text-rose-500' : 'text-zinc-400'}`} />
           </div>
         </div>
+
+        <div className={`p-3.5 rounded-xl ${themeCardCls} flex flex-col justify-between col-span-2 lg:col-span-1`}>
+          <span className={`text-[10px] uppercase font-black tracking-wider ${isRetro ? 'text-zinc-500' : 'text-zinc-450'}`}>Modelos en Catálogo</span>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-lg md:text-xl font-black font-mono">
+              {inventory.length}
+            </span>
+            <Layers className="w-5 h-5 opacity-40 text-violet-500" />
+          </div>
+        </div>
+
       </div>
 
-      {/* Control row: Search and filters */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        {/* Search */}
-        <div className="premium-search-container w-full md:max-w-xs shrink-0 select-none flex items-center">
+      {/* Selector de Ubicación en Tiempo Real */}
+      {config.enableWarehouses === true && (
+      <div className={`p-1.5 rounded-xl shrink-0 flex flex-wrap gap-1.5 items-center ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white'
+          : isLight ? 'bg-zinc-100 border border-zinc-200'
+            : 'bg-[#121316]/55 border border-[#1b1c21]'
+        }`}>
+        <span className={`text-[10px] font-black uppercase tracking-wider px-2 ${isRetro ? 'text-black font-mono' : isLight ? 'text-zinc-650' : 'text-zinc-400'
+          }`}>
+          📍 Ubicación Activa:
+        </span>
+        <button
+          onClick={() => setSelectedLocationId('tienda')}
+          className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${selectedLocationId === 'tienda'
+              ? isRetro
+                ? 'bg-[#000080] text-white font-mono px-3 py-1'
+                : 'bg-amber-600/25 border border-amber-500/40 text-amber-500 font-extrabold shadow-sm'
+              : isRetro
+                ? 'text-zinc-650 hover:bg-zinc-200/50 font-mono'
+                : 'text-zinc-400 hover:text-white transition-colors'
+            }`}
+        >
+          🏪 Tienda (Local)
+        </button>
+        {warehouses.map((wh) => (
+          <button
+            key={wh.id}
+            onClick={() => setSelectedLocationId(wh.id)}
+            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${selectedLocationId === wh.id
+                ? isRetro
+                  ? 'bg-[#000080] text-white font-mono px-3 py-1'
+                  : 'bg-amber-600/25 border border-amber-500/40 text-amber-500 font-extrabold shadow-sm'
+                : isRetro
+                  ? 'text-zinc-650 hover:bg-zinc-200/50 font-mono'
+                  : 'text-zinc-400 hover:text-white transition-colors'
+              }`}
+          >
+            📦 {wh.name}
+          </button>
+        ))}
+        {(!currentUser || currentUser.permissions.canEditStock) && (
+          <button
+            onClick={() => {
+              setIsWarehouseModalOpen(true);
+              setWarehouseModalTab('lista');
+            }}
+            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 ${
+              isRetro
+                ? 'border-zinc-400 bg-zinc-200 text-black font-mono'
+                : 'border-zinc-700/50 bg-zinc-800/10 hover:bg-zinc-800/30 text-amber-500 hover:text-amber-400'
+            }`}
+            title="Administrar bodegas, crear nuevas o transferir stock"
+          >
+            ⚙️ Administrar
+          </button>
+        )}
+        {selectedLocationId !== 'tienda' && (
+          <label className={`ml-auto flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg border transition-all cursor-pointer ${isRetro
+              ? 'border-zinc-455 bg-zinc-255 text-black font-mono'
+              : 'border-zinc-700/40 bg-zinc-800/40 text-zinc-355 hover:bg-zinc-800/60'
+            }`}>
+            <input
+              type="checkbox"
+              checked={showOutofStock}
+              onChange={(e) => setShowOutofStock(e.target.checked)}
+              className="cursor-pointer accent-amber-500 rounded"
+            />
+            <span>Mostrar artículos sin existencias</span>
+          </label>
+        )}
+      </div>
+      )}
+
+      {/* ─── Filtros y Buscador ─── */}
+      <div className={`p-4 rounded-xl shrink-0 ${themeCardCls} flex flex-col md:flex-row md:flex-wrap gap-3 items-stretch md:items-center`}>
+
+        {/* Buscador en cápsula */}
+        <div className="premium-search-container flex-1 shrink-0 select-none flex items-center">
           <div className="flex items-center text-zinc-400 shrink-0">
             <Search className="w-4 h-4 text-zinc-400" />
           </div>
@@ -1384,14 +1941,72 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
           </div>
         </div>
 
-        {/* Level filtering tabs */}
-        <div className={`flex divide-x overflow-hidden ${
-          isRetro 
-            ? 'divide-zinc-400 bg-[#dfdfdf] border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white' 
-            : isLight 
-              ? 'divide-zinc-200 bg-white border border-zinc-300 rounded' 
-              : 'divide-zinc-600 bg-[#121316] border border-[#1c1d22] rounded'
-        }`}>
+        {/* Categoría — dropdown custom */}
+        <div ref={filterCatRef} className="relative w-full md:w-56 shrink-0">
+          <button
+            type="button"
+            onClick={() => setFilterCatOpen(v => !v)}
+            className={`w-full text-left flex items-center justify-between gap-2 text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+              isRetro
+                ? 'bg-white border-2 border-t-zinc-400 border-l-zinc-400 border-b-white border-r-white text-black font-mono'
+                : isLight
+                  ? 'bg-white border border-zinc-300 text-zinc-800 hover:border-zinc-400'
+                  : 'bg-zinc-900 border border-zinc-700 text-white hover:border-zinc-500'
+            } ${filterCatOpen ? (isLight ? 'border-cyan-400 ring-1 ring-cyan-400/30' : 'border-cyan-500 ring-1 ring-cyan-500/20') : ''}`}
+          >
+            <span className="flex items-center gap-1.5 truncate">
+              <span>📁</span>
+              <span className="truncate">{selectedSubcategoryFilter === 'TODOS' ? 'TODAS LAS CATEGORÍAS' : selectedSubcategoryFilter}</span>
+            </span>
+            <span className={`text-[10px] shrink-0 transition-transform ${filterCatOpen ? 'rotate-180' : ''} ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>▾</span>
+          </button>
+
+          {filterCatOpen && (
+            <div className={`absolute z-50 top-full mt-1 w-full min-w-[180px] rounded-lg shadow-2xl border overflow-hidden ${
+              isRetro
+                ? 'bg-[#ece9d8] border-zinc-500 text-black'
+                : isLight
+                  ? 'bg-white border-zinc-200 text-zinc-900'
+                  : 'bg-zinc-900 border-zinc-700 text-white shadow-black/80'
+            }`}>
+              <div className="max-h-52 overflow-y-auto">
+                {/* Opción TODOS */}
+                <div
+                  onClick={() => { setSelectedSubcategoryFilter('TODOS'); setFilterCatOpen(false); }}
+                  className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-xs font-semibold transition-colors ${
+                    selectedSubcategoryFilter === 'TODOS'
+                      ? (isRetro ? 'bg-blue-800 text-white' : 'bg-blue-600 text-white')
+                      : (isRetro ? 'hover:bg-blue-100 text-black' : isLight ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-zinc-800 text-zinc-200')
+                  }`}
+                >
+                  {selectedSubcategoryFilter === 'TODOS' && <span className="text-[10px]">✓</span>}
+                  <span className={selectedSubcategoryFilter !== 'TODOS' ? 'ml-3.5' : ''}>📁 TODAS LAS CATEGORÍAS</span>
+                </div>
+                {/* Divisor */}
+                <div className={`h-px mx-2 ${isLight ? 'bg-zinc-100' : 'bg-zinc-800'}`} />
+                {/* Categorías — solo las que existen en el inventario */}
+                {activeCategoriesForFilter.map(cat => (
+                  <div
+                    key={cat}
+                    onClick={() => { setSelectedSubcategoryFilter(cat); setFilterCatOpen(false); }}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer text-xs font-medium transition-colors ${
+                      selectedSubcategoryFilter === cat
+                        ? (isRetro ? 'bg-blue-800 text-white' : 'bg-blue-600 text-white')
+                        : (isRetro ? 'hover:bg-blue-100 text-black' : isLight ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-zinc-800 text-zinc-200')
+                    }`}
+                  >
+                    {selectedSubcategoryFilter === cat && <span className="text-[10px]">✓</span>}
+                    <span className={selectedSubcategoryFilter !== cat ? 'ml-3.5' : ''}>{cat}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Estado del Stock */}
+        <div className="overflow-x-auto shrink-0 max-w-full">
+        <div className="flex items-center gap-1 bg-zinc-950/[0.25] p-1 border border-zinc-800 rounded-lg min-w-max">
           {[
             { id: 'todos', label: 'Todos' },
             { id: 'favoritos', label: '⭐ Favoritos' },
@@ -1399,32 +2014,27 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
             { id: 'bajoStock', label: 'Stock Bajo-Crítico' }
           ].map((tab) => {
             const isActive = activeFilter === tab.id;
+            const activeStyle = isRetro
+              ? 'bg-[#000080] text-white font-mono px-3 py-1 text-[11px] font-bold'
+              : 'bg-cyan-600/25 border border-cyan-500/40 text-cyan-405 font-bold px-3 py-1.5 rounded-md text-xs';
+            const inactiveStyle = isRetro
+              ? 'text-zinc-650 hover:bg-zinc-200/50 font-mono px-3 py-1 text-[11px]'
+              : 'text-zinc-400 hover:text-white px-3 py-1.5 rounded-md text-xs transition-colors';
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveFilter(tab.id as any)}
-                className={`px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
-                  isActive
-                    ? isRetro
-                      ? 'bg-[#000080] text-white retro-white-text font-extrabold uppercase'
-                      : isLight
-                        ? 'bg-amber-600 text-white font-extrabold'
-                        : 'bg-zinc-800 text-amber-500'
-                    : isRetro
-                      ? 'text-zinc-800 bg-[#dfdfdf] hover:bg-zinc-200 hover:text-black'
-                      : isLight
-                        ? 'text-zinc-600 bg-white hover:bg-zinc-50 hover:text-zinc-900'
-                        : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40'
-                }`}
+                className={`cursor-pointer ${isActive ? activeStyle : inactiveStyle}`}
               >
                 {tab.label}
               </button>
             );
           })}
         </div>
+        </div>
 
         {/* Mostrar Inactivos */}
-        <label className={`flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-black uppercase ${isRetro ? 'text-black font-mono' : 'text-zinc-400 hover:text-zinc-200'} transition-colors`}>
+        <label className={`flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-black uppercase shrink-0 ${isRetro ? 'text-black font-mono' : 'text-zinc-400 hover:text-zinc-200'} transition-colors`}>
           <input
             type="checkbox"
             checked={showInactive}
@@ -1436,101 +2046,26 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
       </div>
 
-      {/* Category filter - dynamic from real inventory data */}
-      <div className={`p-3 space-y-2 ${
-        isRetro 
-          ? 'bg-[#eaeef3] border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black' 
-          : isLight 
-            ? 'bg-zinc-50 border border-zinc-200 rounded-md text-zinc-900' 
-            : 'bg-[#121316]/55 border border-[#1b1c21] p-3 rounded-md text-gray-200'
-      }`}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-1.5">
-            <Layers className={`w-3.5 h-3.5 ${isRetro ? 'text-[#000080]' : isLight ? 'text-amber-600' : 'text-emerald-400'}`} />
-            <span className={`text-[10px] font-sans font-extrabold uppercase tracking-wide ${
-              isRetro ? 'text-[#000080]' : isLight ? 'text-zinc-800' : 'text-emerald-400 font-mono tracking-wider'
-            }`}>Categorías</span>
-          </div>
-          <span className={`text-[9px] font-mono ${isLight ? 'text-zinc-500' : 'text-zinc-500'}`}>
-            Filtrar por categoría de producto
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {(() => {
-            // Obtener categorías únicas del inventario real
-            const uniqueCategories = Array.from(
-              new Set(inventory.map(i => i.category).filter(Boolean))
-            ).sort() as string[];
-
-            const categories = [
-              { id: 'TODOS', label: 'Ver Todo', count: inventory.length },
-              ...uniqueCategories.map(cat => ({
-                id: cat,
-                label: cat,
-                count: inventory.filter(i => i.category === cat).length,
-              })),
-            ];
-
-            return categories;
-          })().map((cat) => {
-            const isActive = selectedSubcategoryFilter === cat.id;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedSubcategoryFilter(cat.id)}
-                className={`px-2.5 py-1 text-[11px] font-sans rounded transition-all cursor-pointer flex items-center gap-1.5 ${
-                  isActive
-                    ? isRetro
-                      ? 'bg-[#000080] text-white retro-white-text border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white font-extrabold shadow-sm'
-                      : isLight
-                        ? 'bg-emerald-600 text-white border border-emerald-600 font-semibold shadow-sm'
-                        : 'bg-emerald-600 text-white border border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.15)] font-medium'
-                    : isRetro
-                      ? 'bg-[#dfdfdf] text-zinc-800 border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 hover:bg-zinc-200 hover:text-black font-bold'
-                      : isLight
-                        ? 'bg-white text-zinc-700 border border-zinc-300 hover:text-zinc-900 hover:bg-zinc-50 font-medium'
-                        : 'bg-[#18191d]/80 text-zinc-400 border border-zinc-800 hover:text-white hover:bg-zinc-800/60 font-medium'
-                }`}
-              >
-                <span>{cat.label}</span>
-                <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded-sm sub-count-badge ${
-                  isActive
-                    ? isRetro
-                      ? 'bg-white text-[#000080] border border-[#000080]'
-                      : isLight
-                        ? 'bg-white text-emerald-800 border border-emerald-300'
-                        : 'bg-black/40 text-white border border-emerald-500/40'
-                    : isRetro
-                      ? 'bg-zinc-300 text-zinc-700 border border-zinc-400'
-                      : isLight
-                        ? 'bg-zinc-100 text-zinc-500'
-                        : 'bg-zinc-800 text-zinc-500'
-                }`}>
-                  {cat.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Inventory Item Ledger Table */}
-      <div className="bg-[#121316] border border-[#1b1c21] rounded overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-[#0e0f12] border-b border-[#2d2f36] text-[10px] text-gray-400 font-mono uppercase tracking-wider">
-                <th className="p-3 pl-4">Código</th>
-                <th className="p-3">Nombre</th>
-                <th className="p-3">Marca</th>
-                <th className="p-3">Categoría</th>
-                <th className="p-3 text-right">Costo</th>
-                <th className="p-3 text-right">Precio</th>
-                <th className="p-3 text-right">Mayoreo</th>
-                <th className="p-3 text-center">Stock</th>
-                <th className="p-3 text-center">Mínimo</th>
-                <th className="p-3 text-center">Favorito</th>
-                <th className="p-3 text-center">Acciones</th>
+      {/* ─── Tabla del Inventario ─── */}
+      <div className={`flex-1 min-h-0 overflow-hidden rounded-xl border flex flex-col ${isRetro ? 'bg-white border-zinc-355 shadow'
+          : isLight ? 'bg-white border-zinc-200'
+            : 'bg-[#0f1013] border-[#1b1c21]'
+        }`}>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 z-10">
+              <tr>
+                <th className={themeTableHeadCls}>Código</th>
+                <th className={themeTableHeadCls}>Nombre</th>
+                <th className={themeTableHeadCls}>Marca</th>
+                <th className={themeTableHeadCls}>Categoría</th>
+                <th className={`${themeTableHeadCls} text-right`}>Costo</th>
+                <th className={`${themeTableHeadCls} text-right`}>Precio</th>
+                <th className={`${themeTableHeadCls} text-right`}>Mayoreo</th>
+                <th className={`${themeTableHeadCls} text-center`}>Stock</th>
+                <th className={`${themeTableHeadCls} text-center`}>Mínimo</th>
+                <th className={`${themeTableHeadCls} text-center`}>Favorito</th>
+                <th className={`${themeTableHeadCls} text-center`}>Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
@@ -1543,121 +2078,114 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               ) : (
                 paginatedItems.map((item, idx) => {
                   const isStockControlled = item.manageStock !== false;
-                  const isAgotado = isStockControlled && item.stock === 0;
-                  const isBajoStock = isStockControlled && item.minStock > 0 && item.stock > 0 && item.stock <= item.minStock;
+                  const activeStock = selectedLocationId === 'tienda' ? item.stock : (item.warehouseStock?.[selectedLocationId] || 0);
+                  const isAgotado = isStockControlled && activeStock === 0;
+                  const isBajoStock = isStockControlled && item.minStock > 0 && activeStock > 0 && activeStock <= item.minStock;
                   const isInactive = item.active === false;
+
+                  const totalStock = item.stock + Object.values(item.warehouseStock || {}).reduce((a: any, b: any) => (a as number) + (b as number), 0);
+                  const breakdown = `Tienda: ${item.stock}${Object.entries(item.warehouseStock || {})
+                      .filter(([_, qty]) => (qty as number) > 0)
+                      .map(([whId, qty]) => {
+                        const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                        return ` | ${whName}: ${qty}`;
+                      })
+                      .join('')
+                    } · Total: ${totalStock}`;
 
                   return (
                     <tr
                       key={item.id}
-                      className={`transition-colors ${isInactive ? 'opacity-45 bg-rose-950/5' : ''} ${
-                        isRetro
-                          ? 'hover:bg-zinc-200/40'
-                          : isLight
-                          ? 'hover:bg-zinc-100/60'
-                          : 'bg-transparent hover:bg-zinc-900/30'
-                      }`}
+                      className={`${themeTableRowCls(idx)} ${isInactive ? 'opacity-45 bg-rose-950/5' : ''}`}
                     >
                       {/* Code */}
-                      <td className={`p-3 pl-4 font-mono font-bold text-[11px] ${
-                        isRetro ? 'text-[#000080]' : isLight ? 'text-sky-700' : 'text-sky-400'
-                      }`}>
+                      <td className={`${themeTableCellCls} font-mono font-bold text-[11px] ${isRetro ? 'text-[#000080]' : isLight ? 'text-sky-700' : 'text-sky-400'
+                        }`}>
                         {item.code}
                       </td>
 
                       {/* Name */}
-                      <td className="p-3 max-w-[280px]">
+                      <td className={`${themeTableCellCls} max-w-[280px]`}>
                         <div className="flex items-center gap-2.5 break-words whitespace-normal">
                           <ProductMiniature imageUrl={item.imageUrl} extraImages={item.extraImages} name={item.name} code={item.code} category={item.category} price={item.price} currencySymbol={config.currencySymbol} isRetro={isRetro} />
-                          <p className={`font-bold break-all whitespace-normal ${
-                            isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-800' : 'text-gray-200'
-                          }`}>{item.name.toUpperCase()}</p>
+                          <p className={`font-bold break-all whitespace-normal ${isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-800' : 'text-gray-200'
+                            }`}>{item.name.toUpperCase()}</p>
                         </div>
                       </td>
 
                       {/* Brand */}
-                      <td className={`p-3 text-[11px] ${
-                        isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'
-                      }`}>
+                      <td className={`${themeTableCellCls} text-[11px] ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'
+                        }`}>
                         {(item.brand || '—').toUpperCase()}
                       </td>
 
                       {/* Category */}
-                      <td className="p-3">
+                      <td className={themeTableCellCls}>
                         <div className="flex flex-col gap-0.5">
                           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded w-fit ${getCategoryBadgeStyles(item.category || '')}`}>
                             {item.category || '—'}
                           </span>
-                          {item.category === 'Accesorio' && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded w-fit font-mono font-bold uppercase bg-emerald-900/20 text-emerald-400 border border-emerald-800/30">
-                              {item.subcategory || inferSubcategory(item.name)}
-                            </span>
-                          )}
                         </div>
                       </td>
 
                       {/* Cost */}
-                      <td className={`p-3 text-right font-mono ${
-                        isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'
-                      }`}>
+                      <td className={`${themeTableCellCls} text-right font-mono ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'
+                        }`}>
                         {config.currencySymbol}{item.cost}
                       </td>
 
                       {/* Price */}
-                      <td className="p-3 text-right font-mono font-bold">
+                      <td className={`${themeTableCellCls} text-right font-mono font-bold`}>
                         <span className={isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-900' : 'text-white'}>
                           {config.currencySymbol}{item.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </td>
 
                       {/* Mayoreo */}
-                      <td className={`p-3 text-right font-mono font-bold ${
-                        isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'
-                      }`}>
+                      <td className={`${themeTableCellCls} text-right font-mono font-bold ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-650' : 'text-zinc-400'
+                        }`}>
                         <span className={isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-900' : 'text-white'}>
                           {config.currencySymbol}{(item.wholesalePrice !== undefined ? item.wholesalePrice : item.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </td>
 
                       {/* Stock level */}
-                      <td className="p-3 text-center">
-                        <div className="flex flex-col items-center justify-center">
+                      <td className={`${themeTableCellCls} text-center`} title={config.enableWarehouses === true ? breakdown : undefined}>
+                        <div className="flex flex-col items-center justify-center cursor-help">
                           {item.manageStock === false ? (
                             <span className="bg-indigo-950/40 text-indigo-400 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-indigo-800/45 flex items-center gap-1">
                               <RefreshCw className="w-2.5 h-2.5" /> ILIMITADO
                             </span>
                           ) : isAgotado ? (
                             <span className="bg-rose-950/40 text-rose-500 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-rose-800/45 flex items-center gap-1">
-                              <XCircle className="w-2.5 h-2.5" /> AGOTADO
+                              <XCircle className="w-2.5 h-2.5" /> AGOTADO {config.enableWarehouses === true && selectedLocationId === 'tienda' && totalStock > 0 && <span className="text-[9px] bg-amber-500 text-black px-1 rounded ml-1 font-extrabold">+{totalStock} en bodega</span>}
                             </span>
                           ) : isBajoStock ? (
                             <span className="bg-amber-950/40 text-amber-500 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-amber-800/45 flex items-center gap-1">
-                              <AlertTriangle className="w-2.5 h-2.5" /> CRÍTICO ({item.stock})
+                              <AlertTriangle className="w-2.5 h-2.5" /> CRÍTICO ({activeStock}) {config.enableWarehouses === true && selectedLocationId === 'tienda' && totalStock > item.stock && <span className="text-[9px] bg-amber-500 text-black px-1 rounded ml-1 font-extrabold">+{totalStock - item.stock}</span>}
                             </span>
                           ) : (
                             <span className="bg-emerald-950/40 text-emerald-400 px-2.5 py-1 text-[10px] font-bold uppercase rounded border border-emerald-800/45 flex items-center gap-1">
-                              <CheckCircle className="w-2.5 h-2.5" /> OK ({item.stock})
+                              <CheckCircle className="w-2.5 h-2.5" /> OK ({activeStock}) {config.enableWarehouses === true && selectedLocationId === 'tienda' && totalStock > item.stock && <span className="text-[9px] bg-amber-500 text-black px-1 rounded ml-1 font-extrabold">+{totalStock - item.stock}</span>}
                             </span>
                           )}
                         </div>
                       </td>
 
                       {/* Minimo */}
-                      <td className={`p-3 text-center font-mono text-[11px] ${
-                        isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'
-                      }`}>
+                      <td className={`${themeTableCellCls} text-center font-mono text-[11px] ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-600' : 'text-zinc-400'
+                        }`}>
                         {item.manageStock === false ? '—' : `${item.minStock ?? 5} pz`}
                       </td>
 
                       {/* Favorito */}
-                      <td className="p-3 text-center">
+                      <td className={`${themeTableCellCls} text-center`}>
                         <button
                           onClick={() => handleToggleFavorite(item.id)}
-                          className={`p-1.5 rounded transition-colors cursor-pointer ${
-                            item.favorite
+                          className={`p-1.5 rounded transition-colors cursor-pointer ${item.favorite
                               ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20'
                               : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/40'
-                          }`}
+                            }`}
                           title={item.favorite ? 'Quitar de favoritos' : 'Marcar como favorito'}
                         >
                           <Star className={`w-4 h-4 ${item.favorite ? 'fill-amber-500' : 'fill-transparent'}`} />
@@ -1665,30 +2193,28 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                       </td>
 
                       {/* Quick Restock & Product Maintenance Actions */}
-                      <td className="p-3 text-center">
+                      <td className={`${themeTableCellCls} text-center`}>
                         <div className="flex flex-col xl:flex-row items-center justify-center gap-2">
                           {/* Quick restock input + button */}
                           {item.manageStock !== false ? (
-                            <div className={`flex items-center overflow-hidden max-w-[130px] shrink-0 border ${
-                              isRetro 
-                                ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white border-r-[#eaeef3] border-b-[#eaeef3]' 
-                                : isLight 
-                                  ? 'bg-white border-zinc-300 rounded' 
+                            <div className={`flex items-center overflow-hidden max-w-[130px] shrink-0 border ${isRetro
+                                ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white border-r-[#eaeef3] border-b-[#eaeef3]'
+                                : isLight
+                                  ? 'bg-white border-zinc-300 rounded'
                                   : 'bg-zinc-950 border-zinc-600 rounded'
-                            }`}>
+                              }`}>
                               <input
                                 type="number"
                                 min={1}
                                 max={99}
                                 value={restockAmount}
                                 onChange={(e) => setRestockAmount(Math.max(1, Number(e.target.value) || 1))}
-                                className={`w-11 text-center text-xs font-mono font-bold py-1 focus:outline-none border-r ${
-                                  isRetro 
-                                    ? 'bg-white text-zinc-900 border-r-zinc-300' 
-                                    : isLight 
-                                      ? 'bg-white text-zinc-900 border-r-zinc-200' 
+                                className={`w-11 text-center text-xs font-mono font-bold py-1 focus:outline-none border-r ${isRetro
+                                    ? 'bg-white text-zinc-900 border-r-zinc-300'
+                                    : isLight
+                                      ? 'bg-white text-zinc-900 border-r-zinc-200'
                                       : 'bg-transparent text-emerald-400 border-r-zinc-700'
-                                }`}
+                                  }`}
                                 style={{
                                   MozAppearance: 'textfield',
                                   WebkitAppearance: 'none'
@@ -1696,15 +2222,14 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                               />
                               <button
                                 onClick={() => confirmRestockId === item.id ? (handleQuickRestock(item.id, item.name), setConfirmRestockId(null)) : setConfirmRestockId(item.id)}
-                                className={`px-3 py-1 font-sans font-black uppercase text-[10px] tracking-wider transition-all select-none cursor-pointer ${
-                                  confirmRestockId === item.id
+                                className={`px-3 py-1 font-sans font-black uppercase text-[10px] tracking-wider transition-all select-none cursor-pointer ${confirmRestockId === item.id
                                     ? 'bg-emerald-600 text-white'
-                                    : isRetro 
-                                      ? 'bg-[#dfdfdf] hover:bg-zinc-200 text-[#000080]' 
-                                      : isLight 
-                                        ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700' 
+                                    : isRetro
+                                      ? 'bg-[#dfdfdf] hover:bg-zinc-200 text-[#000080]'
+                                      : isLight
+                                        ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'
                                         : 'bg-zinc-900 text-emerald-500 hover:bg-zinc-700 hover:text-white'
-                                }`}
+                                  }`}
                                 title="Reabastecer rápidamente"
                               >
                                 {confirmRestockId === item.id ? '✓ Confirmar Surtir' : 'Surtir'}
@@ -1719,13 +2244,24 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                           <div className="flex items-center gap-1">
                             {/* Editar */}
                             {(!currentUser || currentUser.permissions.canEditStock) && (
-                            <button
-                              onClick={() => handleOpenEdit(item)}
-                              className="p-1 px-1.5 border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 rounded cursor-pointer transition-colors"
-                              title="Editar artículo de Almacén"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
+                              <button
+                                onClick={() => handleOpenEdit(item)}
+                                className="p-1 px-1.5 border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 rounded cursor-pointer transition-colors"
+                                title="Editar artículo de Almacén"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Traspaso Rápido */}
+                            {item.manageStock !== false && config.enableWarehouses === true && warehouses.length > 0 && (
+                              <button
+                                onClick={() => setQuickTransferItem(item)}
+                                className="p-1 px-1.5 border border-sky-500/20 bg-sky-500/5 hover:bg-sky-500/20 text-sky-400 hover:text-sky-350 rounded cursor-pointer transition-colors"
+                                title="Traspaso rápido de existencias"
+                              >
+                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                              </button>
                             )}
 
                             {/* Imprimir Etiqueta */}
@@ -1739,28 +2275,27 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
                             {/* Activar / Desactivar */}
                             {(!currentUser || currentUser.permissions.canEditStock) && (
-                            <button
-                              onClick={() => handleToggleActive(item.id)}
-                              title={isInactive ? 'Activar producto' : 'Desactivar producto'}
-                              className={`p-1 px-1.5 border rounded cursor-pointer transition-colors ${
-                                isInactive
-                                  ? 'border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300'
-                                  : 'border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300'
-                              }`}
-                            >
-                              {isInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                            </button>
+                              <button
+                                onClick={() => handleToggleActive(item.id)}
+                                title={isInactive ? 'Activar producto' : 'Desactivar producto'}
+                                className={`p-1 px-1.5 border rounded cursor-pointer transition-colors ${isInactive
+                                    ? 'border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300'
+                                    : 'border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300'
+                                  }`}
+                              >
+                                {isInactive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                              </button>
                             )}
 
                             {/* Eliminar de catálogo */}
                             {(!currentUser || currentUser.permissions.canDeleteProducts) && (
-                            <button
-                              onClick={() => setConfirmDeleteId(item.id)}
-                              className="p-1 px-1.5 border border-rose-500/20 bg-rose-500/5 hover:bg-rose-505/20 text-rose-400 hover:text-rose-300 rounded cursor-pointer transition-colors"
-                              title="Eliminar artículo del inventario"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(item.id)}
+                                className="p-1 px-1.5 border border-rose-500/20 bg-rose-500/5 hover:bg-rose-505/20 text-rose-400 hover:text-rose-300 rounded cursor-pointer transition-colors"
+                                title="Eliminar artículo del inventario"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             )}
                           </div>
                         </div>
@@ -1775,11 +2310,10 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
         {/* Controles de Paginación del Almacén */}
         {filteredItems.length > 0 && (
-          <div className={`p-3 border-t flex flex-col sm:flex-row items-center justify-between gap-3 ${
-            isRetro ? 'bg-[#dfdfdf] border-zinc-400 text-black font-sans'
-            : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-700'
-            : 'bg-[#0e0f12] border-[#2d2f36] text-zinc-450 border-t border-[#1b1c21]'
-          }`}>
+          <div className={`p-3 border-t flex flex-col sm:flex-row items-center justify-between gap-3 ${isRetro ? 'bg-[#dfdfdf] border-zinc-400 text-black font-sans'
+              : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-700'
+                : 'bg-[#0e0f12] border-[#2d2f36] text-zinc-450 border-t border-[#1b1c21]'
+            }`}>
             {/* Izquierda: Información del rango */}
             <div className="text-[11px] font-mono">
               {isRetro ? (
@@ -1804,13 +2338,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                     setRowsPerPage(Number(e.target.value));
                     setCurrentPage(1);
                   }}
-                  className={`text-xs px-1.5 py-0.5 rounded cursor-pointer ${
-                    isRetro
+                  className={`text-xs px-1.5 py-0.5 rounded cursor-pointer ${isRetro
                       ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black font-mono focus:outline-none'
                       : isLight
                         ? 'bg-white border border-zinc-300 text-zinc-800 focus:outline-none focus:border-emerald-500'
                         : 'bg-[#1c1e24] border border-[#2d2f36] text-white focus:outline-none focus:border-emerald-500 font-mono'
-                  }`}
+                    }`}
                 >
                   <option value={25}>25</option>
                   <option value={50}>50</option>
@@ -1825,15 +2358,14 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                   type="button"
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  className={`p-1.5 rounded transition-all cursor-pointer ${
-                    currentPage === 1
+                  className={`p-1.5 rounded transition-all cursor-pointer ${currentPage === 1
                       ? 'opacity-30 cursor-not-allowed'
                       : isRetro
                         ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
                         : isLight
                           ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-300'
                           : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-750'
-                  }`}
+                    }`}
                   title="Página Anterior"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
@@ -1847,15 +2379,14 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                   type="button"
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  className={`p-1.5 rounded transition-all cursor-pointer ${
-                    currentPage === totalPages
+                  className={`p-1.5 rounded transition-all cursor-pointer ${currentPage === totalPages
                       ? 'opacity-30 cursor-not-allowed'
                       : isRetro
                         ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
                         : isLight
                           ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-300'
                           : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-750'
-                  }`}
+                    }`}
                   title="Página Siguiente"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -1866,7 +2397,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
         )}
       </div>
 
-       {/* MODAL: IMPRESIÓN DE ETIQUETA ADHESIVA */}
+      {/* MODAL: IMPRESIÓN DE ETIQUETA ADHESIVA */}
       {printingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
           <style>{`
@@ -1905,13 +2436,13 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               }
             }
           `}</style>
-          
+
           <div className={isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 max-w-md w-full overflow-hidden shadow-2xl flex flex-col relative animate-scale-up text-black font-sans' : isLight ? 'bg-white border border-zinc-200 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col relative animate-scale-up text-zinc-900 font-sans' : 'bg-[#0f1115] border border-zinc-800 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col relative animate-scale-up text-zinc-100 font-sans'}>
-            
+
             {/* Cabecera del modal */}
             <div className="modal-dark-header bg-[#000080] p-3.5 flex items-center justify-between border-b border-[#00006a] shrink-0">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl flex items-center justify-center" style={{background:'rgba(255,255,255,0.18)',border:'1px solid rgba(255,255,255,0.3)'}}>
+                <div className="p-2 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.3)' }}>
                   <Printer className="w-4 h-4 text-white" />
                 </div>
                 <div>
@@ -1919,13 +2450,13 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                   <span className="text-[10px] font-mono block font-extrabold text-white/70">IMPRESIÓN INDUSTRIAL CONTINUA</span>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => {
                   setPrintingItem(null);
                   setPrintCopies(1);
                 }}
-                className={isRetro 
-                  ? 'w-6 h-6 bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 hover:bg-zinc-200 hover:text-black font-extrabold flex items-center justify-center text-xs text-black active:border-t-zinc-700 active:border-l-zinc-700 active:border-b-white active:border-r-white cursor-pointer select-none' 
+                className={isRetro
+                  ? 'w-6 h-6 bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 hover:bg-zinc-200 hover:text-black font-extrabold flex items-center justify-center text-xs text-black active:border-t-zinc-700 active:border-l-zinc-700 active:border-b-white active:border-r-white cursor-pointer select-none'
                   : 'w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/30 text-white font-bold cursor-pointer transition-all'
                 }
                 title="Cerrar modal"
@@ -1936,7 +2467,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
             {/* Cuerpo del modal */}
             <div className={`${isRetro ? 'p-4 bg-[#eaeef3]' : isLight ? 'p-6 bg-white' : 'p-6 bg-[#0f1115]'} space-y-5 flex flex-col overflow-y-auto max-h-[75vh]`}>
-              
+
               {/* Información General */}
               <div className="text-center space-y-1">
                 <h4 className={`text-sm font-sans font-black uppercase ${isLight ? 'text-zinc-900' : 'text-white'}`}>{printingItem.name}</h4>
@@ -1946,16 +2477,15 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               </div>
 
               {/* BANDEJA DE PREVIEW */}
-              <div className={`relative w-full py-6 px-4 border flex flex-col items-center justify-center overflow-hidden ${
-                isRetro 
-                  ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white' 
-                  : isLight 
-                    ? 'bg-zinc-150 border-zinc-200 rounded-xl' 
+              <div className={`relative w-full py-6 px-4 border flex flex-col items-center justify-center overflow-hidden ${isRetro
+                  ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white'
+                  : isLight
+                    ? 'bg-zinc-150 border-zinc-200 rounded-xl'
                     : 'bg-[#14151a] border-[#202125] rounded-xl'
-              }`}>
+                }`}>
                 {/* Patrón de rodillo térmico de fondo */}
                 <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px]"></div>
-                
+
                 {/* Preview idéntico al HTML impreso — iframe con srcDoc */}
                 {(() => {
                   const previewHtml = buildProductLabelHtml(
@@ -1964,7 +2494,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                   );
                   const mmToPx = 3.78;
                   const sizeKey = config.labelPaperSize || '51x25mm';
-                  const [mmW, mmH] = sizeKey.replace('mm','').split('x').map(Number);
+                  const [mmW, mmH] = sizeKey.replace('mm', '').split('x').map(Number);
                   const scale = 2.5;
                   const realW = Math.round(mmW * mmToPx);
                   const realH = Math.round(mmH * mmToPx);
@@ -1989,61 +2519,55 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               </div>
 
               {/* OPCIONES DE IMPRESIÓN */}
-              <div className={`p-4 ${
-                isRetro 
-                  ? 'space-y-4 bg-[#dfdfdf] border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black' 
-                  : isLight 
-                    ? 'space-y-4 bg-zinc-50 border border-zinc-200 rounded-xl' 
+              <div className={`p-4 ${isRetro
+                  ? 'space-y-4 bg-[#dfdfdf] border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black'
+                  : isLight
+                    ? 'space-y-4 bg-zinc-50 border border-zinc-200 rounded-xl'
                     : 'space-y-4 bg-[#14161d] border border-zinc-900 rounded-xl'
-              }`}>
-                <span className={`text-[9px] uppercase font-mono tracking-widest font-bold block border-b pb-1.5 ${
-                  isRetro 
-                    ? 'text-[#000080] border-b-zinc-400' 
-                    : isLight 
-                      ? 'text-amber-600 border-b-zinc-200' 
-                      : 'text-[#56bcff] border-b-zinc-700'
                 }`}>
+                <span className={`text-[9px] uppercase font-mono tracking-widest font-bold block border-b pb-1.5 ${isRetro
+                    ? 'text-[#000080] border-b-zinc-400'
+                    : isLight
+                      ? 'text-amber-600 border-b-zinc-200'
+                      : 'text-[#56bcff] border-b-zinc-700'
+                  }`}>
                   🎛️ AJUSTES DE IMPRESIÓN
                 </span>
-                
+
                 {/* Selector de copias */}
                 <div className="flex items-center justify-between gap-4">
                   <div className="space-y-0.5">
                     <label className={`text-xs font-bold block ${isLight ? 'text-zinc-800' : 'text-zinc-300'}`}>Copias de Etiqueta</label>
                     <span className={`text-[10px] block ${isLight ? 'text-zinc-500 font-medium' : 'text-zinc-500'}`}>Cantidad total de pegatinas</span>
                   </div>
-                  <div className={`flex items-center rounded-lg p-0.5 border ${
-                    isRetro 
-                      ? 'bg-white border-t-[#808080] border-l-[#808080] border-b-white border-r-white' 
-                      : isLight 
-                        ? 'bg-white border-zinc-300' 
+                  <div className={`flex items-center rounded-lg p-0.5 border ${isRetro
+                      ? 'bg-white border-t-[#808080] border-l-[#808080] border-b-white border-r-white'
+                      : isLight
+                        ? 'bg-white border-zinc-300'
                         : 'bg-[#1c1d22] border-zinc-800'
-                  }`}>
-                    <button 
+                    }`}>
+                    <button
                       type="button"
                       onClick={() => setPrintCopies(c => Math.max(1, c - 1))}
-                      className={`w-8 h-8 rounded hover:bg-zinc-200 flex items-center justify-center font-bold active:scale-90 select-none cursor-pointer ${
-                        isLight ? 'text-zinc-700' : 'text-zinc-400 hover:text-white'
-                      }`}
+                      className={`w-8 h-8 rounded hover:bg-zinc-200 flex items-center justify-center font-bold active:scale-90 select-none cursor-pointer ${isLight ? 'text-zinc-700' : 'text-zinc-400 hover:text-white'
+                        }`}
                     >
                       -
                     </button>
-                    <input 
+                    <input
                       type="number"
                       min={1}
                       max={50}
                       value={printCopies}
                       onChange={(e) => setPrintCopies(Math.max(1, parseInt(e.target.value) || 1))}
-                      className={`w-12 text-center bg-transparent text-xs border-none font-mono focus:outline-none ${
-                        isLight ? 'text-zinc-900 font-extrabold' : 'text-white'
-                      }`}
+                      className={`w-12 text-center bg-transparent text-xs border-none font-mono focus:outline-none ${isLight ? 'text-zinc-900 font-extrabold' : 'text-white'
+                        }`}
                     />
-                    <button 
+                    <button
                       type="button"
                       onClick={() => setPrintCopies(c => Math.max(1, c + 1))}
-                      className={`w-8 h-8 rounded hover:bg-zinc-200 flex items-center justify-center font-bold active:scale-90 select-none cursor-pointer ${
-                        isLight ? 'text-zinc-700' : 'text-zinc-400 hover:text-white'
-                      }`}
+                      className={`w-8 h-8 rounded hover:bg-zinc-200 flex items-center justify-center font-bold active:scale-90 select-none cursor-pointer ${isLight ? 'text-zinc-700' : 'text-zinc-400 hover:text-white'
+                        }`}
                     >
                       +
                     </button>
@@ -2051,13 +2575,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                 </div>
 
                 {/* Info de Configuración de Impresora */}
-                <div className={`border-t pt-3 flex flex-col space-y-1 text-[11px] font-mono ${
-                  isRetro
+                <div className={`border-t pt-3 flex flex-col space-y-1 text-[11px] font-mono ${isRetro
                     ? 'border-t-zinc-400 text-zinc-700'
                     : isLight
                       ? 'border-t-zinc-200 text-zinc-500'
                       : 'border-t-zinc-700 text-[#c5cdd6]'
-                }`}>
+                  }`}>
                   {config.labelPrinterBrand ? (
                     <>
                       <div className="flex justify-between">
@@ -2076,9 +2599,8 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                       )}
                     </>
                   ) : (
-                    <div className={`flex flex-col gap-2 pt-1 rounded-lg p-2 ${
-                      isRetro ? 'bg-amber-50 border border-amber-300' : isLight ? 'bg-amber-50 border border-amber-200' : 'bg-amber-950/30 border border-amber-800/40'
-                    }`}>
+                    <div className={`flex flex-col gap-2 pt-1 rounded-lg p-2 ${isRetro ? 'bg-amber-50 border border-amber-300' : isLight ? 'bg-amber-50 border border-amber-200' : 'bg-amber-950/30 border border-amber-800/40'
+                      }`}>
                       <div className="flex items-start gap-2">
                         <span className="text-amber-500 text-base leading-none">⚠️</span>
                         <span className={`text-[10px] leading-tight ${isLight ? 'text-amber-800 font-bold' : 'text-amber-300 font-semibold'}`}>
@@ -2093,13 +2615,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                             setConfigSubTab('printer');
                             setActiveTab('Config');
                           }}
-                          className={`self-end text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded cursor-pointer transition-all ${
-                            isRetro
+                          className={`self-end text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded cursor-pointer transition-all ${isRetro
                               ? 'bg-[#000080] text-white hover:bg-[#0000aa] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700'
                               : isLight
                                 ? 'bg-amber-500 text-black hover:bg-amber-600 rounded-lg'
                                 : 'bg-amber-500 text-black hover:bg-amber-400 rounded-lg'
-                          }`}
+                            }`}
                         >
                           Configurar impresora →
                         </button>
@@ -2110,13 +2631,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               </div>
 
               {/* INSTRUCCIONES RÁPIDAS */}
-              <div className={`p-3 text-[10.5px] space-y-1 font-mono border ${
-                isRetro 
-                  ? 'bg-white border-zinc-300 text-zinc-700 font-sans' 
-                  : isLight 
-                    ? 'bg-amber-500/5 border-amber-500/25 text-zinc-600' 
+              <div className={`p-3 text-[10.5px] space-y-1 font-mono border ${isRetro
+                  ? 'bg-white border-zinc-300 text-zinc-700 font-sans'
+                  : isLight
+                    ? 'bg-amber-500/5 border-amber-500/25 text-zinc-600'
                     : 'bg-[#1b120c]/40 border-amber-950/20 text-[#bfb2a8]'
-              }`}>
+                }`}>
                 <span className="font-bold text-amber-500 block uppercase">⚙️ Notas de automatización:</span>
                 {config.labelPrinterBrand ? (
                   <p>• Los bytes crudos RAW de la etiqueta serán despachados mediante el puerto preconfigurado ({config.labelPrinterInterface || 'USB'}) de forma directa sin demoras.</p>
@@ -2139,7 +2659,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               >
                 Cerrar consulta
               </button>
-              
+
               <button
                 onClick={() => {
                   // Play dynamic subtle physical audio
@@ -2154,7 +2674,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                     gain.gain.setValueAtTime(0.06, ctx.currentTime);
                     osc.start();
                     osc.stop(ctx.currentTime + 0.1);
-                  } catch (e) {}
+                  } catch (e) { }
 
                   const eAPI = (window as any).electronAPI;
 
@@ -2203,14 +2723,16 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                   const paperWidthMicrons = widthMm * 1000;
                   const paperHeightMicrons = heightMm * 1000;
 
-                  window.dispatchEvent(new CustomEvent('fm-silent-print', { detail: {
-                    html: buildLabelHtml(),
-                    deviceName: config.labelPrinterBrand || '',
-                    copies: 1,
-                    isLabel: true,
-                    paperWidthMicrons,
-                    paperHeightMicrons
-                  }}));
+                  window.dispatchEvent(new CustomEvent('fm-silent-print', {
+                    detail: {
+                      html: buildLabelHtml(),
+                      deviceName: config.labelPrinterBrand || '',
+                      copies: 1,
+                      isLabel: true,
+                      paperWidthMicrons,
+                      paperHeightMicrons
+                    }
+                  }));
                   dispatchPrintEvent();
                   closePrinterModal();
                 }}
@@ -2274,15 +2796,17 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               <div className="flex items-center gap-2">
                 <Package className={`w-4 h-4 ${isRetro ? 'text-white' : 'text-amber-500'}`} />
                 <h3 className={modalHeaderTitleClass}>
-                  {isAddingNew ? '➕ Registrar Nuevo Artículo' : '✏️ Editar Artículo de Almacén'}
+                  {isAddingNew 
+                    ? `➕ Registrar Nuevo Artículo (${selectedLocationId === 'tienda' ? 'Tienda Local' : warehouses.find(w => w.id === selectedLocationId)?.name || 'Bodega'})` 
+                    : `✏️ Editar Artículo de Almacén (${selectedLocationId === 'tienda' ? 'Tienda Local' : warehouses.find(w => w.id === selectedLocationId)?.name || 'Bodega'})`}
                 </h3>
               </div>
-              <button 
+              <button
                 onClick={() => {
                   setIsAddingNew(false);
                   setEditingItem(null);
                 }}
-                className={isRetro 
+                className={isRetro
                   ? "flex items-center justify-center w-5 h-5 bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-black text-[11px] cursor-pointer"
                   : "text-gray-400 hover:text-white p-1 rounded-full bg-zinc-900 border border-zinc-800 cursor-pointer"
                 }
@@ -2294,11 +2818,10 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
             <form onSubmit={handleSaveItem}>
               <div className={modalBodyClass}>
                 {/* Tip de navegación por teclado */}
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-bold ${
-                  isRetro ? (isLight ? 'bg-blue-50 border border-blue-200 text-blue-700' : 'bg-sky-950/20 border border-sky-800/30 text-sky-400')
-                  : isLight ? 'bg-sky-50 border border-sky-200 text-sky-600'
-                  : 'bg-sky-950/20 border border-sky-800/30 text-sky-400'
-                }`}>
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-bold ${isRetro ? (isLight ? 'bg-blue-50 border border-blue-200 text-blue-700' : 'bg-sky-950/20 border border-sky-800/30 text-sky-400')
+                    : isLight ? 'bg-sky-50 border border-sky-200 text-sky-600'
+                      : 'bg-sky-950/20 border border-sky-800/30 text-sky-400'
+                  }`}>
                   <span>⌨️</span>
                   <span>Puedes pasar de campo en campo con la tecla <kbd className={`px-1.5 py-0.5 rounded font-mono text-[10px] ${isLight ? 'bg-white border border-zinc-300 text-zinc-700' : 'bg-zinc-800 border border-zinc-600 text-zinc-200'}`}>Enter</kbd> — al llegar al último campo presiona <kbd className={`px-1.5 py-0.5 rounded font-mono text-[10px] ${isLight ? 'bg-white border border-zinc-300 text-zinc-700' : 'bg-zinc-800 border border-zinc-600 text-zinc-200'}`}>Enter</kbd> para guardar.</span>
                 </div>
@@ -2306,15 +2829,14 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
 
                 {/* Imagen del Producto */}
-                <div 
+                <div
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDropImage}
-                  className={`flex flex-col gap-2 p-3 border rounded-xl transition-all relative overflow-hidden ${
-                    isDraggingImage
+                  className={`flex flex-col gap-2 p-3 border rounded-xl transition-all relative overflow-hidden ${isDraggingImage
                       ? 'bg-blue-500/10 border-blue-500 ring-2 ring-blue-500/50 scale-[1.01]'
                       : 'bg-zinc-950/20 dark:bg-zinc-900/30 border-zinc-200/5 dark:border-zinc-800/50'
-                  }`}
+                    }`}
                 >
                   {isDraggingImage && (
                     <div className="pointer-events-none absolute inset-0 bg-blue-600/20 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center text-blue-400 font-black text-xs uppercase tracking-wider gap-1 animate-pulse">
@@ -2331,10 +2853,10 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                       className="hidden"
                       onChange={handleImageChange}
                     />
-                    
+
                     {formPreviewUrl ? (
                       <div className="relative w-20 h-20 rounded-xl border border-zinc-300 dark:border-zinc-700 overflow-hidden group select-none shrink-0 shadow-md">
-                        <div 
+                        <div
                           onClick={handleOpenImageSourceModal}
                           className="w-full h-full block cursor-pointer"
                         >
@@ -2357,14 +2879,13 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                         </button>
                       </div>
                     ) : (
-                      <div 
-                        onClick={handleOpenImageSourceModal} 
-                        className={`w-20 h-20 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 shrink-0 select-none cursor-pointer transition-all ${
-                          isDraggingImage
+                      <div
+                        onClick={handleOpenImageSourceModal}
+                        className={`w-20 h-20 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 shrink-0 select-none cursor-pointer transition-all ${isDraggingImage
                             ? 'border-blue-500 bg-blue-500/20 text-blue-400 scale-105'
                             : isRetro ? 'bg-zinc-200 border-zinc-400 text-black hover:bg-zinc-300'
-                            : 'border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-950/40 hover:border-blue-500 dark:hover:border-blue-400 text-zinc-550 dark:text-zinc-450'
-                        }`}
+                              : 'border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-950/40 hover:border-blue-500 dark:hover:border-blue-400 text-zinc-550 dark:text-zinc-450'
+                          }`}
                       >
                         <span className="text-[18px]">{isDraggingImage ? '📥' : '📷'}</span>
                         <span className="text-[9px] text-center font-black uppercase tracking-wider">{isDraggingImage ? 'Soltar' : 'Subir'}</span>
@@ -2415,7 +2936,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                       const newName = e.target.value.toUpperCase();
                       const detectedCategory = inferCategory(newName);
                       const detectedSubcategory = detectedCategory === 'Accesorio' ? inferSubcategory(newName) : 'OTROS';
-                      
+
                       let detectedBrand = formData.brand;
                       if (!detectedBrand || detectedBrand === 'GENÉRICO' || detectedBrand === '') {
                         for (const b of availableBrands) {
@@ -2456,23 +2977,21 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                       <span className={`text-[10px] ml-1 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>▾</span>
                     </button>
                     {brandDropOpen && (
-                      <div className={`absolute z-50 top-full mt-1 w-full rounded-md shadow-2xl overflow-hidden border ${
-                        isRetro
+                      <div className={`absolute z-50 top-full mt-1 w-full rounded-md shadow-2xl overflow-hidden border ${isRetro
                           ? 'bg-[#ece9d8] border-zinc-500 text-black'
                           : isLight
                             ? 'bg-white border-zinc-200 text-zinc-900'
                             : 'bg-zinc-900 border-zinc-700 text-white shadow-black/80'
-                      }`} style={{ minWidth: '160px' }}>
+                        }`} style={{ minWidth: '160px' }}>
                         <div ref={brandListRef} className="max-h-44 overflow-y-auto">
                           {availableBrands.map((b, idx) => (
                             <div
                               key={b}
                               onMouseEnter={() => setBrandHighlight(idx)}
-                              className={`flex items-center justify-between px-3 py-2 cursor-pointer group transition-colors ${
-                                (formData.brand || 'GENÉRICO') === b
+                              className={`flex items-center justify-between px-3 py-2 cursor-pointer group transition-colors ${(formData.brand || 'GENÉRICO') === b
                                   ? (isRetro ? 'bg-blue-800 text-white' : 'bg-blue-600 text-white')
                                   : (isRetro ? 'text-black hover:bg-blue-100' : isLight ? 'text-zinc-800 hover:bg-zinc-100' : 'text-zinc-200 hover:bg-zinc-800')
-                              }`}
+                                }`}
                             >
                               <span
                                 className="flex-1 text-xs font-medium select-none"
@@ -2485,9 +3004,8 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                                   removeBrand(b);
                                   if (formData.brand === b) setFormData({ ...formData, brand: availableBrands.find(x => x !== b) || 'GENÉRICO' });
                                 }}
-                                className={`ml-2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${
-                                  (formData.brand || 'GENÉRICO') === b ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-red-400 hover:bg-red-500/20'
-                                }`}
+                                className={`ml-2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${(formData.brand || 'GENÉRICO') === b ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-red-400 hover:bg-red-500/20'
+                                  }`}
                                 title={`Eliminar "${b}"`}
                               >
                                 <X className="w-3 h-3" />
@@ -2495,13 +3013,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                             </div>
                           ))}
                         </div>
-                        <div className={`border-t px-2 py-2 flex gap-1.5 ${
-                          isRetro
+                        <div className={`border-t px-2 py-2 flex gap-1.5 ${isRetro
                             ? 'border-zinc-400 bg-[#dfdfdf]'
                             : isLight
                               ? 'border-zinc-100 bg-zinc-50'
                               : 'border-zinc-800 bg-zinc-950/80'
-                        }`}>
+                          }`}>
                           <input
                             type="text"
                             value={newBrandInput}
@@ -2515,13 +3032,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                               }
                             }}
                             placeholder="Nueva marca..."
-                            className={`flex-1 text-[11px] px-2 py-1 rounded border focus:outline-none focus:border-blue-400 ${
-                              isRetro
+                            className={`flex-1 text-[11px] px-2 py-1 rounded border focus:outline-none focus:border-blue-400 ${isRetro
                                 ? 'border-zinc-400 bg-white text-black'
                                 : isLight
                                   ? 'border-zinc-200 bg-white text-zinc-900'
                                   : 'border-zinc-700 bg-zinc-900 text-white'
-                            }`}
+                              }`}
                           />
                           <button
                             type="button"
@@ -2558,23 +3074,21 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                       <span className={`text-[10px] ml-1 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>▾</span>
                     </button>
                     {catDropOpen && (
-                      <div className={`absolute z-50 top-full mt-1 w-full rounded-md shadow-2xl overflow-hidden border ${
-                        isRetro
+                      <div className={`absolute z-50 top-full mt-1 w-full rounded-md shadow-2xl overflow-hidden border ${isRetro
                           ? 'bg-[#ece9d8] border-zinc-500 text-black'
                           : isLight
                             ? 'bg-white border-zinc-200 text-zinc-900'
                             : 'bg-zinc-900 border-zinc-700 text-white shadow-black/80'
-                      }`} style={{ minWidth: '160px' }}>
+                        }`} style={{ minWidth: '160px' }}>
                         <div ref={catListRef} className="max-h-44 overflow-y-auto">
                           {categories.map((cat, idx) => (
                             <div
                               key={cat}
                               onMouseEnter={() => setCatHighlight(idx)}
-                              className={`flex items-center justify-between px-3 py-2 cursor-pointer group transition-colors ${
-                                catHighlight === idx || (formData.category === cat)
+                              className={`flex items-center justify-between px-3 py-2 cursor-pointer group transition-colors ${catHighlight === idx || (formData.category === cat)
                                   ? (isRetro ? 'bg-blue-800 text-white' : 'bg-blue-600 text-white')
                                   : (isRetro ? 'text-black hover:bg-blue-100' : isLight ? 'text-zinc-800 hover:bg-zinc-100' : 'text-zinc-200 hover:bg-zinc-800')
-                              }`}
+                                }`}
                             >
                               <span
                                 className="flex-1 text-xs font-medium select-none"
@@ -2583,9 +3097,8 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); removeCategory(cat); if (formData.category === cat) setFormData({ ...formData, category: categories.find(c => c !== cat) || '' }); }}
-                                className={`ml-2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${
-                                  catHighlight === idx || (formData.category === cat) ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-red-400 hover:bg-red-500/20'
-                                }`}
+                                className={`ml-2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${catHighlight === idx || (formData.category === cat) ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-red-400 hover:bg-red-500/20'
+                                  }`}
                                 title={`Eliminar "${cat}"`}
                               >
                                 <X className="w-3 h-3" />
@@ -2593,26 +3106,24 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                             </div>
                           ))}
                         </div>
-                        <div className={`border-t px-2 py-2 flex gap-1.5 ${
-                          isRetro
+                        <div className={`border-t px-2 py-2 flex gap-1.5 ${isRetro
                             ? 'border-zinc-400 bg-[#dfdfdf]'
                             : isLight
                               ? 'border-zinc-100 bg-zinc-50'
                               : 'border-zinc-800 bg-zinc-950/80'
-                        }`}>
+                          }`}>
                           <input
                             type="text"
                             value={newCatInput}
                             onChange={e => setNewCatInput(e.target.value)}
                             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCategory(newCatInput); setNewCatInput(''); } }}
                             placeholder="Nueva categoría..."
-                            className={`flex-1 text-[11px] px-2 py-1 rounded border focus:outline-none focus:border-blue-400 ${
-                              isRetro
+                            className={`flex-1 text-[11px] px-2 py-1 rounded border focus:outline-none focus:border-blue-400 ${isRetro
                                 ? 'border-zinc-400 bg-white text-black'
                                 : isLight
                                   ? 'border-zinc-200 bg-white text-zinc-900'
                                   : 'border-zinc-700 bg-zinc-900 text-white'
-                            }`}
+                              }`}
                           />
                           <button
                             type="button"
@@ -2726,11 +3237,10 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
                 {/* Error de validación precio < costo */}
                 {formData.price > 0 && formData.cost > 0 && formData.price < formData.cost && (
-                  <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg border text-[11px] font-bold ${
-                    isRetro ? 'bg-red-50 border-red-400 text-red-800'
-                    : isLight ? 'bg-red-50 border-red-300 text-red-700'
-                    : 'bg-red-950/30 border-red-700/50 text-red-400'
-                  }`}>
+                  <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg border text-[11px] font-bold ${isRetro ? 'bg-red-50 border-red-400 text-red-800'
+                      : isLight ? 'bg-red-50 border-red-300 text-red-700'
+                        : 'bg-red-950/30 border-red-700/50 text-red-400'
+                    }`}>
                     <span className="shrink-0 text-base">🚫</span>
                     <span>El precio público ({config.currencySymbol}{Number(formData.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) es menor que el costo unitario ({config.currencySymbol}{Number(formData.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Estarías vendiendo a pérdida — corrige el precio antes de guardar.</span>
                   </div>
@@ -2738,11 +3248,10 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
                 {/* Error general de validación */}
                 {formError && (
-                  <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg border text-[11px] font-bold ${
-                    isRetro ? 'bg-red-50 border-red-400 text-red-800'
-                    : isLight ? 'bg-red-50 border-red-300 text-red-700'
-                    : 'bg-red-950/30 border-red-700/50 text-red-400'
-                  }`}>
+                  <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg border text-[11px] font-bold ${isRetro ? 'bg-red-50 border-red-400 text-red-800'
+                      : isLight ? 'bg-red-50 border-red-300 text-red-700'
+                        : 'bg-red-950/30 border-red-700/50 text-red-400'
+                    }`}>
                     <span className="shrink-0 text-base">🚫</span>
                     <span>{formError}</span>
                   </div>
@@ -2792,7 +3301,11 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                     <>
                       {/* Stock Actual */}
                       <div>
-                        <label className={labelClass}>Unidades en Almacén *</label>
+                        <label className={labelClass}>
+                          {selectedLocationId === 'tienda'
+                            ? 'Unidades en Tienda (Local) *'
+                            : `Unidades en Bodega (${warehouses.find(w => w.id === selectedLocationId)?.name || 'Bodega'}) *`}
+                        </label>
                         <input
                           type="number"
                           required
@@ -2822,13 +3335,43 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                           className={inputClass}
                         />
                       </div>
+
+                      {config.enableWarehouses === true && warehouses.length > 0 && (
+                        <div className="col-span-1 sm:col-span-2 border-t border-zinc-200/10 dark:border-zinc-800/60 pt-4 mt-2">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-amber-500 mb-3 flex items-center gap-1">
+                            <span>🏢</span> Distribución de Stock en Bodegas
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {warehouses
+                              .filter(w => w.id !== selectedLocationId)
+                              .map(w => (
+                              <div key={w.id}>
+                                <label className={labelClass}>Existencia en: {w.name}</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={formWarehouseStock[w.id] !== undefined ? formWarehouseStock[w.id] : 0}
+                                  onChange={(e) => {
+                                    const qty = Math.max(0, parseInt(e.target.value) || 0);
+                                    setFormWarehouseStock({
+                                      ...formWarehouseStock,
+                                      [w.id]: qty
+                                    });
+                                  }}
+                                  className={inputClass}
+                                  placeholder="0"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </>
                   ) : (
-                    <div className={`col-span-1 sm:col-span-2 p-3 rounded-lg text-xs font-medium leading-relaxed ${
-                      isRetro ? 'bg-zinc-300 border border-zinc-400 text-zinc-800'
-                      : isLight ? 'bg-slate-50 border border-slate-200 text-slate-650'
-                      : 'bg-zinc-950/45 border border-zinc-850/60 text-zinc-450'
-                    }`}>
+                    <div className={`col-span-1 sm:col-span-2 p-3 rounded-lg text-xs font-medium leading-relaxed ${isRetro ? 'bg-zinc-300 border border-zinc-400 text-zinc-800'
+                        : isLight ? 'bg-slate-50 border border-slate-200 text-slate-650'
+                          : 'bg-zinc-950/45 border border-zinc-850/60 text-zinc-450'
+                      }`}>
                       ℹ️ <strong>Bajo pedido (Sin inventario):</strong> El artículo no controlará existencias físicas. Se asume que no requiere stock en almacén y se surtirá al momento de realizar la reparación o venta.
                     </div>
                   )}
@@ -2841,7 +3384,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                     id="chk-favorite"
                     checked={formData.favorite}
                     onChange={(e) => setFormData({ ...formData, favorite: e.target.checked })}
-                    className={isRetro 
+                    className={isRetro
                       ? "w-4 h-4 bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black cursor-pointer"
                       : "rounded border-[#2d2f36] bg-[#1c1e24] text-amber-500 focus:ring-amber-500 cursor-pointer"
                     }
@@ -2854,9 +3397,8 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                 {/* HISTORIAL DE PROVEEDORES (SURTIDOS HISTÓRICOS DE ESTE ARTÍCULO) */}
                 {!isAddingNew && editingItem && (
                   <div className={`mt-5 pt-4 border-t ${isRetro ? 'border-zinc-400' : 'border-zinc-800'}`}>
-                    <h4 className={`text-xs font-black uppercase tracking-wider mb-2.5 flex items-center gap-1.5 ${
-                      isRetro ? 'text-blue-900 font-bold' : isLight ? 'text-zinc-800' : 'text-amber-500'
-                    }`}>
+                    <h4 className={`text-xs font-black uppercase tracking-wider mb-2.5 flex items-center gap-1.5 ${isRetro ? 'text-blue-900 font-bold' : isLight ? 'text-zinc-800' : 'text-amber-500'
+                      }`}>
                       📊 Historial de Proveedores
                     </h4>
                     {itemProvidersHistory.length === 0 ? (
@@ -2864,14 +3406,12 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                         No se han registrado surtidos históricos para este artículo.
                       </p>
                     ) : (
-                      <div className={`overflow-x-auto rounded border max-h-48 overflow-y-auto ${
-                        isRetro ? 'bg-white border-zinc-400 shadow-sm animate-fadeIn' : isLight ? 'bg-zinc-50/50 border-zinc-200 shadow-sm animate-fadeIn' : 'bg-[#0a0b0e] border-[#1e2025] animate-fadeIn'
-                      }`}>
+                      <div className={`overflow-x-auto rounded border max-h-48 overflow-y-auto ${isRetro ? 'bg-white border-zinc-400 shadow-sm animate-fadeIn' : isLight ? 'bg-zinc-50/50 border-zinc-200 shadow-sm animate-fadeIn' : 'bg-[#0a0b0e] border-[#1e2025] animate-fadeIn'
+                        }`}>
                         <table className="w-full text-left border-collapse text-[10.5px]">
                           <thead>
-                            <tr className={`uppercase font-black text-[9px] tracking-wider border-b select-none ${
-                              isRetro ? 'bg-zinc-100 text-zinc-650 border-zinc-300' : isLight ? 'bg-zinc-100/80 text-zinc-500 border-zinc-200' : 'bg-black/30 text-zinc-400 border-zinc-800/80'
-                            }`}>
+                            <tr className={`uppercase font-black text-[9px] tracking-wider border-b select-none ${isRetro ? 'bg-zinc-100 text-zinc-650 border-zinc-300' : isLight ? 'bg-zinc-100/80 text-zinc-500 border-zinc-200' : 'bg-black/30 text-zinc-400 border-zinc-800/80'
+                              }`}>
                               <th className="py-1.5 px-2.5">Proveedor</th>
                               <th className="py-1.5 px-2 text-center">Fecha</th>
                               <th className="py-1.5 px-2 text-center">Cantidad</th>
@@ -2880,8 +3420,8 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                           </thead>
                           <tbody className={`divide-y ${isRetro ? 'divide-zinc-200' : isLight ? 'divide-zinc-100' : 'divide-zinc-800/60'}`}>
                             {itemProvidersHistory.map((historyLog, logIdx) => (
-                              <tr 
-                                key={logIdx} 
+                              <tr
+                                key={logIdx}
                                 className={`${isRetro ? 'text-zinc-800 hover:bg-zinc-50' : isLight ? 'text-zinc-700 hover:bg-zinc-100/50' : 'text-zinc-300 hover:bg-[#121316]'}`}
                               >
                                 <td className="py-1.5 px-2.5 font-bold truncate max-w-[150px]" title={historyLog.provider}>
@@ -2930,24 +3470,128 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
         </div>
       )}
 
+      {/* MODAL: AUTORIZACIÓN PIN ADMINISTRADOR PARA CAMBIO DE STOCK */}
+      {showAdminAuthForStock && (
+        <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={`max-w-xs w-full overflow-hidden shadow-2xl ${isRetro
+              ? 'bg-[#dfdfdf] border-2 border-zinc-400 text-black'
+              : isLight
+                ? 'bg-white border border-zinc-200 rounded-xl text-zinc-900'
+                : 'bg-zinc-900 border border-zinc-700 rounded-xl text-white'
+            }`}>
+            <div className={`px-4 py-3 flex items-center justify-between border-b ${isRetro ? 'border-zinc-400 bg-zinc-300' : isLight ? 'border-zinc-200 bg-zinc-50' : 'border-zinc-800 bg-zinc-950/60'}`}>
+              <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                🔐 Autorización de Administrador
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdminAuthForStock(false);
+                  setAdminPinForStock('');
+                  setAdminPinErrorForStock('');
+                }}
+                className="text-zinc-400 hover:text-zinc-200 text-sm font-black cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className={`rounded-lg p-3 border ${isRetro ? 'bg-amber-50 border-amber-300' : isLight ? 'bg-amber-50 border-amber-200' : 'bg-amber-950/20 border-amber-800/30'}`}>
+                <p className={`text-[10px] font-black uppercase text-amber-500`}>⚠️ Cambio de Inventario Manual</p>
+                <p className="text-[9.5px] leading-tight text-amber-600 dark:text-amber-300 mt-1">
+                  Estás modificando el stock de este artículo manualmente. Para guardar este cambio, se requiere autorización obligatoria de administrador.
+                </p>
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-zinc-400">PIN de Administrador</label>
+                <input
+                  autoFocus
+                  type="password"
+                  placeholder="••••"
+                  maxLength={6}
+                  value={adminPinForStock}
+                  onChange={(e) => {
+                    setAdminPinForStock(e.target.value);
+                    setAdminPinErrorForStock('');
+                  }}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && adminPinForStock) {
+                      const admins = users.filter((u: any) => u.role === 'admin');
+                      const ok = admins.some((u: any) => u.pin === adminPinForStock);
+                      if (ok) {
+                        setShowAdminAuthForStock(false);
+                        setAdminPinForStock('');
+                        setAdminPinErrorForStock('');
+                        await executeSaveItemAfterAuth();
+                      } else {
+                        setAdminPinErrorForStock('PIN incorrecto. Intente de nuevo.');
+                      }
+                    }
+                  }}
+                  className={`w-full text-center tracking-widest text-lg py-1 border rounded mt-1 ${isRetro ? 'border-zinc-400 bg-white text-zinc-900' : isLight ? 'border-zinc-200 bg-zinc-50 text-zinc-800' : 'border-zinc-700 bg-zinc-800 text-zinc-150'}`}
+                />
+                {adminPinErrorForStock && (
+                  <p className="text-[10px] text-rose-500 font-bold mt-1">{adminPinErrorForStock}</p>
+                )}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={!adminPinForStock}
+                  onClick={async () => {
+                    const admins = users.filter((u: any) => u.role === 'admin');
+                    const ok = admins.some((u: any) => u.pin === adminPinForStock);
+                    if (ok) {
+                      setShowAdminAuthForStock(false);
+                      setAdminPinForStock('');
+                      setAdminPinErrorForStock('');
+                      await executeSaveItemAfterAuth();
+                    } else {
+                      setAdminPinErrorForStock('PIN incorrecto. Intente de nuevo.');
+                    }
+                  }}
+                  className={`flex-1 py-2 font-black text-xs uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${isRetro ? 'bg-cyan-600 text-white border-2 border-cyan-400' : 'bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg'}`}
+                >
+                  Autorizar →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminAuthForStock(false);
+                    setAdminPinForStock('');
+                    setAdminPinErrorForStock('');
+                  }}
+                  className={`px-4 py-2 font-black text-xs uppercase cursor-pointer ${isRetro ? 'bg-zinc-200 text-zinc-700 border-2 border-zinc-400' : isLight ? 'bg-zinc-100 text-zinc-650 rounded-lg' : 'bg-zinc-800 text-zinc-300 rounded-lg'}`}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: CONFIRMAR ELIMINACIÓN */}
       {confirmDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
-          <div className={`max-w-sm w-full overflow-hidden shadow-2xl ${
-            isRetro
+          <div className={`max-w-sm w-full overflow-hidden shadow-2xl ${isRetro
               ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 font-sans text-black'
               : isLight
-              ? 'bg-white border border-zinc-200 rounded-xl text-zinc-900'
-              : 'bg-[#121316] border border-rose-950/40 rounded-xl text-white'
-          }`}>
+                ? 'bg-white border border-zinc-200 rounded-xl text-zinc-900'
+                : 'bg-[#121316] border border-rose-950/40 rounded-xl text-white'
+            }`}>
             <div className="p-5 flex flex-col items-center text-center space-y-4">
               <div className={`p-3 rounded-full ${isRetro ? 'bg-rose-100 border-2 border-rose-400' : isLight ? 'bg-rose-50 border border-rose-200' : 'bg-rose-950/40 border border-rose-800/30'}`}>
                 <AlertTriangle className={`w-8 h-8 ${isLight ? 'text-rose-600' : 'text-rose-400'}`} />
               </div>
               <div className="space-y-2">
-                <h4 className={`font-black uppercase tracking-widest text-sm ${isLight ? 'text-rose-700' : 'text-rose-400'}`}>¿Eliminar del Inventario?</h4>
+                <h4 className={`font-black uppercase tracking-widest text-sm ${isLight ? 'text-rose-700' : 'text-rose-400'}`}>
+                  {selectedLocationId === 'tienda' ? '¿Eliminar del Inventario?' : '¿Retirar de la Bodega?'}
+                </h4>
                 <p className={`text-xs leading-relaxed ${isLight ? 'text-zinc-600' : 'text-zinc-300'}`}>
-                  Esta acción es irreversible. El artículo será removido del inventario del taller y su registro de stock desaparecerá.
+                  {selectedLocationId === 'tienda'
+                    ? 'Esta acción es irreversible. El artículo será removido del inventario del taller y su registro de stock desaparecerá.'
+                    : `El artículo no se borrará del sistema. Su stock en esta bodega (${activeLocationName}) se establecerá en 0.`}
                 </p>
                 {(() => {
                   const item = inventory.find(i => i.id === confirmDeleteId);
@@ -2973,7 +3617,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                 }}
                 className="px-4 py-1.5 text-xs font-extrabold bg-rose-600 hover:bg-rose-500 text-white rounded transition-colors cursor-pointer"
               >
-                Sí, eliminar artículo
+                {selectedLocationId === 'tienda' ? 'Sí, eliminar artículo' : 'Sí, retirar de bodega'}
               </button>
             </div>
           </div>
@@ -2983,26 +3627,23 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
       {/* Modal para elegir método de subida de imagen (Computadora o Celular QR) */}
       {showImageSourceModal && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-fade-in font-sans text-left">
-          <div className={`w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border flex flex-col ${
-            isRetro ? 'bg-[#dfdfdf] border-zinc-500 rounded-none' 
-            : isLight ? 'bg-white border-zinc-200 text-slate-800' 
-            : 'bg-[#181d28] border-slate-800 text-white'
-          }`}>
-            {/* Header */}
-            <div className={`px-5 py-4 border-b flex justify-between items-center ${
-              isRetro ? 'bg-[#000080] text-white border-b-2' 
-              : isLight ? 'bg-slate-50 border-zinc-200' 
-              : 'bg-slate-900/50 border-slate-800'
+          <div className={`w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border flex flex-col ${isRetro ? 'bg-[#dfdfdf] border-zinc-500 rounded-none'
+              : isLight ? 'bg-white border-zinc-200 text-slate-800'
+                : 'bg-[#181d28] border-slate-800 text-white'
             }`}>
+            {/* Header */}
+            <div className={`px-5 py-4 border-b flex justify-between items-center ${isRetro ? 'bg-[#000080] text-white border-b-2'
+                : isLight ? 'bg-slate-50 border-zinc-200'
+                  : 'bg-slate-900/50 border-slate-800'
+              }`}>
               <h3 className="font-extrabold uppercase text-xs tracking-wider flex items-center gap-2">
                 📷 Método de Carga de Imagen
               </h3>
               <button
                 type="button"
                 onClick={() => setShowImageSourceModal(false)}
-                className={`p-1 rounded-md transition-colors ${
-                  isRetro ? 'hover:bg-red-800 !text-white' : 'hover:bg-white/10 text-zinc-400 hover:text-white'
-                }`}
+                className={`p-1 rounded-md transition-colors ${isRetro ? 'hover:bg-red-800 !text-white' : 'hover:bg-white/10 text-zinc-400 hover:text-white'
+                  }`}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -3010,20 +3651,19 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
 
             {/* Contenido */}
             <div className="p-6 space-y-6">
-              
+
               {/* Opción 1: Desde la computadora */}
-              <div 
+              <div
                 onClick={() => {
                   setShowImageSourceModal(false);
                   setTimeout(() => {
                     document.getElementById('prod-image-upload')?.click();
                   }, 100);
                 }}
-                className={`p-4 rounded-2xl border border-dashed text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
-                  isRetro 
-                    ? 'bg-zinc-200 border-zinc-400 hover:bg-zinc-300 text-black' 
+                className={`p-4 rounded-2xl border border-dashed text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${isRetro
+                    ? 'bg-zinc-200 border-zinc-400 hover:bg-zinc-300 text-black'
                     : 'bg-slate-100/10 hover:bg-slate-100/20 dark:bg-slate-900/20 dark:hover:bg-slate-900/40 border-zinc-300 dark:border-zinc-700 hover:border-blue-500 dark:hover:border-blue-400'
-                }`}
+                  }`}
               >
                 <span className="text-2xl">💻</span>
                 <div className="space-y-1">
@@ -3033,7 +3673,7 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
               </div>
 
               {/* Opción 2: Pegar del Portapapeles (Ctrl+V) */}
-              <div 
+              <div
                 onClick={async () => {
                   try {
                     if (navigator.clipboard && navigator.clipboard.read) {
@@ -3055,11 +3695,10 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
                     showUiToast?.('Presiona Ctrl+V o Cmd+V en cualquier momento para pegar la imagen', 'info');
                   }
                 }}
-                className={`p-4 rounded-2xl border border-dashed text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
-                  isRetro 
-                    ? 'bg-blue-100 border-blue-400 hover:bg-blue-200 text-blue-950' 
+                className={`p-4 rounded-2xl border border-dashed text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${isRetro
+                    ? 'bg-blue-100 border-blue-400 hover:bg-blue-200 text-blue-950'
                     : 'bg-blue-500/10 hover:bg-blue-500/20 border-blue-400/40 hover:border-blue-400 text-blue-400'
-                }`}
+                  }`}
               >
                 <span className="text-2xl">📋</span>
                 <div className="space-y-1">
@@ -3098,17 +3737,15 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
             </div>
 
             {/* Footer */}
-            <div className={`p-4 border-t flex justify-end gap-2 ${
-              isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-slate-900/50 border-slate-800'
-            }`}>
+            <div className={`p-4 border-t flex justify-end gap-2 ${isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-slate-900/50 border-slate-800'
+              }`}>
               <button
                 type="button"
                 onClick={() => setShowImageSourceModal(false)}
-                className={`px-4 py-1.5 text-xs font-bold rounded-xl border transition-colors cursor-pointer ${
-                  isLight 
-                    ? 'bg-white border-zinc-300 hover:bg-zinc-100 text-zinc-700' 
+                className={`px-4 py-1.5 text-xs font-bold rounded-xl border transition-colors cursor-pointer ${isLight
+                    ? 'bg-white border-zinc-300 hover:bg-zinc-100 text-zinc-700'
                     : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-white'
-                }`}
+                  }`}
               >
                 Cancelar
               </button>
@@ -3127,6 +3764,8 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
         setFeedback={setFeedback}
         categories={categories}
         saveCats={saveCats}
+        selectedLocationId={selectedLocationId}
+        warehouses={warehouses}
       />
 
       <BatchPhotoAssignerModal
@@ -3138,6 +3777,616 @@ export default function StockView({ inventory, refacciones = [], onRestockItem, 
         onSetRefacciones={onSetRefacciones}
         config={config}
       />
+
+      {isWarehouseModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto">
+          <div className={modalCardClass + " max-w-2xl w-full my-8"}>
+            <div className={modalHeaderClass}>
+              <div className="flex items-center gap-2">
+                <Layers className={`w-4 h-4 ${isRetro ? 'text-white' : 'text-amber-500'}`} />
+                <h3 className={modalHeaderTitleClass}>🏢 Gestión de Bodegas y Traspasos</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setIsWarehouseModalOpen(false);
+                  setSelectedTransferItem(null);
+                  setTransferSearchQuery('');
+                }}
+                className={isRetro
+                  ? "flex items-center justify-center w-5 h-5 bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-black text-[11px] cursor-pointer"
+                  : "text-gray-400 hover:text-white p-1 rounded-full bg-zinc-900 border border-zinc-800 cursor-pointer"
+                }
+              >
+                {isRetro ? '×' : <X className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className={`flex border-b ${isRetro ? 'border-zinc-500 bg-[#dfdfdf]' : 'border-zinc-200/10 bg-zinc-950/20'} px-4 pt-2 gap-2`}>
+              {(['lista', 'traspasos'] as const)
+                .filter(tab => tab !== 'lista' || (!currentUser || currentUser.permissions.canEditStock))
+                .map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setWarehouseModalTab(tab)}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-t-2 border-l border-r rounded-t-md transition-all cursor-pointer ${warehouseModalTab === tab
+                        ? isRetro
+                          ? 'bg-[#eaeef3] text-black border-t-[#000080] border-l-zinc-500 border-r-zinc-500 border-b-[#eaeef3]'
+                          : 'bg-zinc-900 text-amber-500 border-t-amber-500 border-l-zinc-800 border-r-zinc-800 border-b-transparent'
+                        : isRetro
+                          ? 'bg-zinc-300 text-zinc-650 border-t-transparent border-l-transparent border-r-transparent border-b-zinc-500'
+                          : 'bg-transparent text-zinc-400 border-t-transparent border-l-transparent border-r-transparent border-b-transparent hover:text-white'
+                      }`}
+                  >
+                    {tab === 'lista' ? '📂 Bodegas' : '🔄 Traspasar Stock'}
+                  </button>
+                ))}
+            </div>
+
+            <div className={modalBodyClass}>
+              {/* Tab 1: Lista */}
+              {warehouseModalTab === 'lista' && (
+                <div className="space-y-6">
+                  <div className={`p-4 border rounded-xl ${isRetro ? 'bg-zinc-200 border-zinc-400' : 'bg-zinc-900/30 border-zinc-200/5'} space-y-4`}>
+                    <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest">Crear Nueva Bodega</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelClass}>Nombre de la Bodega *</label>
+                        <input
+                          type="text"
+                          value={newWarehouseName}
+                          onChange={e => setNewWarehouseName(e.target.value)}
+                          placeholder="Ej. Bodega Norte, Bodega de Seguridad 1"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Descripción (Opcional)</label>
+                        <input
+                          type="text"
+                          value={newWarehouseDesc}
+                          onChange={e => setNewWarehouseDesc(e.target.value)}
+                          placeholder="Ej. Bodega de seguridad para celulares cerrados"
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleCreateWarehouse}
+                      className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded flex items-center gap-1.5 cursor-pointer shadow-md uppercase tracking-wider font-display font-semibold"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Crear Bodega
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Bodegas Registradas</h4>
+                    {warehouses.length === 0 ? (
+                      <p className="text-xs text-zinc-500 italic">No hay bodegas secundarias registradas. Todo el inventario se almacena en la Tienda (Local).</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {warehouses.map(w => {
+                          const isEditing = editingWarehouseId === w.id;
+                          return (
+                            <div
+                              key={w.id}
+                              className={`flex items-center justify-between p-3 border rounded-lg ${isRetro ? 'bg-zinc-200 border-zinc-450' : 'bg-zinc-950/20 border-zinc-800/50'
+                                }`}
+                            >
+                              {isEditing ? (
+                                <div className="flex-1 flex flex-col sm:flex-row gap-2 mr-2">
+                                  <input
+                                    type="text"
+                                    value={editingWarehouseName}
+                                    onChange={e => setEditingWarehouseName(e.target.value)}
+                                    placeholder="Nombre de la bodega"
+                                    className={`${inputClass} !py-1 text-xs`}
+                                  />
+                                  <input
+                                    type="text"
+                                    value={editingWarehouseDesc}
+                                    onChange={e => setEditingWarehouseDesc(e.target.value)}
+                                    placeholder="Descripción (opcional)"
+                                    className={`${inputClass} !py-1 text-xs`}
+                                  />
+                                </div>
+                              ) : (
+                                <div>
+                                  <p className="text-xs font-bold uppercase text-zinc-200 dark:text-zinc-100">{w.name}</p>
+                                  {w.description && <p className="text-[10px] text-zinc-500 mt-0.5">{w.description}</p>}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1.5">
+                                {isEditing ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleSaveWarehouseEdit(w.id)}
+                                      className="px-2.5 py-1 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer uppercase"
+                                    >
+                                      Guardar
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingWarehouseId(null)}
+                                      className="px-2.5 py-1 text-[10px] font-bold bg-zinc-650 hover:bg-zinc-700 text-white rounded cursor-pointer uppercase"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setEditingWarehouseId(w.id);
+                                        setEditingWarehouseName(w.name);
+                                        setEditingWarehouseDesc(w.description || '');
+                                      }}
+                                      className="p-1 text-sky-400 hover:text-sky-500 rounded bg-sky-950/20 hover:bg-sky-950/40 cursor-pointer"
+                                      title="Editar nombre y descripción"
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteWarehouse(w.id, w.name)}
+                                      className="p-1 text-red-450 hover:text-red-600 rounded bg-red-950/20 hover:bg-red-950/40 cursor-pointer"
+                                      title="Eliminar bodega (fusiona existencias a la Tienda)"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Existencias */}
+              {warehouseModalTab === 'existencias' && (
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-zinc-400 font-display">Bodega:</label>
+                      <select
+                        value={selectedInspectWarehouse}
+                        onChange={e => setSelectedInspectWarehouse(e.target.value)}
+                        className={`${inputClass} !py-1 !px-2 max-w-xs`}
+                      >
+                        <option value="">-- Selecciona Bodega --</option>
+                        {warehouses.map(w => (
+                          <option key={w.id} value={w.id}>{w.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setInspectType('inventory')}
+                        className={`px-3 py-1 text-[10px] font-bold rounded cursor-pointer ${inspectType === 'inventory'
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                      >
+                        Inventario
+                      </button>
+                      <button
+                        onClick={() => setInspectType('refacciones')}
+                        className={`px-3 py-1 text-[10px] font-bold rounded cursor-pointer ${inspectType === 'refacciones'
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                      >
+                        Refacciones
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por código, nombre o marca..."
+                      value={inspectSearchQuery}
+                      onChange={e => setInspectSearchQuery(e.target.value)}
+                      className={`${inputClass} !pl-9`}
+                    />
+                  </div>
+
+                  <div className="overflow-x-auto max-h-[45vh] border border-zinc-200/10 dark:border-zinc-800 rounded-lg">
+                    <table className="min-w-full text-xs text-left">
+                      <thead className={isRetro ? 'bg-zinc-300 text-black border-b-2 border-zinc-500' : 'bg-zinc-950/40 text-zinc-400'}>
+                        <tr>
+                          <th className="p-2.5 font-bold uppercase tracking-wider">Código</th>
+                          <th className="p-2.5 font-bold uppercase tracking-wider">Descripción</th>
+                          <th className="p-2.5 font-bold uppercase tracking-wider text-right">Existencia</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200/5">
+                        {(() => {
+                          if (!selectedInspectWarehouse) {
+                            return (
+                              <tr>
+                                <td colSpan={3} className="p-4 text-center text-zinc-500 italic">Selecciona una bodega para inspeccionar.</td>
+                              </tr>
+                            );
+                          }
+                          const list = inspectType === 'inventory' ? inventory : (refacciones || []);
+                          const normQuery = normalizeText(inspectSearchQuery);
+
+                          const filtered = list.filter(item => {
+                            const qty = item.warehouseStock?.[selectedInspectWarehouse] || 0;
+                            if (qty <= 0) return false;
+                            if (!normQuery) return true;
+                            return normalizeText(item.name).includes(normQuery) ||
+                              normalizeText(item.code).includes(normQuery) ||
+                              normalizeText(item.brand).includes(normQuery);
+                          });
+
+                          if (filtered.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={3} className="p-4 text-center text-zinc-500 italic">No hay artículos con existencias en esta bodega para tu búsqueda.</td>
+                              </tr>
+                            );
+                          }
+
+                          return filtered.map(item => (
+                            <tr key={item.id} className="hover:bg-zinc-800/10">
+                              <td className="p-2.5 font-mono">{item.code}</td>
+                              <td className="p-2.5">
+                                <p className="font-bold uppercase text-zinc-300 dark:text-zinc-100">{item.name}</p>
+                                <p className="text-[10px] text-zinc-550 uppercase">{item.brand}</p>
+                              </td>
+                              <td className="p-2.5 font-bold text-right text-amber-500 text-sm">
+                                {item.warehouseStock?.[selectedInspectWarehouse] || 0} pzs
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Traspasos */}
+              {warehouseModalTab === 'traspasos' && (
+                <div className="space-y-5">
+                  <div className={`p-4 border rounded-xl ${isRetro ? 'bg-zinc-200 border-zinc-400' : 'bg-zinc-900/30 border-zinc-200/5'} space-y-4`}>
+                    <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest">Configuración de Origen y Destino</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Origen */}
+                      <div>
+                        <label className={labelClass}>Bodega Origen *</label>
+                        <select
+                          value={transferSource}
+                          onChange={e => {
+                            setTransferSource(e.target.value);
+                            setBatchSelectedItems({});
+                            setTransferSearchQuery('');
+                          }}
+                          className={inputClass}
+                        >
+                          <option value="tienda">TIENDA (LOCAL)</option>
+                          {warehouses.map(w => (
+                            <option key={w.id} value={w.id}>{w.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Destino */}
+                      <div>
+                        <label className={labelClass}>Bodega Destino *</label>
+                        <select
+                          value={transferDest}
+                          onChange={e => setTransferDest(e.target.value)}
+                          className={inputClass}
+                        >
+                          <option value="">-- Selecciona Destino --</option>
+                          <option value="tienda">TIENDA (LOCAL)</option>
+                          {warehouses.map(w => (
+                            <option key={w.id} value={w.id}>{w.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Selector de tipo */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setTransferItemType('refacciones');
+                        setBatchSelectedItems({});
+                        setTransferSearchQuery('');
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded cursor-pointer ${transferItemType === 'refacciones'
+                          ? 'bg-amber-600 text-white shadow-md'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                        }`}
+                    >
+                      Refacciones
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTransferItemType('inventory');
+                        setBatchSelectedItems({});
+                        setTransferSearchQuery('');
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded cursor-pointer ${transferItemType === 'inventory'
+                          ? 'bg-amber-600 text-white shadow-md'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                        }`}
+                    >
+                      Inventario
+                    </button>
+                  </div>
+
+                  {/* Filtro/Buscador */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Filtrar artículos por código, nombre o marca..."
+                      value={transferSearchQuery}
+                      onChange={e => setTransferSearchQuery(e.target.value)}
+                      className={`${inputClass} !pl-9`}
+                    />
+                  </div>
+
+                  {/* Tabla de Artículos de Bodega Origen */}
+                  <div className="overflow-x-auto max-h-[35vh] border border-zinc-200/10 dark:border-zinc-800 rounded-lg">
+                    <table className="min-w-full text-xs text-left">
+                      <thead className={isRetro ? 'bg-zinc-300 text-black border-b-2 border-zinc-500' : 'bg-[#18191e] text-zinc-400'}>
+                        <tr>
+                          <th className="p-2.5 font-bold uppercase tracking-wider w-10 text-center">Sel</th>
+                          <th className="p-2.5 font-bold uppercase tracking-wider">Código</th>
+                          <th className="p-2.5 font-bold uppercase tracking-wider">Descripción</th>
+                          <th className="p-2.5 font-bold uppercase tracking-wider text-right">Dispo. Origen</th>
+                          <th className="p-2.5 font-bold uppercase tracking-wider text-center w-28">Cant. Traspasar</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200/5">
+                        {(() => {
+                          const list = transferItemType === 'inventory' ? (inventory || []) : (refacciones || []);
+                          const normQuery = normalizeText(transferSearchQuery);
+
+                          // Filter items that have stock > 0 in the origin warehouse
+                          const availableInSource = list.filter(item => {
+                            const stockInSource = transferSource === 'tienda'
+                              ? item.stock
+                              : (item.warehouseStock?.[transferSource] || 0);
+                            
+                            // Non-stock managed items don't have physical stock
+                            if (item.manageStock === false) return false;
+                            if (stockInSource <= 0) return false;
+
+                            if (!normQuery) return true;
+                            return normalizeText(item.name).includes(normQuery) ||
+                              normalizeText(item.code).includes(normQuery) ||
+                              normalizeText(item.brand).includes(normQuery);
+                          });
+
+                          if (availableInSource.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={5} className="p-4 text-center text-zinc-500 italic">
+                                  No hay artículos con inventario disponible en la bodega de origen para esta búsqueda.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return availableInSource.map(item => {
+                            const stockInSource = transferSource === 'tienda'
+                              ? item.stock
+                              : (item.warehouseStock?.[transferSource] || 0);
+                            const isSelected = batchSelectedItems[item.id] !== undefined;
+
+                            return (
+                              <tr key={item.id} className={`hover:bg-zinc-800/10 ${isSelected ? 'bg-amber-600/5' : ''}`}>
+                                <td className="p-2.5 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setBatchSelectedItems({
+                                          ...batchSelectedItems,
+                                          [item.id]: 1
+                                        });
+                                      } else {
+                                        const copy = { ...batchSelectedItems };
+                                        delete copy[item.id];
+                                        setBatchSelectedItems(copy);
+                                      }
+                                    }}
+                                    className="cursor-pointer"
+                                  />
+                                </td>
+                                <td className="p-2.5 font-mono text-zinc-400">{item.code}</td>
+                                <td className="p-2.5 max-w-[240px] break-all">
+                                  <p className="font-bold uppercase text-zinc-300 dark:text-zinc-100">{item.name}</p>
+                                  <p className="text-[9px] text-zinc-550 uppercase">{item.brand}</p>
+                                </td>
+                                <td className="p-2.5 font-bold text-right text-zinc-450">
+                                  {stockInSource} pzs
+                                </td>
+                                <td className="p-2.5 text-center">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={stockInSource}
+                                    disabled={!isSelected}
+                                    value={batchSelectedItems[item.id] || ''}
+                                    onChange={(e) => {
+                                      const val = Math.max(1, Math.min(stockInSource, parseInt(e.target.value) || 1));
+                                      setBatchSelectedItems({
+                                        ...batchSelectedItems,
+                                        [item.id]: val
+                                      });
+                                    }}
+                                    className={`${inputClass} !py-0.5 !px-1.5 text-center !w-16 mx-auto disabled:opacity-40`}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Botón de Ejecutar Traspaso por Lote */}
+                  {(() => {
+                    const selectedPairs = Object.entries(batchSelectedItems).map(([id, qty]) => ({
+                      itemId: id,
+                      qty: qty as number
+                    }));
+
+                    return (
+                      <div className="flex justify-end pt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleExecuteBatchTransfer(selectedPairs)}
+                          disabled={!transferSource || !transferDest || transferSource === transferDest || selectedPairs.length === 0}
+                          className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            isRetro
+                              ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-[#000080]'
+                              : 'bg-amber-600 hover:bg-amber-700 text-white shadow-md'
+                          }`}
+                        >
+                          Traspasar Artículos Seleccionados ({selectedPairs.length})
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Traspaso Rápido de Producto */}
+      {quickTransferItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={`${modalCardClass} max-w-md w-full`}>
+            <div className={modalHeaderClass}>
+              <h3 className={modalHeaderTitleClass}>
+                🔄 Traspaso Rápido
+              </h3>
+              <button
+                onClick={() => setQuickTransferItem(null)}
+                className="text-zinc-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className={`${modalBodyClass} space-y-4`}>
+              <div className={`p-3 rounded-lg ${isRetro ? 'bg-zinc-200' : 'bg-zinc-950/40 border border-zinc-800/40'}`}>
+                <p className="text-[10px] font-black uppercase tracking-wider text-amber-500">Artículo Seleccionado</p>
+                <h4 className="text-xs font-black uppercase text-zinc-200 dark:text-zinc-100 mt-0.5">{quickTransferItem.name}</h4>
+                {quickTransferItem.code && (
+                  <p className="text-[10px] text-zinc-500 font-mono mt-0.5">CÓDIGO: {quickTransferItem.code}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Origen */}
+                <div>
+                  <label className={labelClass}>Bodega Origen *</label>
+                  <select
+                    value={quickTransferSource}
+                    onChange={(e) => {
+                      setQuickTransferSource(e.target.value);
+                      setQuickTransferQty(1);
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="tienda">TIENDA (LOCAL) - ({quickTransferItem.stock} pz)</option>
+                    {warehouses.map((w) => {
+                      const qty = quickTransferItem.warehouseStock?.[w.id] || 0;
+                      return (
+                        <option key={w.id} value={w.id}>
+                          {w.name.toUpperCase()} - ({qty} pz)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Destino */}
+                <div>
+                  <label className={labelClass}>Bodega Destino *</label>
+                  <select
+                    value={quickTransferDest}
+                    onChange={(e) => setQuickTransferDest(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">-- Selecciona Destino --</option>
+                    <option value="tienda">TIENDA (LOCAL)</option>
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Cantidad */}
+              <div>
+                <label className={labelClass}>Cantidad a Traspasar *</label>
+                {(() => {
+                  const maxQty = quickTransferSource === 'tienda'
+                    ? quickTransferItem.stock
+                    : (quickTransferItem.warehouseStock?.[quickTransferSource] || 0);
+
+                  return (
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={maxQty}
+                        value={quickTransferQty}
+                        onChange={(e) => {
+                          const val = Math.max(1, Math.min(maxQty, parseInt(e.target.value) || 1));
+                          setQuickTransferQty(val);
+                        }}
+                        className={inputClass + " w-24"}
+                      />
+                      <span className="text-[10px] text-zinc-500 italic">
+                        (Máx: {maxQty} pzs)
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className={modalFooterClass}>
+              <button
+                onClick={() => setQuickTransferItem(null)}
+                className={btnCancelClass}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleExecuteQuickTransfer(quickTransferSource, quickTransferDest, quickTransferQty)}
+                disabled={!quickTransferSource || !quickTransferDest || quickTransferSource === quickTransferDest}
+                className={btnSubmitClass + " disabled:opacity-40 disabled:cursor-not-allowed"}
+              >
+                Ejecutar Traspaso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3152,6 +4401,8 @@ interface ImportInventoryModalProps {
   setFeedback: (msg: string | null) => void;
   categories: string[];
   saveCats: (cats: string[]) => void;
+  selectedLocationId: string;
+  warehouses: any[];
 }
 
 export function ImportInventoryModal({
@@ -3163,6 +4414,8 @@ export function ImportInventoryModal({
   setFeedback,
   categories,
   saveCats,
+  selectedLocationId,
+  warehouses,
 }: ImportInventoryModalProps) {
   const isRetro = config.theme === 'retro-window';
   const isLight = config.themeMode === 'light';
@@ -3190,10 +4443,13 @@ export function ImportInventoryModal({
   const filteredPreviewItems = React.useMemo(() => {
     if (!previewSearchTerm.trim()) return tempImportedItems;
     const normSearch = normalizeText(previewSearchTerm);
-    return tempImportedItems.filter(it => 
+    const isFavKeyword = 'favoritos'.startsWith(normSearch) && normSearch.startsWith('fav');
+    return tempImportedItems.filter(it =>
       normalizeText(it.name).includes(normSearch) ||
       normalizeText(it.code).includes(normSearch) ||
-      normalizeText(it.brand).includes(normSearch)
+      normalizeText(it.brand).includes(normSearch) ||
+      normalizeText(it.category || '').includes(normSearch) ||
+      (isFavKeyword && !!it.favorite)
     );
   }, [tempImportedItems, previewSearchTerm]);
 
@@ -3216,7 +4472,7 @@ export function ImportInventoryModal({
     const row4 = "SERV-001,INSTALACIÓN EXPRESS,GENÉRICO,Servicios,0.00,150.00,150.00,0,0,no,no\n";
     // Using BOM so Excel opens with Spanish UTF-8 accents seamlessly
     const csvContent = "\uFEFF" + headers + row1 + row2 + row3 + row4;
-    
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -3250,7 +4506,7 @@ export function ImportInventoryModal({
           console.error(readErr);
           const isMacro = file.name.endsWith('.xlsm') || file.name.endsWith('.xltm');
           setLocalError(
-            isMacro 
+            isMacro
               ? 'El archivo contiene macros (.xlsm). Las macros bloquean la lectura automática segura. Por favor, guarde el archivo como un libro de Excel estándar (.xlsx) sin macros o como CSV e intente de nuevo.'
               : `No se pudo parsear el archivo Excel. Asegúrese de que no esté corrupto o protegido con contraseña. Detalle: ${readErr.message || readErr}`
           );
@@ -3268,7 +4524,7 @@ export function ImportInventoryModal({
           setLocalError(`No se pudo leer la hoja "${firstSheetName}" en el archivo.`);
           return;
         }
-        
+
         // Convert to array of JSON rows
         let rawJson: any[] = [];
         try {
@@ -3278,7 +4534,7 @@ export function ImportInventoryModal({
           setLocalError(`Error al convertir los datos de la hoja a JSON. Detalle: ${jsonErr.message || jsonErr}`);
           return;
         }
-        
+
         if (!rawJson || rawJson.length === 0) {
           setLocalError('El archivo cargado no contiene registros válidos o está vacío.');
           return;
@@ -3333,12 +4589,24 @@ export function ImportInventoryModal({
           saveCats(newCategoriesList);
         }
 
+        const isWh = selectedLocationId !== 'tienda';
+        const processedItems = tempImportedItems.map(item => {
+          if (isWh) {
+            return {
+              ...item,
+              stock: 0,
+              warehouseStock: { [selectedLocationId]: item.stock }
+            };
+          }
+          return item;
+        });
+
         if (importReplaceMode) {
-          onSetInventory(tempImportedItems);
+          onSetInventory(processedItems);
           setFeedback(`✅ Inventario REEMPLAZADO con éxito. Se cargaron ${tempImportedItems.length} artículos nuevos.`);
         } else {
           // Append mode: Merge items
-          onSetInventory([...tempImportedItems, ...inventory]);
+          onSetInventory([...processedItems, ...inventory]);
           setFeedback(`✅ Inventario IMPORTADO con éxito. Se añadieron ${tempImportedItems.length} artículos al stock actual.`);
         }
 
@@ -3374,18 +4642,16 @@ export function ImportInventoryModal({
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto">
-        <div className={`rounded-lg max-w-2xl w-full overflow-hidden shadow-2xl my-8 relative ${
-          isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-sans'
-          : isLight ? 'bg-white border border-zinc-200 text-zinc-900'
-          : 'bg-[#121316] border border-[#2d2f36] text-zinc-100'
-        }`}>
+        <div className={`rounded-lg max-w-2xl w-full overflow-hidden shadow-2xl my-8 relative ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-sans'
+            : isLight ? 'bg-white border border-zinc-200 text-zinc-900'
+              : 'bg-[#121316] border border-[#2d2f36] text-zinc-100'
+          }`}>
           {isImporting && (
             <div className="absolute inset-0 bg-black/70 backdrop-blur-md flex flex-col items-center justify-center z-[100] animate-fadeIn">
-              <div className={`p-6 rounded-xl flex flex-col items-center gap-4 text-center max-w-sm border ${
-                isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-sans shadow-lg'
-                : isLight ? 'bg-white shadow-xl text-zinc-900 border border-zinc-200 rounded-2xl'
-                : 'bg-[#121316] border border-zinc-800 text-zinc-100 shadow-2xl rounded-2xl'
-              }`}>
+              <div className={`p-6 rounded-xl flex flex-col items-center gap-4 text-center max-w-sm border ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-sans shadow-lg'
+                  : isLight ? 'bg-white shadow-xl text-zinc-900 border border-zinc-200 rounded-2xl'
+                    : 'bg-[#121316] border border-zinc-800 text-zinc-100 shadow-2xl rounded-2xl'
+                }`}>
                 <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
                 <div>
                   <h4 className="text-xs font-black uppercase tracking-widest font-mono">Procesando Importación</h4>
@@ -3399,15 +4665,14 @@ export function ImportInventoryModal({
               </div>
             </div>
           )}
-          <div className={`flex items-center justify-between p-4 border-b ${
-            isRetro ? 'bg-[#000080] border-[#808080]'
-            : isLight ? 'bg-zinc-50 border-zinc-200'
-            : 'bg-[#0e0f12] border-[#1c1d22]'
-          }`}>
+          <div className={`flex items-center justify-between p-4 border-b ${isRetro ? 'bg-[#000080] border-[#808080]'
+              : isLight ? 'bg-zinc-50 border-zinc-200'
+                : 'bg-[#0e0f12] border-[#1c1d22]'
+            }`}>
             <div className="flex items-center gap-2">
               <FileSpreadsheet className={`w-4 h-4 ${isRetro ? 'text-white' : 'text-purple-500'}`} />
               <h3 className={`text-sm font-black uppercase tracking-wider ${isRetro ? 'text-white' : isLight ? 'text-zinc-800' : 'text-white'}`}>
-                📂 Importar Inventario desde Excel / CSV
+                📂 Importar Inventario desde Excel / CSV ({selectedLocationId === 'tienda' ? 'Tienda Local' : warehouses.find(w => w.id === selectedLocationId)?.name || 'Bodega'})
               </h3>
             </div>
             <button
@@ -3418,11 +4683,10 @@ export function ImportInventoryModal({
                 setPreviewSearchTerm('');
                 setPreviewPage(1);
               }}
-              className={`p-1 rounded-full cursor-pointer ${
-                isRetro ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30'
-                : isLight ? 'text-zinc-500 hover:text-zinc-900 bg-zinc-100 border border-zinc-300'
-                : 'text-gray-400 hover:text-white bg-zinc-900 border border-zinc-600'
-              }`}
+              className={`p-1 rounded-full cursor-pointer ${isRetro ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30'
+                  : isLight ? 'text-zinc-500 hover:text-zinc-900 bg-zinc-100 border border-zinc-300'
+                    : 'text-gray-400 hover:text-white bg-zinc-900 border border-zinc-600'
+                }`}
             >
               <X className="w-4 h-4" />
             </button>
@@ -3430,11 +4694,10 @@ export function ImportInventoryModal({
 
           <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-left">
             {localError && (
-              <div className={`flex items-start gap-2.5 px-3.5 py-3 rounded-lg border text-[11px] font-sans ${
-                isRetro ? 'bg-red-50 border-red-400 text-red-800'
-                : isLight ? 'bg-red-50 border-red-350 text-red-750'
-                : 'bg-red-950/30 border-red-900/60 text-red-400 shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]'
-              }`}>
+              <div className={`flex items-start gap-2.5 px-3.5 py-3 rounded-lg border text-[11px] font-sans ${isRetro ? 'bg-red-50 border-red-400 text-red-800'
+                  : isLight ? 'bg-red-50 border-red-350 text-red-750'
+                    : 'bg-red-950/30 border-red-900/60 text-red-400 shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]'
+                }`}>
                 <span className="shrink-0 text-sm">⚠️</span>
                 <div className="flex-1">
                   <span className="block font-black uppercase tracking-wider text-[9.5px] mb-0.5 text-red-500 font-mono">Archivo no compatible</span>
@@ -3444,11 +4707,10 @@ export function ImportInventoryModal({
               </div>
             )}
 
-            <div className={`border rounded-lg p-4 space-y-4 ${
-              isRetro ? 'bg-white border-zinc-400'
-              : isLight ? 'bg-zinc-50 border-zinc-200'
-              : 'bg-[#181a1f] border-zinc-800'
-            }`}>
+            <div className={`border rounded-lg p-4 space-y-4 ${isRetro ? 'bg-white border-zinc-400'
+                : isLight ? 'bg-zinc-50 border-zinc-200'
+                  : 'bg-[#181a1f] border-zinc-800'
+              }`}>
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                 <div>
                   <h4 className={`text-xs font-bold uppercase tracking-wider mb-1 ${isLight ? 'text-zinc-900' : 'text-white'}`}>Estructura de Columnas Soportada</h4>
@@ -3459,11 +4721,10 @@ export function ImportInventoryModal({
                 <button
                   type="button"
                   onClick={handleDownloadTemplate}
-                  className={`shrink-0 px-3 py-1.5 text-[10px] font-bold rounded border flex items-center gap-1.5 transition-colors cursor-pointer ${
-                    isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-[#000080] hover:bg-[#eaeef3]'
-                    : isLight ? 'bg-white border-purple-300 text-purple-700 hover:bg-purple-50'
-                    : 'bg-[#1f2025] hover:bg-zinc-800 text-purple-400 border-purple-950/40'
-                  }`}
+                  className={`shrink-0 px-3 py-1.5 text-[10px] font-bold rounded border flex items-center gap-1.5 transition-colors cursor-pointer ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-[#000080] hover:bg-[#eaeef3]'
+                      : isLight ? 'bg-white border-purple-300 text-purple-700 hover:bg-purple-50'
+                        : 'bg-[#1f2025] hover:bg-zinc-800 text-purple-400 border-purple-950/40'
+                    }`}
                 >
                   <Download className="w-3 h-3" /> Descargar Plantilla CSV
                 </button>
@@ -3491,11 +4752,10 @@ export function ImportInventoryModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <label
                 onClick={() => setImportReplaceMode(false)}
-                className={`p-3 rounded-lg border flex flex-col justify-between cursor-pointer transition-all ${
-                  !importReplaceMode
+                className={`p-3 rounded-lg border flex flex-col justify-between cursor-pointer transition-all ${!importReplaceMode
                     ? isRetro ? (isLight ? 'border-[#000080] bg-blue-50' : 'border-blue-500/80 bg-blue-950/20') : isLight ? 'border-purple-400 bg-purple-50' : 'border-purple-600/50 bg-purple-950/10'
                     : isRetro ? (isLight ? 'border-zinc-400 bg-[#eaeef3] hover:bg-zinc-200' : 'border-[#383c48] bg-[#121316] hover:bg-[#282b35]') : isLight ? 'border-zinc-200 bg-white hover:bg-zinc-50' : 'border-[#2d2f36] bg-[#1c1e24]/40 hover:bg-[#1c1e24]'
-                }`}
+                  }`}
               >
                 <div className="flex items-center gap-2">
                   <input type="radio" name="import-mode" checked={!importReplaceMode} onChange={() => setImportReplaceMode(false)} className="text-purple-600" />
@@ -3507,11 +4767,10 @@ export function ImportInventoryModal({
               </label>
               <label
                 onClick={() => setImportReplaceMode(true)}
-                className={`p-3 rounded-lg border flex flex-col justify-between cursor-pointer transition-all ${
-                  importReplaceMode
+                className={`p-3 rounded-lg border flex flex-col justify-between cursor-pointer transition-all ${importReplaceMode
                     ? isRetro ? (isLight ? 'border-red-600 bg-red-50' : 'border-rose-500/80 bg-rose-950/20') : isLight ? 'border-rose-400 bg-rose-50' : 'border-rose-950/80 bg-rose-950/10'
                     : isRetro ? (isLight ? 'border-zinc-400 bg-[#eaeef3] hover:bg-zinc-200' : 'border-[#383c48] bg-[#121316] hover:bg-[#282b35]') : isLight ? 'border-zinc-200 bg-white hover:bg-zinc-50' : 'border-[#2d2f36] bg-[#1c1e24]/40 hover:bg-[#1c1e24]'
-                }`}
+                  }`}
               >
                 <div className="flex items-center gap-2">
                   <input type="radio" name="import-mode" checked={importReplaceMode} onChange={() => setImportReplaceMode(true)} className="text-rose-500" />
@@ -3523,18 +4782,16 @@ export function ImportInventoryModal({
               </label>
             </div>
 
-            <div className={`relative group border-2 border-dashed rounded-lg p-8 text-center transition-all ${
-              isRetro ? 'border-zinc-500 hover:border-[#000080] bg-white'
-              : isLight ? 'border-zinc-300 hover:border-purple-400 bg-zinc-50'
-              : 'border-[#2d2f36] hover:border-purple-500/50 bg-[#17181d]/50'
-            }`}>
+            <div className={`relative group border-2 border-dashed rounded-lg p-8 text-center transition-all ${isRetro ? 'border-zinc-500 hover:border-[#000080] bg-white'
+                : isLight ? 'border-zinc-300 hover:border-purple-400 bg-zinc-50'
+                  : 'border-[#2d2f36] hover:border-purple-500/50 bg-[#17181d]/50'
+              }`}>
               <input type="file" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer p-0" />
               <div className="flex flex-col items-center justify-center space-y-2">
-                <div className={`p-3 rounded-full group-hover:scale-105 transition-transform ${
-                  isRetro ? 'bg-blue-100 border border-[#000080] text-[#000080]'
-                  : isLight ? 'bg-purple-100 border border-purple-300 text-purple-600'
-                  : 'bg-purple-950/30 border border-purple-500/20 text-purple-400'
-                }`}>
+                <div className={`p-3 rounded-full group-hover:scale-105 transition-transform ${isRetro ? 'bg-blue-100 border border-[#000080] text-[#000080]'
+                    : isLight ? 'bg-purple-100 border border-purple-300 text-purple-600'
+                      : 'bg-purple-950/30 border border-purple-500/20 text-purple-400'
+                  }`}>
                   <Upload className="w-6 h-6" />
                 </div>
                 <div className="space-y-1">
@@ -3551,18 +4808,17 @@ export function ImportInventoryModal({
             {tempImportedItems.length > 0 && (
               <div className="space-y-4 pt-2 animate-fadeIn font-mono">
                 {/* PANEL DE MAPEADOR DE COLUMNAS INTERACTIVO */}
-                <div className={`p-4 border rounded-xl space-y-3 text-left ${
-                  isRetro ? 'bg-[#dfdfdf] border-[#808080]'
-                  : isLight ? 'bg-zinc-50 border-zinc-200'
-                  : 'bg-[#141519] border-zinc-800'
-                }`}>
+                <div className={`p-4 border rounded-xl space-y-3 text-left ${isRetro ? 'bg-[#dfdfdf] border-[#808080]'
+                    : isLight ? 'bg-zinc-50 border-zinc-200'
+                      : 'bg-[#141519] border-zinc-800'
+                  }`}>
                   <div className="flex items-center gap-2 border-b pb-2 border-zinc-800/10">
                     <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-zinc-800' : 'text-amber-400'}`}>⚙️ Mapeo de Columnas Detectadas</span>
                   </div>
                   <p className={`text-[10.5px] font-sans ${isLight ? 'text-zinc-650' : 'text-zinc-400'}`}>
                     FixManager asoció automáticamente los campos de tu Excel. Si deseas corregir o reasignar alguna columna, puedes hacerlo a continuación:
                   </p>
-                  
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {MAPPABLE_FIELDS.map(field => {
                       const selectedCol = columnMapping[field.key] || '';
@@ -3580,11 +4836,10 @@ export function ImportInventoryModal({
                               setTempImportedItems(parsed);
                               setImportStats({ total: rawImportedRows.length, valid: parsed.length });
                             }}
-                            className={`text-xs p-1.5 focus:outline-none focus:ring-1 focus:ring-amber-500/50 cursor-pointer ${
-                              isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900'
-                              : isLight ? 'bg-white border border-zinc-300 rounded-lg text-zinc-900'
-                              : 'bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-250'
-                            }`}
+                            className={`text-xs p-1.5 focus:outline-none focus:ring-1 focus:ring-amber-500/50 cursor-pointer ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900'
+                                : isLight ? 'bg-white border border-zinc-300 rounded-lg text-zinc-900'
+                                  : 'bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-250'
+                              }`}
                           >
                             <option value="">-- Ignorar / Ninguno --</option>
                             {detectedHeaders.map(h => (
@@ -3598,11 +4853,10 @@ export function ImportInventoryModal({
                 </div>
 
                 {/* ACCESO A PREVISUALIZACIÓN DETALLADA */}
-                <div className={`p-4 border rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 text-left ${
-                  isRetro ? 'bg-[#dfdfdf] border-[#808080]'
-                  : isLight ? 'bg-purple-50/50 border-purple-200 text-purple-900'
-                  : 'bg-[#181a1f] border-zinc-800/80 text-zinc-200'
-                }`}>
+                <div className={`p-4 border rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 text-left ${isRetro ? 'bg-[#dfdfdf] border-[#808080]'
+                    : isLight ? 'bg-purple-50/50 border-purple-200 text-purple-900'
+                      : 'bg-[#181a1f] border-zinc-800/80 text-zinc-200'
+                  }`}>
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 font-bold text-xs">
                       <CheckCircle className={`w-4 h-4 ${isRetro ? 'text-zinc-800' : 'text-emerald-500'}`} />
@@ -3615,11 +4869,10 @@ export function ImportInventoryModal({
                   <button
                     type="button"
                     onClick={() => setIsDetailedPreviewOpen(true)}
-                    className={`shrink-0 px-4 py-2 text-xs font-black rounded border flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-[#000080] hover:bg-[#eaeef3]'
-                      : isLight ? 'bg-purple-600 hover:bg-purple-500 text-white shadow border-transparent'
-                      : 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg border-transparent'
-                    }`}
+                    className={`shrink-0 px-4 py-2 text-xs font-black rounded border flex items-center gap-1.5 transition-colors cursor-pointer ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-[#000080] hover:bg-[#eaeef3]'
+                        : isLight ? 'bg-purple-600 hover:bg-purple-500 text-white shadow border-transparent'
+                          : 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg border-transparent'
+                      }`}
                   >
                     <Search className="w-3.5 h-3.5" /> Ver Listado Completo ({tempImportedItems.length} art.)
                   </button>
@@ -3628,11 +4881,10 @@ export function ImportInventoryModal({
             )}
           </div>
 
-          <div className={`p-4 border-t flex justify-end gap-2 ${
-            isRetro ? 'bg-[#dfdfdf] border-zinc-500'
-            : isLight ? 'bg-zinc-50 border-zinc-200'
-            : 'bg-[#0e0f12] border-[#1c1d22]'
-          }`}>
+          <div className={`p-4 border-t flex justify-end gap-2 ${isRetro ? 'bg-[#dfdfdf] border-zinc-500'
+              : isLight ? 'bg-zinc-50 border-zinc-200'
+                : 'bg-[#0e0f12] border-[#1c1d22]'
+            }`}>
             <button
               type="button"
               onClick={() => {
@@ -3642,11 +4894,10 @@ export function ImportInventoryModal({
                 setPreviewSearchTerm('');
                 setPreviewPage(1);
               }}
-              className={`px-4 py-1.5 text-xs font-bold rounded transition-colors cursor-pointer ${
-                isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
-                : isLight ? 'bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-100'
-                : 'text-gray-400 hover:text-white border border-zinc-800 bg-transparent'
-              }`}
+              className={`px-4 py-1.5 text-xs font-bold rounded transition-colors cursor-pointer ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
+                  : isLight ? 'bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-100'
+                    : 'text-gray-400 hover:text-white border border-zinc-800 bg-transparent'
+                }`}
             >
               Cerrar
             </button>
@@ -3654,15 +4905,14 @@ export function ImportInventoryModal({
               type="button"
               disabled={tempImportedItems.length === 0}
               onClick={handleApplyImport}
-              className={`px-5 py-1.5 text-xs font-bold rounded transition-colors flex items-center gap-1.5 ${
-                tempImportedItems.length > 0
+              className={`px-5 py-1.5 text-xs font-bold rounded transition-colors flex items-center gap-1.5 ${tempImportedItems.length > 0
                   ? isRetro ? 'bg-[#000080] text-white border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 cursor-pointer'
                     : isLight ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-lg'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-lg'
                   : isRetro ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed border border-zinc-400'
                     : isLight ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
-                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-              }`}
+                      : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                }`}
             >
               <CheckCircle className="w-3.5 h-3.5" /> CONFIRMAR E IMPORTAR ({tempImportedItems.length} ARTÍCULOS)
             </button>
@@ -3672,17 +4922,15 @@ export function ImportInventoryModal({
 
       {isDetailedPreviewOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-y-auto animate-fadeIn">
-          <div className={`rounded-lg max-w-6xl w-full overflow-hidden shadow-2xl my-8 relative flex flex-col max-h-[90vh] ${
-            isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-sans'
-            : isLight ? 'bg-white border border-zinc-200 text-zinc-900'
-            : 'bg-[#121316] border border-[#2d2f36] text-zinc-100'
-          }`}>
-            {/* Cabecera del Modal */}
-            <div className={`flex items-center justify-between p-4 border-b shrink-0 ${
-              isRetro ? 'bg-[#000080] border-[#808080] text-white'
-              : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-900'
-              : 'bg-[#0e0f12] border-[#1c1d22] text-white'
+          <div className={`rounded-lg max-w-6xl w-full overflow-hidden shadow-2xl my-8 relative flex flex-col max-h-[90vh] ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-black font-sans'
+              : isLight ? 'bg-white border border-zinc-200 text-zinc-900'
+                : 'bg-[#121316] border border-[#2d2f36] text-zinc-100'
             }`}>
+            {/* Cabecera del Modal */}
+            <div className={`flex items-center justify-between p-4 border-b shrink-0 ${isRetro ? 'bg-[#000080] border-[#808080] text-white'
+                : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                  : 'bg-[#0e0f12] border-[#1c1d22] text-white'
+              }`}>
               <div className="flex items-center gap-2">
                 <Search className={`w-4 h-4 ${isRetro ? 'text-white' : 'text-amber-500'}`} />
                 <h3 className={`text-sm font-black uppercase tracking-wider ${isRetro ? 'text-white' : isLight ? 'text-zinc-800' : 'text-white'}`}>
@@ -3690,20 +4938,18 @@ export function ImportInventoryModal({
                 </h3>
               </div>
               <div className="flex items-center gap-3">
-                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border tracking-wider font-mono ${
-                  importReplaceMode
+                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border tracking-wider font-mono ${importReplaceMode
                     ? 'bg-rose-950/30 text-rose-450 border-rose-900/50'
                     : 'bg-emerald-950/30 text-emerald-450 border-emerald-900/50'
-                }`}>
+                  }`}>
                   Modo: {importReplaceMode ? 'Reemplazar todo' : 'Adicionar al almacén'}
                 </span>
                 <button
                   onClick={() => setIsDetailedPreviewOpen(false)}
-                  className={`p-1 rounded-full cursor-pointer ${
-                    isRetro ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30'
-                    : isLight ? 'text-zinc-500 hover:text-zinc-900 bg-zinc-100 border border-zinc-300'
-                    : 'text-gray-400 hover:text-white bg-zinc-900 border border-zinc-600'
-                  }`}
+                  className={`p-1 rounded-full cursor-pointer ${isRetro ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30'
+                      : isLight ? 'text-zinc-500 hover:text-zinc-900 bg-zinc-100 border border-zinc-300'
+                        : 'text-gray-400 hover:text-white bg-zinc-900 border border-zinc-600'
+                    }`}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -3711,9 +4957,8 @@ export function ImportInventoryModal({
             </div>
 
             {/* Cuerpo del Modal */}
-            <div className={`p-6 space-y-4 overflow-y-auto flex-1 text-left ${
-              isRetro ? 'bg-[#eaeef3]' : isLight ? 'bg-white' : 'bg-[#121316]'
-            }`}>
+            <div className={`p-6 space-y-4 overflow-y-auto flex-1 text-left ${isRetro ? 'bg-[#eaeef3]' : isLight ? 'bg-white' : 'bg-[#121316]'
+              }`}>
               {/* Buscador e info rápida */}
               <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
                 <div className="relative w-full sm:max-w-md">
@@ -3738,11 +4983,10 @@ export function ImportInventoryModal({
                   )}
                 </div>
 
-                <div className={`text-xs px-3 py-1.5 border rounded-lg font-mono flex items-center gap-2 ${
-                  isRetro ? 'bg-blue-50 border-[#000080] text-[#000080]'
-                  : isLight ? 'bg-purple-50 border-purple-300 text-purple-700'
-                  : 'bg-purple-950/20 border-purple-500/30 text-purple-400'
-                }`}>
+                <div className={`text-xs px-3 py-1.5 border rounded-lg font-mono flex items-center gap-2 ${isRetro ? 'bg-blue-50 border-[#000080] text-[#000080]'
+                    : isLight ? 'bg-purple-50 border-purple-300 text-purple-700'
+                      : 'bg-purple-950/20 border-purple-500/30 text-purple-400'
+                  }`}>
                   <CheckCircle className="w-4 h-4 shrink-0" />
                   <span>
                     Filtro: <strong>{filteredPreviewItems.length}</strong> de <strong>{tempImportedItems.length}</strong>
@@ -3751,19 +4995,17 @@ export function ImportInventoryModal({
               </div>
 
               {/* Tabla de Artículos */}
-              <div className={`border rounded-xl overflow-hidden shadow-sm ${
-                isRetro ? 'border-zinc-400 bg-white'
-                : isLight ? 'border-zinc-200 bg-white'
-                : 'border-zinc-800 bg-[#17181d]'
-              }`}>
+              <div className={`border rounded-xl overflow-hidden shadow-sm ${isRetro ? 'border-zinc-400 bg-white'
+                  : isLight ? 'border-zinc-200 bg-white'
+                    : 'border-zinc-800 bg-[#17181d]'
+                }`}>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className={`border-b ${
-                        isRetro ? 'bg-[#000080] text-white border-zinc-400'
-                        : isLight ? 'bg-zinc-50 text-zinc-600 border-zinc-200'
-                        : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                      }`}>
+                      <tr className={`border-b ${isRetro ? 'bg-[#000080] text-white border-zinc-400'
+                          : isLight ? 'bg-zinc-50 text-zinc-600 border-zinc-200'
+                            : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                        }`}>
                         <th className="p-3 font-bold">Código / SKU</th>
                         <th className="p-3 font-bold">Nombre / Artículo</th>
                         <th className="p-3 font-bold">Marca</th>
@@ -3775,11 +5017,10 @@ export function ImportInventoryModal({
                         <th className="p-3 font-bold text-center">Favorito</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y font-mono ${
-                      isRetro ? 'divide-zinc-200 text-zinc-900 bg-white'
-                      : isLight ? 'divide-zinc-200 text-zinc-800 bg-white'
-                      : 'divide-zinc-800/50 text-zinc-350 bg-[#121316]/20'
-                    }`}>
+                    <tbody className={`divide-y font-mono ${isRetro ? 'divide-zinc-200 text-zinc-900 bg-white'
+                        : isLight ? 'divide-zinc-200 text-zinc-800 bg-white'
+                          : 'divide-zinc-800/50 text-zinc-350 bg-[#121316]/20'
+                      }`}>
                       {paginatedPreviewItems.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="p-8 text-center text-zinc-500 font-sans">
@@ -3800,13 +5041,12 @@ export function ImportInventoryModal({
                                 {it.brand || 'GENÉRICO'}
                               </td>
                               <td className="p-3 text-center font-sans">
-                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border tracking-wide uppercase ${
-                                  it.category === 'Refacción' ? 'bg-sky-950/40 text-sky-400 border-sky-900/30'
-                                  : it.category === 'Accesorio' ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30'
-                                  : it.category === 'Consumible' ? 'bg-amber-950/40 text-amber-400 border-amber-900/30'
-                                  : it.category === 'Herramienta' ? 'bg-indigo-950/40 text-indigo-400 border-indigo-900/30'
-                                  : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                                }`}>
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border tracking-wide uppercase ${it.category === 'Refacción' ? 'bg-sky-950/40 text-sky-400 border-sky-900/30'
+                                    : it.category === 'Accesorio' ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30'
+                                      : it.category === 'Consumible' ? 'bg-amber-950/40 text-amber-400 border-amber-900/30'
+                                        : it.category === 'Herramienta' ? 'bg-indigo-950/40 text-indigo-400 border-indigo-900/30'
+                                          : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                  }`}>
                                   {it.category}
                                 </span>
                               </td>
@@ -3860,11 +5100,10 @@ export function ImportInventoryModal({
                         setPreviewRowsPerPage(Number(e.target.value));
                         setPreviewPage(1);
                       }}
-                      className={`text-xs p-1 focus:outline-none cursor-pointer ${
-                        isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900'
-                        : isLight ? 'bg-white border border-zinc-300 rounded text-zinc-900'
-                        : 'bg-zinc-900 border border-zinc-800 rounded text-zinc-250'
-                      }`}
+                      className={`text-xs p-1 focus:outline-none cursor-pointer ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900'
+                          : isLight ? 'bg-white border border-zinc-300 rounded text-zinc-900'
+                            : 'bg-zinc-900 border border-zinc-800 rounded text-zinc-250'
+                        }`}
                     >
                       {[25, 50, 100, 250].map(val => (
                         <option key={val} value={val}>{val}</option>
@@ -3876,13 +5115,12 @@ export function ImportInventoryModal({
                         type="button"
                         disabled={previewPage === 1}
                         onClick={() => setPreviewPage(p => Math.max(1, p - 1))}
-                        className={`p-1.5 rounded transition-all cursor-pointer ${
-                          previewPage === 1
+                        className={`p-1.5 rounded transition-all cursor-pointer ${previewPage === 1
                             ? 'opacity-40 cursor-not-allowed'
                             : isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
                               : isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-300'
-                              : 'bg-zinc-800 hover:bg-zinc-700 text-white'
-                        }`}
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-white'
+                          }`}
                       >
                         <ChevronLeft className="w-4 h-4" />
                       </button>
@@ -3890,13 +5128,12 @@ export function ImportInventoryModal({
                         type="button"
                         disabled={previewPage === totalPreviewPages}
                         onClick={() => setPreviewPage(p => Math.min(totalPreviewPages, p + 1))}
-                        className={`p-1.5 rounded transition-all cursor-pointer ${
-                          previewPage === totalPreviewPages
+                        className={`p-1.5 rounded transition-all cursor-pointer ${previewPage === totalPreviewPages
                             ? 'opacity-40 cursor-not-allowed'
                             : isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
                               : isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-750'
-                              : 'bg-zinc-800 hover:bg-zinc-700 text-white'
-                        }`}
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-white'
+                          }`}
                       >
                         <ChevronRight className="w-4 h-4" />
                       </button>
@@ -3907,31 +5144,28 @@ export function ImportInventoryModal({
             </div>
 
             {/* Pie del modal de previsualización */}
-            <div className={`p-4 border-t flex justify-between gap-2 shrink-0 ${
-              isRetro ? 'bg-[#dfdfdf] border-zinc-500'
-              : isLight ? 'bg-zinc-50 border-zinc-200'
-              : 'bg-[#0e0f12] border-[#1c1d22]'
-            }`}>
+            <div className={`p-4 border-t flex justify-between gap-2 shrink-0 ${isRetro ? 'bg-[#dfdfdf] border-zinc-500'
+                : isLight ? 'bg-zinc-50 border-zinc-200'
+                  : 'bg-[#0e0f12] border-[#1c1d22]'
+              }`}>
               <button
                 type="button"
                 onClick={() => setIsDetailedPreviewOpen(false)}
-                className={`px-4 py-1.5 text-xs font-bold rounded transition-colors cursor-pointer ${
-                  isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
-                  : isLight ? 'bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-100'
-                  : 'text-gray-400 hover:text-white border border-zinc-800 bg-transparent'
-                }`}
+                className={`px-4 py-1.5 text-xs font-bold rounded transition-colors cursor-pointer ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-800 hover:bg-zinc-200'
+                    : isLight ? 'bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-100'
+                      : 'text-gray-400 hover:text-white border border-zinc-800 bg-transparent'
+                  }`}
               >
                 ← Regresar al Mapeo
               </button>
-              
+
               <button
                 type="button"
                 onClick={handleApplyImport}
-                className={`px-6 py-2 text-xs font-bold rounded transition-colors flex items-center gap-2 ${
-                  isRetro ? 'bg-[#000080] text-white border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 cursor-pointer'
-                  : isLight ? 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow'
-                  : 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow-lg'
-                }`}
+                className={`px-6 py-2 text-xs font-bold rounded transition-colors flex items-center gap-2 ${isRetro ? 'bg-[#000080] text-white border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 cursor-pointer'
+                    : isLight ? 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow'
+                      : 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shadow-lg'
+                  }`}
               >
                 <CheckCircle className="w-4 h-4" />
                 CONFIRMAR E IMPORTAR AHORA ({tempImportedItems.length} ARTÍCULOS)

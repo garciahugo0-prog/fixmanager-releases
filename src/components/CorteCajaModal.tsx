@@ -324,6 +324,33 @@ function MXNCoinsStackGraphic({ isLight = false }: { isLight?: boolean }) {
   );
 }
 
+const checkIsServicePayment = (name: string): boolean => {
+  const nameUpper = name.toUpperCase();
+  return (
+    nameUpper.includes('CFE') ||
+    nameUpper.includes('TELMEX') ||
+    nameUpper.includes('IZZI') ||
+    nameUpper.includes('SKY') ||
+    nameUpper.includes('DISH') ||
+    nameUpper.includes('MEGACABLE') ||
+    nameUpper.includes('TOTALPLAY') ||
+    nameUpper.includes('NETFLIX') ||
+    nameUpper.includes('SPOTIFY') ||
+    nameUpper.includes('XBOX') ||
+    nameUpper.includes('PLAYSTATION') ||
+    nameUpper.includes('NINTENDO') ||
+    nameUpper.includes('AMAZON') ||
+    nameUpper.includes('TELEVÍA') ||
+    nameUpper.includes('PASE') ||
+    nameUpper.includes('INFONAVIT') ||
+    nameUpper.includes('AVON') ||
+    nameUpper.includes('JAFRA') ||
+    nameUpper.includes('NATURA') ||
+    nameUpper.includes('HERBALIFE') ||
+    nameUpper.includes('SERVICIO')
+  );
+};
+
 export default function CorteCajaModal({
   isOpen,
   onClose,
@@ -460,7 +487,8 @@ export default function CorteCajaModal({
   const [ventasEfectivo, setVentasEfectivo] = useState<number>(0);
   const [ventasTarjeta, setVentasTarjeta] = useState<number>(0);
   const [comisionesRecargas, setComisionesRecargas] = useState<number>(0);
-  const [recargasPlanes, setRecargasPlanes] = useState<number>(0);
+  const [recargasCelular, setRecargasCelular] = useState<number>(0);
+  const [pagosServicios, setPagosServicios] = useState<number>(0);
   const [serviciosTecnicos, setServiciosTecnicos] = useState<number>(0);
   const [entradasManuales, setEntradasManuales] = useState<number>(0); // Starts clean, manual entries only
   const [abonosFiadosEfectivo, setAbonosFiadosEfectivo] = useState<number>(0);
@@ -495,33 +523,41 @@ export default function CorteCajaModal({
       const daySales = sales.filter(s => !s.isCancelled && s.sessionId === sessionId);
       let cashSalesSum = 0;
       let cardSalesSum = 0;
-      let recargasPlanesSum = 0;
+      let recargasCelularSum = 0;
+      let pagosServiciosSum = 0;
       let comisionesRecargasSum = 0;
 
       daySales.forEach(s => {
         let saleRepairsTotal = 0;
-        let saleRecargas = 0;
+        let saleRecargasCelular = 0;
+        let salePagosServicios = 0;
         let saleComisiones = 0;
 
         s.items.forEach(item => {
-          if (item.itemId && item.itemId.startsWith('repair-')) {
+          const id = item.itemId || (item as any).id;
+          if (id && typeof id === 'string' && id.startsWith('repair-')) {
             saleRepairsTotal += item.price * item.quantity;
-          } else if (item.itemId === 'recharge-commission') {
+          } else if (id === 'recharge-commission') {
             saleComisiones += item.price * item.quantity;
-          } else if (item.itemId && item.itemId.startsWith('recharge-')) {
-            saleRecargas += item.price * item.quantity;
+          } else if (id && typeof id === 'string' && id.startsWith('recharge-')) {
+            if (checkIsServicePayment(item.name)) {
+              salePagosServicios += item.price * item.quantity;
+            } else {
+              saleRecargasCelular += item.price * item.quantity;
+            }
           }
         });
 
-        const saleNetTotal = Math.max(0, s.total - saleRepairsTotal - saleRecargas - saleComisiones);
+        const saleNetTotal = Math.max(0, s.total - saleRepairsTotal - saleRecargasCelular - salePagosServicios - saleComisiones);
 
         if (s.paymentMethod === 'Efectivo') {
           cashSalesSum += saleNetTotal;
-          recargasPlanesSum += saleRecargas;
+          recargasCelularSum += saleRecargasCelular;
+          pagosServiciosSum += salePagosServicios;
           comisionesRecargasSum += saleComisiones;
         } else if (s.paymentMethod === 'Tarjeta/Transfer' || s.paymentMethod === 'Tarjeta') {
           cardSalesSum += saleNetTotal;
-          cardSalesSum += saleRecargas + saleComisiones;
+          cardSalesSum += saleRecargasCelular + salePagosServicios + saleComisiones;
         } else if (s.paymentMethod === 'Múltiple' || s.paymentMethod === 'Mixto') {
           const efeMatch = s.confirmationCode?.match(/Efe:\s*\$?([0-9.]+)/);
           const cardMatch = s.confirmationCode?.match(/T\/T:\s*\$?([0-9.]+)/);
@@ -530,7 +566,8 @@ export default function CorteCajaModal({
 
           if (efeAmt === 0 && cardAmt === 0) {
             cashSalesSum += saleNetTotal;
-            recargasPlanesSum += saleRecargas;
+            recargasCelularSum += saleRecargasCelular;
+            pagosServiciosSum += salePagosServicios;
             comisionesRecargasSum += saleComisiones;
           } else {
             const totalMatch = efeAmt + cardAmt;
@@ -540,22 +577,27 @@ export default function CorteCajaModal({
             const repairsCash = saleRepairsTotal * cashRatio;
             const repairsCard = saleRepairsTotal * cardRatio;
 
-            const recargasCash = saleRecargas * cashRatio;
-            const recargasCard = saleRecargas * cardRatio;
+            const recargasCelularCash = saleRecargasCelular * cashRatio;
+            const recargasCelularCard = saleRecargasCelular * cardRatio;
+
+            const pagosServiciosCash = salePagosServicios * cashRatio;
+            const pagosServiciosCard = salePagosServicios * cardRatio;
 
             const comisionesCash = saleComisiones * cashRatio;
             const comisionesCard = saleComisiones * cardRatio;
 
-            cashSalesSum += Math.max(0, efeAmt - repairsCash - recargasCash - comisionesCash);
-            cardSalesSum += Math.max(0, cardAmt - repairsCard - recargasCard - comisionesCard);
+            cashSalesSum += Math.max(0, efeAmt - repairsCash - recargasCelularCash - pagosServiciosCash - comisionesCash);
+            cardSalesSum += Math.max(0, cardAmt - repairsCard - recargasCelularCard - pagosServiciosCard - comisionesCard);
 
-            recargasPlanesSum += recargasCash;
+            recargasCelularSum += recargasCelularCash;
+            pagosServiciosSum += pagosServiciosCash;
             comisionesRecargasSum += comisionesCash;
-            cardSalesSum += recargasCard + comisionesCard;
+            cardSalesSum += recargasCelularCard + pagosServiciosCard + comisionesCard;
           }
         } else {
           cashSalesSum += saleNetTotal;
-          recargasPlanesSum += saleRecargas;
+          recargasCelularSum += saleRecargasCelular;
+          pagosServiciosSum += salePagosServicios;
           comisionesRecargasSum += saleComisiones;
         }
       });
@@ -623,7 +665,8 @@ export default function CorteCajaModal({
 
       setServiciosTecnicos(repairsCashSum);
       setComisionesRecargas(comisionesRecargasSum);
-      setRecargasPlanes(recargasPlanesSum);
+      setRecargasCelular(recargasCelularSum);
+      setPagosServicios(pagosServiciosSum);
       cardSalesSum += repairsCardSum;
       cardSalesSum += manualEntradasCardSum;
 
@@ -813,7 +856,7 @@ export default function CorteCajaModal({
 
   // Dynamic Right-side calculation parameters
   const totalEntradas = saldoInicial + 
-    (config.enablePOS !== false ? (ventasEfectivo + comisionesRecargas + recargasPlanes) : 0) + 
+    (config.enablePOS !== false ? (ventasEfectivo + comisionesRecargas + recargasCelular + pagosServicios) : 0) + 
     (config.enableTaller !== false ? serviciosTecnicos : 0) + 
     abonosFiadosEfectivo +
     abonosApartadosEfectivo +
@@ -849,9 +892,11 @@ export default function CorteCajaModal({
   // Formats text into Spanish display spelling
   const textWordsSpanish = numberToSpanishWords(totalFisicoContado);
 
-  const totalSales = ventasEfectivo + ventasTarjeta;
-  const cashPct = totalSales > 0 ? Math.round((ventasEfectivo / totalSales) * 100) : 100;
-  const cardPct = totalSales > 0 ? Math.round((ventasTarjeta / totalSales) * 100) : 0;
+  const totalShiftCash = Math.max(0, totalEntradas - saldoInicial);
+  const totalShiftCard = ventasTarjeta;
+  const totalSales = totalShiftCash + totalShiftCard;
+  const cashPct = totalSales > 0 ? Math.round((totalShiftCash / totalSales) * 100) : 100;
+  const cardPct = totalSales > 0 ? Math.round((totalShiftCard / totalSales) * 100) : 0;
 
   if (!isOpen) return null;
 
@@ -941,7 +986,7 @@ export default function CorteCajaModal({
     time: new Date().toTimeString().split(' ')[0],
     user: 'garciahugo0@gmail.com',
     startingCash: saldoInicial,
-    totals: { pos: ventasEfectivo, servicio: serviciosTecnicos, entradas: totalEntradas, salidas: totalSalidas, neto: totalRequeridoCaja, abonosFiados: abonosFiadosEfectivo, abonosApartados: abonosApartadosEfectivo, entradasManuales: entradasManuales },
+    totals: { pos: ventasEfectivo, servicio: serviciosTecnicos, entradas: totalEntradas, salidas: totalSalidas, neto: totalRequeridoCaja, abonosFiados: abonosFiadosEfectivo, abonosApartados: abonosApartadosEfectivo, entradasManuales: entradasManuales, recargasCelular, pagosServicios, comisionesRecargas },
     denominations: { b1000: q1000, b500: q500, b200: q200, b100: q100, b50: q50, b20: q20, m20: coinQ20, m10: coinQ10, m5: coinQ5, m2: coinQ2, m1: coinQ1, m05: coinQ05, monedasTotal: coinsAmount },
     fisico: totalFisicoContado,
     estimado: totalRequeridoCaja,
@@ -988,7 +1033,10 @@ export default function CorteCajaModal({
 
     const abonosFiados = (corte.totals as any)?.abonosFiados || 0;
     const abonosApartados = (corte.totals as any)?.abonosApartados || 0;
-    const entradasManuales = corte.totals.entradas - corte.startingCash - corte.totals.pos - corte.totals.servicio - abonosFiados - abonosApartados;
+    const recargasCelular = (corte.totals as any)?.recargasCelular || 0;
+    const pagosServicios = (corte.totals as any)?.pagosServicios || 0;
+    const comisionesRecargas = (corte.totals as any)?.comisionesRecargas || 0;
+    const entradasManuales = corte.totals.entradas - corte.startingCash - corte.totals.pos - corte.totals.servicio - abonosFiados - abonosApartados - recargasCelular - pagosServicios - comisionesRecargas;
 
     const rowHtml = (lbl: string, val: string) =>
       `<div class="row"><span class="lbl">${lbl}</span><span class="val">${val}</span></div>`;
@@ -1096,6 +1144,9 @@ export default function CorteCajaModal({
                     <div class="grid-body">
                       <div class="data-row"><span class="data-label">Fondo Inicial:</span><span class="data-value">${sym}${corte.startingCash.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       <div class="data-row"><span class="data-label">Ventas Efectivo:</span><span class="data-value">${sym}${corte.totals.pos.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                      ${recargasCelular > 0 ? '              <div class="data-row"><span class="data-label">Recargas Celular:</span><span class="data-value">' + sym + recargasCelular.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></div>' : ''}
+                      ${pagosServicios > 0 ? '              <div class="data-row"><span class="data-label">Pago Servicios:</span><span class="data-value">' + sym + pagosServicios.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></div>' : ''}
+                      ${comisionesRecargas > 0 ? '              <div class="data-row"><span class="data-label">Comisiones Recargas:</span><span class="data-value">' + sym + comisionesRecargas.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></div>' : ''}
                       ${corte.totals.servicio > 0 ? '              <div class="data-row"><span class="data-label">Servicios:</span><span class="data-value">' + sym + corte.totals.servicio.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></div>' : ''}
                       ${abonosFiados > 0 ? '              <div class="data-row"><span class="data-label">Abonos Fiados:</span><span class="data-value">' + sym + abonosFiados.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></div>' : ''}
                       ${abonosApartados > 0 ? '              <div class="data-row"><span class="data-label">Abonos Apartados:</span><span class="data-value">' + sym + abonosApartados.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></div>' : ''}
@@ -1304,6 +1355,9 @@ ${currentUser ? rowHtml('Operador:', currentUser) : ''}
 <div class="section-title">MOVIMIENTOS DE CAJA</div>
 ${rowHtml('Fondo inicial:', `${sym}${corte.startingCash.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
 ${rowHtml('Ventas efectivo:', `${sym}${corte.totals.pos.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
+${recargasCelular > 0 ? rowHtml('Recargas celular:', `${sym}${recargasCelular.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : ''}
+${pagosServicios > 0 ? rowHtml('Pago servicios:', `${sym}${pagosServicios.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : ''}
+${comisionesRecargas > 0 ? rowHtml('Comisiones recargas:', `${sym}${comisionesRecargas.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : ''}
 ${corte.totals.servicio > 0 ? rowHtml('Servicios:', `${sym}${corte.totals.servicio.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : ''}
 ${abonosFiados > 0 ? rowHtml('Abonos fiados:', `${sym}${abonosFiados.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : ''}
 ${abonosApartados > 0 ? rowHtml('Abonos apartados:', `${sym}${abonosApartados.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : ''}
@@ -2494,14 +2548,17 @@ ${monedasHtml}
         {/* WINDOW DECORATION TITLEBAR */}
         <div className={isRetro
           ? "bg-[#000080] px-3 py-2.5 flex items-center justify-between gap-2 retro-white-text select-none cursor-default shrink-0"
-          : isLight ? "bg-zinc-800 border-b border-zinc-700 px-3 md:px-4 py-2.5 flex items-center justify-between shrink-0"
-          : "bg-[#0d1424] border-b border-slate-800 px-3 md:px-4 py-2.5 flex items-center justify-between shrink-0"
+          : isLight 
+            ? "bg-gradient-to-r from-[#1a3a6b] to-[#2e5b9a] border-b border-zinc-200 px-3 md:px-4 py-2.5 flex items-center justify-between shrink-0"
+            : "bg-[#0d1424] border-b border-slate-800 px-3 md:px-4 py-2.5 flex items-center justify-between shrink-0"
         }>
           <div className="flex items-center gap-2 overflow-hidden">
             <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center shrink-0">
               <Calculator className="w-3.5 h-3.5 text-white" />
             </div>
-            <span className="text-xs md:text-sm font-black uppercase tracking-wide text-white truncate">
+            <span className={`text-xs md:text-sm font-black uppercase tracking-wide truncate ${
+              isRetro ? 'text-white' : isLight ? 'text-white-important' : 'text-white'
+            }`}>
               📟 Finalizar Sesión — Arqueo
             </span>
           </div>
@@ -2519,8 +2576,12 @@ ${monedasHtml}
                   onClick={() => setActiveTab(t)}
                   className={`retro-tab-button px-2.5 sm:px-3 py-1 text-[10px] sm:text-[11px] font-bold rounded transition-all cursor-pointer ${
                     active
-                      ? 'active-tab bg-blue-500 text-white shadow'
-                      : 'text-zinc-200 hover:text-white hover:bg-white/10'
+                      ? isLight && !isRetro
+                        ? 'bg-blue-600 text-white-important shadow'
+                        : 'active-tab bg-blue-500 text-white shadow'
+                      : isLight && !isRetro
+                        ? 'text-zinc-300-important hover:text-white-important hover:bg-white/10'
+                        : 'text-zinc-200 hover:text-white hover:bg-white/10'
                   }`}
                 >
                   {t}
@@ -2535,7 +2596,9 @@ ${monedasHtml}
               onClick={handleCloseRequest}
               className={isRetro
                 ? "w-4.5 h-4.5 bg-[#dfdfdf] border-t-white border-l-white border-r-[#808080] border-b-[#808080] border-2 flex items-center justify-center text-zinc-950 hover:bg-[#c2c2c2] active:border-r-white active:border-b-white active:border-t-zinc-700 active:border-l-zinc-700 active:border cursor-pointer text-[10px] font-black leading-none"
-                : "w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/30 text-white font-bold cursor-pointer transition-all text-sm"
+                : isLight 
+                  ? "w-7 h-7 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white-important font-bold cursor-pointer transition-all text-sm"
+                  : "w-7 h-7 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/30 text-white font-bold cursor-pointer transition-all text-sm"
               }
             >
               ×
@@ -3035,6 +3098,9 @@ ${monedasHtml}
                     {[
                       { label: 'Saldo Inicial', val: saldoInicial, show: true },
                       { label: 'Ventas en Efectivo', val: ventasEfectivo, show: config.enablePOS !== false },
+                      { label: 'Recargas de Tiempo Aire', val: recargasCelular, show: config.enablePOS !== false && recargasCelular > 0 },
+                      { label: 'Pago de Servicios', val: pagosServicios, show: config.enablePOS !== false && pagosServicios > 0 },
+                      { label: 'Comisiones por Recargas/Servicios', val: comisionesRecargas, show: config.enablePOS !== false && comisionesRecargas > 0 },
                       { label: 'Órdenes de Servicio', val: serviciosTecnicos, show: config.enableTaller !== false },
                       { label: 'Abonos de Fiados (Efectivo)', val: abonosFiadosEfectivo, show: abonosFiadosEfectivo > 0 },
                       { label: 'Abonos de Apartados (Efectivo)', val: abonosApartadosEfectivo, show: abonosApartadosEfectivo > 0 },
@@ -3384,8 +3450,12 @@ ${monedasHtml}
                     <span className="font-bold font-mono">{config.currencySymbol}{comisionesRecargas.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className={`flex justify-between ${isLight ? 'text-zinc-700' : 'text-slate-300'}`}>
-                    <span>Recargas & planes:</span>
-                    <span className="font-bold font-mono">{config.currencySymbol}{recargasPlanes.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span>Recargas Celulares (Tiempo Aire):</span>
+                    <span className="font-bold font-mono">{config.currencySymbol}{recargasCelular.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className={`flex justify-between ${isLight ? 'text-zinc-700' : 'text-slate-300'}`}>
+                    <span>Pago de Servicios:</span>
+                    <span className="font-bold font-mono">{config.currencySymbol}{pagosServicios.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   {abonosFiadosEfectivo > 0 && (
                     <div className={`flex justify-between ${isLight ? 'text-zinc-700' : 'text-slate-300'}`}>

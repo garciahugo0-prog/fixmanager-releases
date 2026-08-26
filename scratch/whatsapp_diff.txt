@@ -1,0 +1,235 @@
+diff --git a/src/utils/whatsapp.ts b/src/utils/whatsapp.ts
+index eab8d29..bc39f94 100644
+--- a/src/utils/whatsapp.ts
++++ b/src/utils/whatsapp.ts
+@@ -4,6 +4,7 @@
+ 
+ import html2canvas from 'html2canvas';
+ import { WorkshopConfig, RepairOrder, Sale, CreditAccount, CreditSaleEntry, ApartadoEntry, ApartadoPayment } from '../types';
++import { buildPosTicketHtml } from './ticketBuilder';
+ 
+ /**
+  * Renderiza un string HTML a base64 PNG usando html2canvas.
+@@ -266,8 +267,19 @@ export async function sendProductByWhatsapp(
+   const api = (window as any).electronAPI;
+   const cc = countryCode.replace('+', '') || '52';
+   const formattedPhone = formatPhoneForWhatsapp(phone, cc);
+-  const shopName = config?.storeName || 'FixManager';
+-  const sym = config?.currencySymbol || '$';
++
++  let activeConfig = config;
++  if (!activeConfig) {
++    const saved = localStorage.getItem('fixmanager_config');
++    if (saved) {
++      try {
++        activeConfig = JSON.parse(saved);
++      } catch (e) {}
++    }
++  }
++
++  const shopName = activeConfig?.storeName || 'FixManager';
++  const sym = activeConfig?.currencySymbol || '$';
+ 
+   let text = `📦 *${shopName}* - Ficha de Producto / Cotización\n\n`;
+   text += `🔹 *${product.name.toUpperCase()}*\n`;
+@@ -279,18 +291,31 @@ export async function sendProductByWhatsapp(
+   let base64Image: string | undefined = undefined;
+   if (product.imageUrl) {
+     if (product.imageUrl.startsWith('data:image/')) {
+-      base64Image = product.imageUrl.split(',')[1];
++      base64Image = product.imageUrl;
++    } else if (product.imageUrl.startsWith('http://') || product.imageUrl.startsWith('https://')) {
++      try {
++        const response = await fetch(product.imageUrl);
++        const blob = await response.blob();
++        base64Image = await new Promise<string | undefined>((resolve) => {
++          const reader = new FileReader();
++          reader.onloadend = () => resolve(reader.result as string);
++          reader.onerror = () => resolve(undefined);
++          reader.readAsDataURL(blob);
++        });
++      } catch (e) {
++        console.error('[WhatsApp] Error fetching remote image:', e);
++      }
+     } else if (api?.readProductImage) {
+       try {
+         const resBase64 = await api.readProductImage(product.imageUrl);
+         if (resBase64 && resBase64.startsWith('data:image/')) {
+-          base64Image = resBase64.split(',')[1];
++          base64Image = resBase64;
+         }
+       } catch (e) {}
+     }
+   }
+ 
+-  const mode = config?.whatsappMode || 'integrated';
++  const mode = activeConfig?.whatsappMode || 'integrated';
+ 
+   if (mode === 'integrated' && api?.whatsappSendMessage) {
+     showUiToast('Enviando cotización por WhatsApp…', 'info');
+@@ -313,6 +338,107 @@ export async function sendProductByWhatsapp(
+   }
+ }
+ 
++/**
++ * Envía una cotización detallada de los artículos del carrito del POS por WhatsApp.
++ * Genera un ticket digital con título "COTIZACIÓN" y lo envía como imagen en modo integrado.
++ */
++export async function sendPosQuoteByWhatsapp(
++  phone: string,
++  clientName: string,
++  items: any[],
++  total: number,
++  config: WorkshopConfig,
++  countryCode: string = '52',
++  discount?: number,
++  discountType?: 'percentage' | 'fixed',
++  discountValue?: number,
++  notes?: string,
++  createdBy?: string,
++  warehouses?: any[]
++): Promise<{ ok: boolean; error?: string }> {
++  const api = (window as any).electronAPI;
++  if (!api) return { ok: false, error: 'API Electron no disponible' };
++
++  const cc = countryCode.replace('+', '') || '52';
++  const formattedPhone = formatPhoneForWhatsapp(phone, cc);
++  const sym = config.currencySymbol || '$';
++  const shopName = config.storeName || 'FixManager';
++
++  // 1. Formatear texto de caption/resumen
++  let text = `📦 *${shopName}* - Cotización de Productos\n`;
++  text += `------------------------------------------\n`;
++  if (clientName.trim()) {
++    text += `👤 *Cliente:* ${clientName.trim()}\n\n`;
++  }
++  text += `*Artículos:*\n`;
++  items.forEach(cartItem => {
++    const itemPrice = cartItem.item.price;
++    text += `• ${cartItem.quantity}x ${cartItem.item.name} (${sym}${itemPrice.toLocaleString('es-MX', { minimumFractionDigits: 2 })}) - Subtotal: ${sym}${(cartItem.quantity * itemPrice).toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n`;
++  });
++  
++  if (discount && discount > 0) {
++    text += `\nDescuento: -${sym}${discount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
++  }
++  text += `\n*TOTAL:* *${sym}${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}*\n`;
++  text += `------------------------------------------\n`;
++  if (notes?.trim()) {
++    text += `📝 *Notas:* ${notes.trim()}\n\n`;
++  }
++  text += `Quedamos a tus órdenes para cualquier duda o apartado. 😊`;
++
++  // 2. Generar el ticket de cotización
++  const tempSale = {
++    id: `COT-${Math.floor(100000 + Math.random() * 900000)}`,
++    items: items.map(cartItem => {
++      return {
++        description: cartItem.item.name,
++        quantity: cartItem.quantity,
++        price: cartItem.item.price,
++        fromWarehouseId: cartItem.fromWarehouseId
++      };
++    }),
++    total: total,
++    createdAt: new Date().toISOString(),
++    notes: notes || undefined,
++    discount: discount || undefined,
++    discountType: discountType || undefined,
++    discountValue: discountValue || undefined,
++    createdBy: createdBy || undefined
++  };
++
++  const html = buildPosTicketHtml(tempSale, config, warehouses, true);
++
++  const mode = config.whatsappMode || 'integrated';
++
++  if (mode === 'integrated') {
++    showUiToast('Generando imagen de cotización…', 'info');
++    const imgBase64 = await renderHtmlToBase64(html);
++    if (!imgBase64) {
++      showUiToast('Error al generar imagen de cotización', 'error');
++      return { ok: false, error: 'Error al renderizar' };
++    }
++
++    showUiToast('Enviando cotización por WhatsApp…', 'info');
++    const res = await api.whatsappSendMessage(formattedPhone, text, imgBase64);
++    if (res?.success) {
++      showUiToast('¡Cotización enviada por WhatsApp!', 'success');
++      return { ok: true };
++    } else {
++      showUiToast('Error al enviar. Abriendo WhatsApp Web...', 'error');
++      const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
++      if (api.openExternal) api.openExternal(waUrl);
++      else window.open(waUrl, '_blank');
++      return { ok: true };
++    }
++  } else {
++    const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
++    if (api.openExternal) api.openExternal(waUrl);
++    else window.open(waUrl, '_blank');
++    return { ok: true };
++  }
++}
++
++
+ /**
+  * Realiza el envío del mensaje en segundo plano utilizando una API/Pasarela externa (Método Automático).
+  */
+@@ -598,7 +724,14 @@ export async function sendWhatsappNotification(
+ 
+   // Si está activo el modo integrado, verificar si debe enviarse de forma silenciosa en segundo plano
+   if (mode === 'integrated') {
+-    const isSale = text.toLowerCase().includes('ticket') || text.toLowerCase().includes('venta') || text.toLowerCase().includes('compra');
++    const isSale = text.toLowerCase().includes('ticket') || 
++                   text.toLowerCase().includes('venta') || 
++                   text.toLowerCase().includes('compra') || 
++                   text.toLowerCase().includes('crédito') || 
++                   text.toLowerCase().includes('credito') || 
++                   text.toLowerCase().includes('fiado') || 
++                   text.toLowerCase().includes('abono') || 
++                   text.toLowerCase().includes('apartado');
+     const isRepair = text.toLowerCase().includes('orden') || text.toLowerCase().includes('reparación') || text.toLowerCase().includes('estatus') || text.toLowerCase().includes('estado');
+     
+     const cleanedPhone = phone ? phone.replace(/\D/g, '') : '';
+@@ -1130,6 +1263,24 @@ export function buildWhatsappFiadoCargoMessage(account: CreditAccount, entry: Cr
+   const sym = config.currencySymbol || '$';
+   const fecha = new Date(entry.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+ 
++  // Calculate previous balance and current payment (if any) from history
++  const entryTime = new Date(entry.createdAt).getTime();
++  const otherEntries = (account.entries || []).filter(e => e.id !== entry.id);
++  const otherPayments = (account.payments || []).filter(p => {
++    const payTime = new Date(p.createdAt).getTime();
++    return Math.abs(entryTime - payTime) > 30000;
++  });
++  const calcPrevBalance = Math.max(0, 
++    otherEntries.reduce((s, e) => s + e.subtotal, 0) - 
++    otherPayments.reduce((s, p) => s + p.amount, 0)
++  );
++  
++  const thisPayment = (account.payments || []).find(p => {
++    const payTime = new Date(p.createdAt).getTime();
++    return Math.abs(entryTime - payTime) <= 30000;
++  });
++  const paymentAmount = thisPayment ? thisPayment.amount : 0;
++
+   let ticket = '```\n';
+   const storeName = (config.storeName || 'TALLER').toUpperCase();
+   wrapText(storeName, 32).forEach(l => ticket += centerText(l, 32) + '\n');
+@@ -1162,8 +1313,14 @@ export function buildWhatsappFiadoCargoMessage(account: CreditAccount, entry: Cr
+   });
+ 
+   ticket += '--------------------------------\n';
+-  ticket += rightAlign('Importe Cargo:', `${sym}${entry.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
+-  ticket += rightAlign('SALDO FIADO:', `${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
++  ticket += rightAlign('Cargo de hoy:', `${sym}${entry.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
++  if (calcPrevBalance > 0) {
++    ticket += rightAlign('Saldo anterior:', `${sym}${calcPrevBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
++  }
++  if (paymentAmount > 0) {
++    ticket += rightAlign('Abono de hoy:', `${sym}${paymentAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
++  }
++  ticket += rightAlign('SALDO TOTAL:', `${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
+   ticket += '--------------------------------\n';
+ 
+   const footerText = config.ticketFooter || '';

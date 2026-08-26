@@ -4,24 +4,30 @@
  */
 
 import React from 'react';
-import { Calculator, ShoppingCart, Trash2, Coins, CreditCard, Sparkles, CheckCircle, Search, X, CornerDownLeft, FolderHeart, Archive, Info, XCircle, Users, Edit, Lock, Unlock, ShieldCheck, Wrench, Printer, MessageSquare, Smartphone } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Calculator, ShoppingCart, Trash2, Coins, CreditCard, Sparkles, CheckCircle, Search, X, CornerDownLeft, FolderHeart, Archive, Info, XCircle, Users, Edit, Lock, Unlock, ShieldCheck, Wrench, Printer, MessageSquare, Smartphone, AlertTriangle, Tag, Star } from 'lucide-react';
 import { PosLogic, normalizeSearchText } from '../../hooks/usePosLogic';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
 import { logPriceCheck, markAddedToCart } from '../../utils/priceCheckLog';
 import { getIndividualAdvance } from '../../utils/orderHelpers';
 import { handleCaretPreservingChange } from '../../utils/domHelpers';
 import { PosItemThumbnail } from './PosItemThumbnail';
+import { sendPosQuoteByWhatsapp } from '../../utils/whatsapp';
 
-interface Props { logic: PosLogic; }
+interface Props {
+  logic: PosLogic;
+  warehouses?: any[];
+}
 
-export default function PosFluent({ logic }: Props) {
+export default function PosFluent({ logic, warehouses = [] }: Props) {
   const {
-    config, sales, setActiveTab, users,
+    config, sales, setActiveTab, users, currentUser,
     basket, setBasket, isAdminMode,
     editingItemId, setEditingItemId, editingPriceValue, setEditingPriceValue,
     payCash, setPayCash, payCard, setPayCard,
     cardCode, setCardCode,
     lastSaleReceipt, searchQuery, setSearchQuery,
+    selectedSaleWarehouseId, setSelectedSaleWarehouseId,
     isSearchModalOpen, setIsSearchModalOpen,
     modalCurrentPage, setModalCurrentPage,
     showSaleConfirm, setShowSaleConfirm, changeAmount, setChangeAmount,
@@ -54,19 +60,23 @@ export default function PosFluent({ logic }: Props) {
     searchInputRef, lastClickTimeRef, modalFastSaleNameInputRef, modalFastSalePriceInputRef,
     fastSaleModalNameInputRef, fastSaleModalPriceInputRef,
     matchedProductsForModal, exactMatch, paginatedModalItems, modalTotalPages,
+    modalCategoryFilter, setModalCategoryFilter,
     inlineSelectedIndex, setInlineSelectedIndex, inlineSelectedIndexRef,
     modalSelectedIndex, setModalSelectedIndex,
-    softCoinsTotal, availableItems, inventory, basketTotal, basketTotalItems, saleType, setSaleType,
+    softCoinsTotal, availableItems, inventory, getItemStock, basketTotal, basketTotalItems, saleType, setSaleType,
     triggerToast, handleCalcBtn, cancelAndCleanupFastSale, cancelAndCleanupSearchModal,
     addFastSaleItem, handleModalAddFastSaleItem,
     addToBasket, updateQuantity, removeFromBasket, toggleBasketItemPriceType,
+    updateLineDiscount,
     handleSavePrice, handleRequestEditPrice,
     handleConfirmAddChip, handleConfirmEditChip,
     handleAdminAuthSubmit,
     handleSaveSaleForLater, confirmSaveSaleForLater,
     handleLoadSavedSale, handleConfirmLoadCombine, handleConfirmLoadOverwrite, handleCancelLoadConflict,
     handleDeleteSavedSale, executeSale, validateAndConfirm, handleCheckout,
-    showFiarModal, setShowFiarModal, fiarClientName, setFiarClientName, fiarClientPhone, setFiarClientPhone, fiarCountryCode, setFiarCountryCode, fiarExistingAccount, setFiarExistingAccount, fiarCreditLimit, setFiarCreditLimit, executeFiar,
+    showFiarModal, setShowFiarModal, fiarClientName, setFiarClientName, fiarClientPhone, setFiarClientPhone, fiarCountryCode, setFiarCountryCode, fiarExistingAccount, setFiarExistingAccount, fiarCreditLimit, setFiarCreditLimit, fiarHasLimit, setFiarHasLimit, executeFiar,
+    fiarNameSuggestions, fiarPhoneSuggestions, selectExistingCreditAccount,
+    fiarInitialPayment, setFiarInitialPayment, fiarInitialMethod, setFiarInitialMethod, openFiarModal,
     showApartarModal, setShowApartarModal,
     apartarClientName, setApartarClientName,
     apartarClientPhone, setApartarClientPhone,
@@ -80,9 +90,11 @@ export default function PosFluent({ logic }: Props) {
     showRepairSelectionModal, setShowRepairSelectionModal,
     repairSearchQuery, setRepairSearchQuery,
     addRepairOrderToBasket,
+    outOfStockAlertItem, setOutOfStockAlertItem,
   } = logic;
 
-  const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+  const isWaIntegratedOffline = !waConnected;
+  const [activeSearchField, setActiveSearchField] = React.useState<'name' | 'phone' | null>(null);
 
   const [chipClientName, setChipClientName] = React.useState('');
   const [chipPhone, setChipPhone] = React.useState('');
@@ -90,6 +102,101 @@ export default function PosFluent({ logic }: Props) {
   const [chipImei, setChipImei] = React.useState('');
   const [chipRegisterDetails, setChipRegisterDetails] = React.useState(true);
   const [showNoteOption, setShowNoteOption] = React.useState(false);
+  const [showSpecialOptions, setShowSpecialOptions] = React.useState(false);
+
+  // Estados para descuentos por artículo
+  const [editingDiscountItemId, setEditingDiscountItemId] = React.useState<string | null>(null);
+  const [editingDiscountValue, setEditingDiscountValue] = React.useState<string>('');
+  const [editingDiscountType, setEditingDiscountType] = React.useState<'percentage' | 'fixed'>('percentage');
+
+  // Estados para cotización express desde POS
+  const [showQuoteWhatsappModal, setShowQuoteWhatsappModal] = React.useState(false);
+  const [quoteClientName, setQuoteClientName] = React.useState('');
+  const [quoteWhatsappPhone, setQuoteWhatsappPhone] = React.useState('');
+  const [quoteCountryCode, setQuoteCountryCode] = React.useState('+52');
+  const [isQuoteMode, setIsQuoteMode] = React.useState(false);
+
+  const [showFavoritesModal, setShowFavoritesModal] = React.useState(false);
+  const [favSearchQuery, setFavSearchQuery] = React.useState('');
+  const [favSelectedCategory, setFavSelectedCategory] = React.useState('TODAS');
+  const [favSelectedIndex, setFavSelectedIndex] = React.useState(0);
+
+  const allFavoriteItems = React.useMemo(() => {
+    return (inventory || []).filter(item => !!item.favorite);
+  }, [inventory]);
+
+  const favoriteCategories = React.useMemo(() => {
+    const set = new Set<string>();
+    allFavoriteItems.forEach(item => {
+      if (item.category) set.add(item.category.trim().toUpperCase());
+    });
+    return Array.from(set).sort();
+  }, [allFavoriteItems]);
+
+  const filteredFavoriteItems = React.useMemo(() => {
+    return allFavoriteItems.filter(item => {
+      if (favSelectedCategory !== 'TODAS' && (item.category || '').trim().toUpperCase() !== favSelectedCategory) return false;
+      
+      // Filtrar por bodega seleccionada
+      if (selectedSaleWarehouseId === 'local') {
+        if (item.manageStock !== false && item.stock <= 0) return false;
+      } else if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all') {
+        if (item.manageStock !== false && (item.warehouseStock?.[selectedSaleWarehouseId] || 0) <= 0) return false;
+      }
+
+      if (favSearchQuery.trim()) {
+        const q = favSearchQuery.toLowerCase();
+        const matchName = (item.name || '').toLowerCase().includes(q);
+        const matchCode = (item.code || '').toLowerCase().includes(q);
+        const matchBrand = (item.brand || '').toLowerCase().includes(q);
+        return matchName || matchCode || matchBrand;
+      }
+      return true;
+    });
+  }, [allFavoriteItems, favSelectedCategory, favSearchQuery, selectedSaleWarehouseId]);
+
+  React.useEffect(() => {
+    setFavSelectedIndex(0);
+  }, [favSearchQuery, favSelectedCategory, showFavoritesModal]);
+
+  React.useEffect(() => {
+    if (!showFavoritesModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const count = filteredFavoriteItems.length;
+      if (count > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setFavSelectedIndex(prev => Math.min(prev + 1, count - 1));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setFavSelectedIndex(prev => Math.max(prev - 1, 0));
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          const item = filteredFavoriteItems[favSelectedIndex];
+          if (item) {
+            addToBasket(item);
+            triggerToast?.('¡Agregado a la venta!', 'success');
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showFavoritesModal, filteredFavoriteItems, favSelectedIndex, addToBasket, triggerToast]);
+
+  React.useEffect(() => {
+    if (!showFavoritesModal) return;
+    const el = document.querySelector('.fav-item-row-selected');
+    if (el) {
+      el.scrollIntoView({ block: 'nearest' });
+    }
+  }, [favSelectedIndex, showFavoritesModal]);
+
+  React.useEffect(() => {
+    if (basket.length === 0) {
+      setIsQuoteMode(false);
+    }
+  }, [basket.length]);
 
   React.useEffect(() => {
     if (pendingChipToAdd) {
@@ -111,6 +218,23 @@ export default function PosFluent({ logic }: Props) {
       setChipRegisterDetails(!!act);
     }
   }, [editingChipBasketItem]);
+
+  const modalActiveInventory = React.useMemo(() => {
+    if (selectedSaleWarehouseId === 'local') {
+      return inventory.filter(item => item.manageStock === false || item.stock > 0);
+    } else if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all') {
+      return inventory.filter(item => {
+        const isAssigned = item.warehouseStock && (selectedSaleWarehouseId in item.warehouseStock);
+        if (!isAssigned) return false;
+        return item.manageStock === false || (item.warehouseStock?.[selectedSaleWarehouseId] || 0) > 0;
+      });
+    }
+    return inventory;
+  }, [inventory, selectedSaleWarehouseId]);
+
+  const modalCategoriesList = React.useMemo(() => {
+    return Array.from(new Set(modalActiveInventory.map(p => (p.category || '').trim().toUpperCase()).filter(Boolean))).sort();
+  }, [modalActiveInventory]);
 
   const [fiarPrint, setFiarPrint] = React.useState(true);
   const [fiarWhatsapp, setFiarWhatsapp] = React.useState(false);
@@ -202,6 +326,12 @@ export default function PosFluent({ logic }: Props) {
     }
   }, [modalSelectedIndex, isSearchModalOpen, modalCurrentPage]);
 
+  React.useEffect(() => {
+    if (!showSaleConfirm) {
+      setShowSpecialOptions(false);
+    }
+  }, [showSaleConfirm]);
+
   const renderPriceCheckerModal = () => {
     if (!showPriceChecker) return null;
     const results = priceCheckerResults;
@@ -256,6 +386,14 @@ export default function PosFluent({ logic }: Props) {
                 {item.code && <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-550' : 'text-zinc-400'}>Código</span><span className={`font-mono font-bold ${isLight ? 'text-zinc-800' : 'text-zinc-250'}`}>{item.code}</span></div>}
                 {item.category && <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-550' : 'text-zinc-400'}>Categoría</span><span className={`font-bold ${isLight ? 'text-zinc-800' : 'text-zinc-250'}`}>{item.category}</span></div>}
                 <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-550' : 'text-zinc-400'}>Stock</span><span className={`font-black ${stockColor}`}>{!isStockControlled ? 'Ilimitado' : item.stock <= 0 ? 'Sin stock' : `${item.stock} uds.`}</span></div>
+                {item.wholesalePrice !== undefined && item.wholesalePrice > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className={isLight ? 'text-zinc-550' : 'text-zinc-400'}>P. Mayoreo</span>
+                    <span className={`font-mono font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                      {sym}{item.wholesalePrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
               </div>
               <button onClick={() => !priceCheckerAdded && doAddToCart(item)} className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-widest cursor-pointer transition-all ${priceCheckerAdded ? 'bg-emerald-500 text-white' : 'bg-[#1a3a6b] hover:bg-[#14306b] text-white'}`}>
                 {priceCheckerAdded ? '✓ Agregado al carrito' : '+ Agregar al carrito  [Enter]'}
@@ -314,6 +452,203 @@ export default function PosFluent({ logic }: Props) {
               {results.length} artículo{results.length !== 1 ? 's' : ''} — clic para ver detalle
             </div>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderFavoritesModal = () => {
+    if (!showFavoritesModal) return null;
+
+    const totalFavs = filteredFavoriteItems.length;
+    const currentSelNum = totalFavs > 0 ? favSelectedIndex + 1 : 0;
+    const sym = config.currencySymbol || '$';
+
+    return (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn text-left select-none" onClick={() => setShowFavoritesModal(false)}>
+        <div className={`w-full max-w-4xl max-h-[85vh] border rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slideUp font-sans ${
+          isLight ? 'bg-[#f3f3f3] border-zinc-200 text-zinc-900' : 'bg-[#202020] border-white/10 text-white'
+        }`} onClick={e => e.stopPropagation()}>
+          
+          {/* Header */}
+          <div className={`px-6 py-3.5 flex items-center justify-between shrink-0 border-b ${
+            isLight ? 'bg-white border-zinc-200' : 'bg-[#2a2a2a] border-white/10'
+          }`}>
+            <div className="flex items-center gap-2.5">
+              <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+              <h3 className="text-sm font-black tracking-wider uppercase font-sans">
+                ⭐ Catálogo Rápido de Favoritos
+              </h3>
+            </div>
+            <button
+              onClick={() => setShowFavoritesModal(false)}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLight ? 'hover:bg-zinc-100 text-zinc-655' : 'hover:bg-white/10 text-white/70'
+              }`}
+            >
+              <X className="w-4.5 h-4.5" />
+            </button>
+          </div>
+
+          {/* Sub-header: Search, Dynamic Categories & Info */}
+          <div className={`p-4 border-b space-y-3 shrink-0 ${
+            isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-[#1a1a1a] border-white/10'
+          }`}>
+            {/* Buscador */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input
+                type="text"
+                autoFocus
+                placeholder="Buscar por nombre, código SKU o categoría..."
+                value={favSearchQuery}
+                onChange={(e) => setFavSearchQuery(e.target.value)}
+                className={`w-full pl-10 pr-9 py-2 border rounded-xl text-xs font-sans focus:outline-none ${
+                  isLight 
+                    ? 'bg-white border-zinc-200 text-zinc-800 placeholder-zinc-400 focus:border-blue-500' 
+                    : 'bg-[#252525] border-white/10 text-white placeholder-zinc-605 focus:border-blue-550'
+                }`}
+              />
+              {favSearchQuery && (
+                <button onClick={() => setFavSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-1">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Categorías Dinámicas (Pills) */}
+            <div className="flex flex-wrap items-center gap-1.5 pb-1">
+              <button
+                onClick={() => setFavSelectedCategory('TODAS')}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
+                  favSelectedCategory === 'TODAS'
+                    ? 'bg-blue-500 text-white font-black shadow-md'
+                    : (isLight ? 'bg-white hover:bg-zinc-100 text-zinc-650 border border-zinc-200' : 'bg-[#2a2a2a] hover:bg-[#333333] text-zinc-300 border border-white/10')
+                }`}
+              >
+                🌟 TODAS ({allFavoriteItems.length})
+              </button>
+              {favoriteCategories.map(cat => {
+                const count = allFavoriteItems.filter(i => (i.category || '').trim().toUpperCase() === cat).length;
+                const isSelected = favSelectedCategory === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setFavSelectedCategory(cat)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-500 text-white font-black shadow-md'
+                        : (isLight ? 'bg-white hover:bg-zinc-100 text-zinc-650 border border-zinc-200' : 'bg-[#2a2a2a] hover:bg-[#333333] text-zinc-300 border border-white/10')
+                    }`}
+                  >
+                    📁 {cat} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Instrucción */}
+            <p className={`text-xs font-medium leading-relaxed p-2.5 rounded-lg border ${
+              isLight ? 'bg-white border-zinc-200/80 text-zinc-600' : 'bg-[#202020] border-white/5 text-zinc-400'
+            }`}>
+              Se encontraron <span className="font-extrabold text-blue-500">{totalFavs}</span> coincidencias. Navegue con las teclas <span className={`font-extrabold px-1.5 py-0.5 rounded border ${isLight ? 'bg-zinc-100 border-zinc-200 text-zinc-800' : 'bg-zinc-800 border-white/10 text-white'}`}>↑ ↓</span> y confirme con <span className={`font-extrabold px-1.5 py-0.5 rounded border ${isLight ? 'bg-zinc-100 border-zinc-200 text-zinc-800' : 'bg-zinc-800 border-white/10 text-white'} font-mono`}>Enter</span> o con clic.
+            </p>
+          </div>
+
+          {/* Tabla de Lista */}
+          <div className={`flex-1 overflow-hidden p-4 min-h-0 ${isLight ? 'bg-white' : 'bg-[#151515]'}`}>
+            {totalFavs === 0 ? (
+              <div className="py-16 text-center text-zinc-500 flex flex-col items-center justify-center gap-3">
+                <Star className="w-12 h-12 opacity-20 text-amber-500" />
+                <p className={`text-sm font-semibold ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
+                  {allFavoriteItems.length === 0 
+                    ? 'No hay refacciones ni productos marcados como favoritos aún.' 
+                    : 'No se encontraron artículos favoritos en esta categoría o búsqueda.'}
+                </p>
+                <p className="text-xs text-zinc-500 max-w-sm leading-relaxed">
+                  Puedes marcar cualquier pieza o producto como favorito en las pestañas de Stock o Refacciones haciendo clic en la estrella ⭐.
+                </p>
+              </div>
+            ) : (
+              <div className={`h-full overflow-y-auto border rounded-lg ${isLight ? 'border-zinc-200' : 'border-white/10'}`}>
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className={`text-[10px] font-black uppercase tracking-wider ${
+                      isLight ? 'bg-zinc-50 border-b border-zinc-200 text-zinc-500' : 'bg-[#1f1f1f] border-b border-white/10 text-zinc-400'
+                    }`}>
+                      <th className="py-2.5 px-4">Código / SKU</th>
+                      <th className="py-2.5 px-3">Descripción / Artículo</th>
+                      <th className="py-2.5 px-3">Categoría</th>
+                      <th className="py-2.5 px-3 text-right">Existencia</th>
+                      <th className="py-2.5 px-4 text-right">Precio Público</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isLight ? 'divide-zinc-150' : 'divide-white/5'}`}>
+                    {filteredFavoriteItems.map((item, idx) => {
+                      const isSelected = idx === favSelectedIndex;
+                      const isStockControlled = item.manageStock !== false;
+                      const finalStock = getItemStock(item);
+
+                      return (
+                        <tr
+                          key={item.id}
+                          onClick={() => {
+                            addToBasket(item);
+                            triggerToast?.('¡Agregado a la venta!', 'success');
+                          }}
+                          className={`group text-xs transition-colors cursor-pointer ${
+                            isSelected
+                              ? (isLight ? 'bg-blue-50/50 fav-item-row-selected font-bold text-blue-900' : 'bg-blue-950/20 fav-item-row-selected font-bold text-blue-300')
+                              : (isLight ? 'hover:bg-zinc-50/80 text-zinc-800' : 'hover:bg-white/5 text-zinc-200')
+                          }`}
+                        >
+                          <td className="py-3 px-4 font-mono font-bold tracking-tight">
+                            {item.code || <span className="opacity-30">N/D</span>}
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="font-bold uppercase tracking-wide">{item.name}</div>
+                            {item.brand && (
+                              <div className="text-[10px] opacity-60 font-medium">Marca: {item.brand}</div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 uppercase text-[10px] font-semibold opacity-70">
+                            {item.category || 'General'}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono">
+                            {isStockControlled ? (
+                              <span className={`px-1.5 py-0.5 rounded font-black ${
+                                finalStock <= 0 
+                                  ? 'bg-rose-500/10 text-rose-500' 
+                                  : finalStock <= (item.minStock || 2)
+                                    ? 'bg-amber-500/10 text-amber-500'
+                                    : 'bg-emerald-500/10 text-emerald-500'
+                              }`}>
+                                {finalStock} pz
+                              </span>
+                            ) : (
+                              <span className="opacity-40">∞ Servicio</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            {sym}{item.price?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Bar */}
+          <div className={`px-6 py-3 flex items-center justify-between text-xs font-semibold border-t shrink-0 ${
+            isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-650' : 'bg-[#252525] border-white/10 text-zinc-400'
+          }`}>
+            <span className="font-mono">[ESC] Cerrar catálogo</span>
+            <span className="font-bold">Mostrando: {currentSelNum} de {totalFavs} artículos</span>
+          </div>
+
         </div>
       </div>
     );
@@ -388,6 +723,63 @@ export default function PosFluent({ logic }: Props) {
             }}
           />
         </div>
+        {/* Selector de origen de venta */}
+        {config.enableWarehouses === true && (
+        <div className="ml-2 flex items-center gap-1.5 shrink-0 select-none">
+          <span className={`text-[10px] uppercase font-black tracking-wider ${isLight ? 'text-zinc-655' : 'text-zinc-450'}`}>Vender desde:</span>
+          <select
+            value={selectedSaleWarehouseId}
+            onChange={(e) => setSelectedSaleWarehouseId(e.target.value)}
+            className={`px-2.5 py-1 border rounded-lg text-xs uppercase font-bold focus:outline-none cursor-pointer ${
+              isLight 
+                ? 'bg-white border-zinc-200 text-zinc-800 focus:border-blue-500' 
+                : 'bg-[#202020] border-white/10 text-white focus:border-blue-500'
+            }`}
+          >
+            <option value="all">🌐 Todas las Bodegas</option>
+            <option value="local">🏠 Tienda Local</option>
+            {warehouses.map(w => (
+              <option key={w.id} value={w.id}>🏢 {w.name}</option>
+            ))}
+          </select>
+        </div>
+        )}
+        <button
+          type="button"
+          onClick={() => { setFavSearchQuery(''); setFavSelectedCategory('TODAS'); setShowFavoritesModal(true); }}
+          title="Ver catálogo rápido de productos y refacciones favoritas"
+          className={`ml-2 px-3 py-1.5 border rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 select-none transition-colors ${
+            isLight
+              ? 'bg-amber-50/80 hover:bg-amber-100/80 border-amber-200 text-amber-700'
+              : 'bg-amber-950/20 hover:bg-amber-900/30 border-amber-500/20 text-amber-400'
+          }`}
+        >
+          ⭐ Favoritos
+        </button>
+        <button
+          type="button"
+          onClick={() => { setSearchQuery(''); setModalCurrentPage(1); setModalSelectedIndex(0); setIsSearchModalOpen(true); }}
+          title="Ver catálogo completo de productos y refacciones"
+          className={`ml-2 px-3 py-1.5 border rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 select-none transition-colors ${
+            isLight
+              ? 'bg-blue-50/80 hover:bg-blue-100/80 border-blue-200 text-blue-700'
+              : 'bg-blue-950/20 hover:bg-blue-900/30 border-blue-500/20 text-blue-400'
+          }`}
+        >
+          📂 Catálogo
+        </button>
+        <button
+          type="button"
+          onClick={() => { setPriceCheckerQuery(''); setPriceCheckerResults(null); setShowPriceChecker(true); }}
+          title="Verificar precio de un artículo"
+          className={`ml-2 px-3 py-1.5 border rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 select-none transition-colors ${
+            isLight
+              ? 'bg-zinc-50 hover:bg-zinc-100 border-zinc-200 text-zinc-700'
+              : 'bg-zinc-800/20 hover:bg-zinc-750 border-zinc-700 text-zinc-400 hover:text-white'
+          }`}
+        >
+          🏷️ Precios
+        </button>
       </div>
 
       {/* ── Área principal ─────────────────────────────────────────────────── */}
@@ -431,7 +823,6 @@ export default function PosFluent({ logic }: Props) {
             <div className="flex flex-col space-y-1.5">
               {[
                 { key: 'F2', label: 'Clientes', action: 'Asignar cliente o referencia', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-                { key: 'F3', label: 'Reparación', action: 'Cobrar orden de servicio', color: 'bg-violet-50 text-violet-700 border-violet-200' },
                 { key: 'F5', label: 'Finalizar venta', action: 'Cobrar cesta actual', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
                 { key: 'F10', label: 'Guardar venta', action: 'Enviar a lista de espera', color: 'bg-blue-50 text-blue-700 border-blue-200' },
                 { key: 'X', label: 'Cancelar', action: 'Vaciar cesta o cerrar menús', color: 'bg-rose-50 text-rose-700 border-rose-200' },
@@ -465,6 +856,22 @@ export default function PosFluent({ logic }: Props) {
               </span>
               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">🛒 CARRITO ACTUAL ({basketTotalItems} {basketTotalItems === 1 ? 'artículo' : 'artículos'})</span>
             </div>
+
+            {/* TOGGLE ¿ES COTIZACIÓN? */}
+            <div className="flex items-center gap-2">
+              <input 
+                type="checkbox"
+                id="quote-active-chk-fluent-header"
+                checked={isQuoteMode}
+                onChange={(e) => setIsQuoteMode(e.target.checked)}
+                className="w-4 h-4 cursor-pointer"
+              />
+              <label htmlFor="quote-active-chk-fluent-header" className={`text-[10px] uppercase font-black tracking-wider cursor-pointer select-none ${
+                isLight ? 'text-amber-600' : 'text-amber-400'
+              }`}>
+                ¿Es Cotización?
+              </label>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto pr-1 min-h-0 scrollbar-thin">
             <table className="w-full text-left text-xs border-collapse">
@@ -473,18 +880,19 @@ export default function PosFluent({ logic }: Props) {
                   isLight ? 'bg-zinc-50 border-zinc-100' : 'bg-[#252525]/60 border-white/5'
                 }`}>
                   <th className="px-3 py-1 w-28">Código</th>
-                  <th className="px-3 py-1">Artículo</th>
+                  <th className="px-3 py-1 w-full">Artículo</th>
                   <th className="px-3 py-1 text-center w-24">Cantidad</th>
-                  <th className="px-3 py-1 text-right w-28">Precio Unit.</th>
-                  <th className="px-3 py-1 text-right w-24">Subtotal</th>
+                  <th className="px-3 py-1 text-right w-36 whitespace-nowrap">Precio Unit.</th>
+                  <th className="px-3 py-1 text-right w-28 whitespace-nowrap">Subtotal</th>
                   <th className="px-3 py-1 text-center w-12">Acc.</th>
                 </tr>
               </thead>
               <tbody className={`divide-y animate-fadeIn ${isLight ? 'divide-zinc-50' : 'divide-white/5'}`}>
                  {basket.map((item) => {
-                  const currentPrice = item.customPrice !== undefined ? item.customPrice : item.item.price;
+                  const currentPrice = item.basePrice !== undefined ? item.basePrice : (item.customPrice !== undefined ? item.customPrice : item.item.price);
+                  const discountAmount = item.discountAmount !== undefined ? item.discountAmount : 0;
                   const isStockControlled = item.item.manageStock !== false;
-                  const availableStock = item.item.stock - (item.item.reservedQty || 0);
+                  const availableStock = item.fromWarehouseId ? (item.item.warehouseStock?.[item.fromWarehouseId] || 0) : item.item.stock - (item.item.reservedQty || 0);
                   const isOutOfStock = isStockControlled && availableStock <= 0;
                   const isInsufficient = isStockControlled && availableStock > 0 && item.quantity > availableStock;
                   const rowId = item.uniqueId || item.item.id;
@@ -496,13 +904,13 @@ export default function PosFluent({ logic }: Props) {
                       (isLight ? 'hover:bg-blue-50/40 text-zinc-700 border-l-transparent' : 'hover:bg-white/5 text-zinc-300 border-l-transparent')
                     }`}>
                       <td className={`px-3 py-1.5 font-mono text-[10px] truncate max-w-[112px] ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`} title={item.item.code || 'S/C'}>{item.item.code || 'S/C'}</td>
-                      <td className={`px-3 py-1.5 uppercase text-[11px] font-bold ${isLight ? 'text-zinc-800' : 'text-white'}`}>
-                        <div className="flex items-center gap-2.5">
-                          <PosItemThumbnail imageUrl={item.item.imageUrl} name={item.item.name} code={item.item.code} category={item.item.category} price={currentPrice} currencySymbol={sym} size={30} />
+                      <td className={`px-3 py-1.5 uppercase text-[11px] font-bold max-w-0 w-full ${isLight ? 'text-zinc-800' : 'text-white'}`}>
+                        <div className="flex items-center gap-2.5 w-full min-w-0">
+                          <PosItemThumbnail imageUrl={item.item.imageUrl} name={item.item.name} code={item.item.code} category={item.item.category} price={currentPrice - discountAmount} currencySymbol={sym} size={30} />
                           <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-center gap-2 w-full">
-                              <div className="flex flex-col">
-                                <span className="truncate">{item.item.name}</span>
+                              <div className="flex flex-col min-w-0">
+                                <span className="block whitespace-normal break-words leading-tight">{item.item.name}</span>
                                 {item.chipActivation && (
                                   <div className={`text-[10px] font-mono font-bold flex items-center gap-1.5 mt-0.5 border px-2 py-0.5 rounded-lg w-fit select-none ${
                                     isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-emerald-950/20 border-emerald-800/35 text-emerald-400'
@@ -557,8 +965,44 @@ export default function PosFluent({ logic }: Props) {
                                 </span>
                               )}
                             </div>
-                            <div className={`text-[9px] font-normal capitalize flex items-center gap-2 mt-0.5 select-none ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                            <div className={`text-[9px] font-normal capitalize flex items-center gap-2 mt-0.5 select-none flex-wrap ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>
                               <span>{item.item.brand} · {item.item.category}</span>
+                              {item.fromWarehouseId ? (
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                  isLight ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                }`}>
+                                  🏢 {warehouses.find(w => w.id === item.fromWarehouseId)?.name || 'Bodega'}
+                                </span>
+                              ) : (
+                                config.enableWarehouses === true && (
+                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                    isLight ? 'bg-zinc-100 border-zinc-200 text-zinc-700' : 'bg-zinc-500/10 border-zinc-500/20 text-zinc-400'
+                                  }`}>
+                                    🏠 Tienda Local
+                                  </span>
+                                )
+                              )}
+                              {isStockControlled ? (
+                                availableStock > 0 ? (
+                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                    isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                  }`}>
+                                    Stock: {availableStock} {availableStock === 1 ? 'pza' : 'pzas'}
+                                  </span>
+                                ) : (
+                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                    isLight ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-rose-500/10 border-rose-500/20 text-rose-450'
+                                  }`}>
+                                    Sin Stock
+                                  </span>
+                                )
+                              ) : (
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                  isLight ? 'bg-zinc-100 border-zinc-200 text-zinc-650' : 'bg-zinc-500/10 border-zinc-500/20 text-zinc-400'
+                                }`}>
+                                  Ilimitado
+                                </span>
+                              )}
                               {item.item.wholesalePrice !== undefined && item.item.wholesalePrice > 0 && (
                                 <button
                                   type="button"
@@ -585,7 +1029,53 @@ export default function PosFluent({ logic }: Props) {
                         </div>
                       </td>
                       <td className={`px-3 py-1.5 text-right font-mono font-bold ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                        {editingItemId === rowId ? (
+                        {editingDiscountItemId === rowId ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-[9px] text-zinc-500 font-bold select-none">
+                              Base: {sym}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <div 
+                              className="flex items-center justify-end gap-1"
+                              onBlur={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                  const val = parseFloat(editingDiscountValue);
+                                  updateLineDiscount(rowId, isNaN(val) ? 0 : val, editingDiscountType);
+                                  setEditingDiscountItemId(null);
+                                }
+                              }}
+                            >
+                              <input
+                                type="number"
+                                min="0"
+                                value={editingDiscountValue}
+                                onChange={(e) => setEditingDiscountValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseFloat(editingDiscountValue);
+                                    updateLineDiscount(rowId, isNaN(val) ? 0 : val, editingDiscountType);
+                                    setEditingDiscountItemId(null);
+                                  }
+                                  if (e.key === 'Escape') setEditingDiscountItemId(null);
+                                }}
+                                className={`w-12 text-right border border-red-400 rounded-lg px-1 py-0.5 text-xs font-mono font-bold focus:outline-none ${
+                                  isLight ? 'bg-white text-zinc-800' : 'bg-[#2d2d2d] text-white'
+                                }`}
+                                autoFocus
+                                onFocus={(e) => e.target.select()}
+                              />
+                              <select
+                                value={editingDiscountType}
+                                onChange={(e) => setEditingDiscountType(e.target.value as 'percentage' | 'fixed')}
+                                className={`border border-red-400 rounded-lg text-xs py-0.5 font-bold focus:outline-none ${
+                                  isLight ? 'bg-white text-zinc-800' : 'bg-[#2d2d2d] text-white'
+                                }`}
+                              >
+                                <option value="percentage">%</option>
+                                <option value="fixed">{sym}</option>
+                              </select>
+                            </div>
+                          </div>
+                        ) : editingItemId === rowId ? (
                           <div className="flex items-center justify-end gap-1">
                             <span className="text-zinc-400">{sym}</span>
                             <input type="number" step="any" min="0" value={editingPriceValue} onChange={(e) => setEditingPriceValue(e.target.value)}
@@ -596,16 +1086,67 @@ export default function PosFluent({ logic }: Props) {
                               }`} autoFocus onFocus={(e) => e.target.select()} />
                           </div>
                         ) : (
-                          <div className="flex items-center justify-end gap-1 group">
-                            <span className={item.customPrice !== undefined ? 'text-amber-600 font-black' : ''}>{sym}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            {item.customPrice !== undefined && <span className={`text-[9px] font-bold border px-0.5 rounded ${isLight ? 'text-amber-600 bg-amber-50 border-amber-200' : 'text-amber-400 bg-amber-950/20 border-amber-800/35'}`}>MOD</span>}
-                            <button type="button" onClick={() => handleRequestEditPrice(rowId, currentPrice)} className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-blue-650 cursor-pointer ml-0.5" title="Editar precio">
-                              <Edit className="w-3 h-3" />
-                            </button>
+                          <div className="flex items-center justify-end gap-1.5 group whitespace-nowrap">
+                            {/* Botones de acción (visibles solo en hover a la izquierda para mantener alineación) */}
+                            <div className="hidden group-hover:flex items-center gap-1 mr-1">
+                              <button
+                                type="button"
+                                onClick={() => handleRequestEditPrice(rowId, currentPrice)}
+                                className="text-zinc-400 hover:text-blue-655 cursor-pointer"
+                                title={isAdminMode ? 'Editar precio (No se refleja en el ticket)' : 'Editar precio (requiere PIN de administrador - No se refleja en el ticket)'}
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingDiscountItemId(rowId);
+                                  setEditingDiscountValue(item.lineDiscountValue ? item.lineDiscountValue.toString() : '');
+                                  setEditingDiscountType(item.lineDiscountType || 'percentage');
+                                }}
+                                className="text-zinc-400 hover:text-red-500 cursor-pointer"
+                                title="Descuento (Se refleja en el ticket)"
+                              >
+                                <Tag className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Contenedor de precio y badges */}
+                            <div className="flex flex-col items-end">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {item.customPrice !== undefined && (
+                                  <span className={`text-[9px] font-bold border px-0.5 rounded ${isLight ? 'text-amber-600 bg-amber-50 border-amber-200' : 'text-amber-400 bg-amber-950/20 border-amber-800/35'}`}>MOD</span>
+                                )}
+                                {item.lineDiscountValue !== undefined && item.lineDiscountValue > 0 ? (
+                                  <>
+                                    <span className={`line-through text-xs ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                                      {sym}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                    <span className={`text-xs mx-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-555'}`}>-</span>
+                                    <span className={`font-semibold text-xs ${isLight ? 'text-red-655' : 'text-red-400'}`}>
+                                      {item.lineDiscountType === 'percentage' ? `${item.lineDiscountValue}%` : `${sym}${item.lineDiscountValue}`}
+                                    </span>
+                                    <span className={`text-xs mx-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-555'}`}>=</span>
+                                    <span className={`font-bold ${isLight ? 'text-zinc-700' : 'text-zinc-200'}`}>
+                                      {sym}{(currentPrice - discountAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className={item.customPrice !== undefined ? 'text-amber-600 font-black' : ''}>
+                                    {sym}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                )}
+                              </div>
+                              {item.quantity > 1 && item.lineDiscountValue !== undefined && item.lineDiscountValue > 0 && (
+                                <span className={`text-[9px] font-medium select-none mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-450'}`}>
+                                  (Desc. total: -{sym}{(discountAmount * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-1.5 text-right font-mono font-extrabold text-blue-500 text-xs">{sym}{(currentPrice * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-1.5 text-right font-mono font-extrabold text-blue-500 text-xs">{sym}{((currentPrice - discountAmount) * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-1.5 text-center">
                         <button type="button" onClick={() => removeFromBasket(rowId)} title="Eliminar del ticket" className={`p-1 px-2 border rounded-lg transition-all cursor-pointer inline-flex items-center justify-center active:scale-90 ${isLight ? 'border-zinc-200 hover:border-red-300 hover:bg-red-50 text-zinc-400 hover:text-red-500' : 'border-white/5 hover:border-red-800/35 hover:bg-red-950/20 text-zinc-500 hover:text-red-400'}`}>
                           <Trash2 className="w-3.5 h-3.5" />
@@ -659,24 +1200,37 @@ export default function PosFluent({ logic }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowRepairSelectionModal(true)}
-            title="Agregar saldo de orden de servicio al carrito [F3]"
-            className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-violet-850"
-          >
-            <span className="hidden sm:inline">Reparación</span> <span className="font-mono font-normal text-[9px] bg-black/15 px-1 py-0.5 rounded text-violet-100">[F3]</span>
-          </button>
-          <button type="button" disabled={basket.length === 0} onClick={handleSaveSaleForLater}
-            title="Guardar venta actual para después [F10]"
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-blue-800">
-            <span className="hidden sm:inline">Guardar</span> <span className="font-mono font-normal text-[9px] bg-black/15 px-1 py-0.5 rounded text-blue-100">[F10]</span>
-          </button>
-          <button type="button" disabled={basket.length === 0} onClick={handleCheckout}
-            title="Finalizar la venta actual y registrar el pago [F5]"
-            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-emerald-700">
-            <span className="hidden sm:inline">Cobrar</span> <span className="font-mono font-normal text-[9px] bg-black/10 px-1 py-0.5 rounded text-emerald-100">[F5]</span>
-          </button>
+          {!isQuoteMode && (
+            <>
+              <button type="button" disabled={basket.length === 0} onClick={handleSaveSaleForLater}
+                title="Guardar venta actual para después [F10]"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-blue-800">
+                <span className="hidden sm:inline">Guardar</span> <span className="font-mono font-normal text-[9px] bg-black/15 px-1 py-0.5 rounded text-blue-100">[F10]</span>
+              </button>
+            </>
+          )}
+          {isQuoteMode && basket.length > 0 && (
+            <button
+              type="button"
+              disabled={basket.length === 0}
+              onClick={() => {
+                setQuoteClientName('');
+                setQuoteWhatsappPhone('');
+                setShowQuoteWhatsappModal(true);
+              }}
+              title="Compartir cotización de los artículos del carrito actual por WhatsApp"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-amber-800"
+            >
+              <Smartphone className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Cotizar</span>
+            </button>
+          )}
+          {!isQuoteMode && (
+            <button type="button" disabled={basket.length === 0} onClick={handleCheckout}
+              title="Finalizar la venta actual y registrar el pago [F5]"
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white uppercase text-[11px] font-black rounded tracking-wider cursor-pointer active:scale-95 transition-all flex items-center gap-1 border-b border-emerald-700">
+              <span className="hidden sm:inline">Cobrar</span> <span className="font-mono font-normal text-[9px] bg-black/10 px-1 py-0.5 rounded text-emerald-100">[F5]</span>
+            </button>
+          )}
           <button type="button"
             disabled={basket.length === 0}
             onClick={() => setShowCancelConfirm(true)}
@@ -771,6 +1325,7 @@ export default function PosFluent({ logic }: Props) {
                   </div>
                 ))}
               </div>
+
 
               {/* DISCOUNT INPUT CARD */}
               <div className={`border p-3 rounded-xl transition-all shadow-sm ${
@@ -904,6 +1459,62 @@ export default function PosFluent({ logic }: Props) {
                   </div>
                 )}
               </div>
+
+              {/* ACCORDION/COLLAPSIBLE FOR SPECIAL OPTIONS */}
+              <div className={`border rounded-xl overflow-hidden transition-all duration-350 ${
+                isLight ? 'border-zinc-200 bg-zinc-50/50' : 'border-white/5 bg-[#2d2d2d]/30'
+              }`}>
+                <button
+                  type="button"
+                  onClick={() => setShowSpecialOptions(!showSpecialOptions)}
+                  className={`w-full flex items-center justify-between px-4 py-2.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all select-none focus:outline-none ${
+                    isLight ? 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100' : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <span>{showSpecialOptions ? 'Ocultar Opciones de Cobro' : 'Opciones Especiales (Fiar / Apartar)'}</span>
+                  <span className="text-xs">
+                    {showSpecialOptions ? '▲' : '▼'}
+                  </span>
+                </button>
+
+                {showSpecialOptions && (
+                  <div className={`p-3.5 border-t flex flex-col sm:flex-row gap-2.5 ${
+                    isLight ? 'border-zinc-200 bg-white' : 'border-white/5 bg-[#202020]'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => { setShowSpecialOptions(false); openFiarModal(); }}
+                      title="Registrar esta venta como cuenta por cobrar / fiado [F6]"
+                      className={`flex-1 py-2.5 border font-extrabold text-[10px] sm:text-xs rounded-xl uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+                        isLight 
+                          ? 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100/50' 
+                          : 'bg-orange-950/10 border-orange-500/30 hover:border-orange-500 text-orange-400'
+                      }`}
+                    >
+                      💳 Fiar Venta
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const initialAmt = payCash + payCard;
+                        setApartarInitialAmount(initialAmt > 0 ? initialAmt.toString() : '');
+                        setApartarInitialMethod(payCard > 0 ? 'Tarjeta' : 'Efectivo');
+                        setShowSpecialOptions(false);
+                        setShowSaleConfirm(false);
+                        setShowApartarModal(true);
+                      }}
+                      title="Apartar productos con pago inicial [F7]"
+                      className={`flex-1 py-2.5 border font-extrabold text-[10px] sm:text-xs rounded-xl uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+                        isLight 
+                          ? 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100/50' 
+                          : 'bg-purple-950/10 border-purple-500/30 hover:border-purple-500 text-purple-400'
+                      }`}
+                    >
+                      📦 Apartar Productos
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className={`border-t p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 ${
@@ -923,16 +1534,6 @@ export default function PosFluent({ logic }: Props) {
                   title="Cancelar y volver a la pantalla de venta"
                   className="flex-1 sm:flex-none uppercase px-2.5 sm:px-6 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-extrabold text-[10px] sm:text-xs tracking-wider cursor-pointer rounded-xl transition-all active:scale-95 text-center">
                   Cancelar
-                </button>
-                <button type="button" onClick={() => { setShowSaleConfirm(false); setShowFiarModal(true); }}
-                  title="Registrar esta venta como cuenta por cobrar / fiado [F6]"
-                  className="flex-1 sm:flex-none uppercase px-2 sm:px-5 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-[10px] sm:text-xs tracking-wider cursor-pointer rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1 text-center">
-                  💳 Fiar
-                </button>
-                <button type="button" onClick={() => { setShowSaleConfirm(false); setShowApartarModal(true); }}
-                  title="Apartar productos con pago inicial [F7]"
-                  className="flex-1 sm:flex-none uppercase px-2 sm:px-5 py-2.5 bg-purple-500 hover:bg-purple-600 text-white font-black text-[10px] sm:text-xs tracking-wider cursor-pointer rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1 text-center">
-                  📦 Apartar
                 </button>
 
                 {config.whatsappMode && config.whatsappMode !== 'disabled' && (
@@ -963,71 +1564,217 @@ export default function PosFluent({ logic }: Props) {
       )}
 
       {/* Modal Fiar */}
-      {showFiarModal && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFiarModal(false)}>
-          <div className="w-full max-w-sm mx-4 bg-white border border-zinc-200 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+      {showFiarModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setShowFiarModal(false); setActiveSearchField(null); }}>
+          <div className="w-full max-w-sm mx-4 bg-white border border-zinc-200 rounded-2xl shadow-2xl overflow-hidden" onClick={e => { e.stopPropagation(); setActiveSearchField(null); }}>
             <div className="bg-[#1a3a6b] px-4 py-3 flex items-center justify-between">
               <span className="font-black text-sm uppercase tracking-widest text-white">💳 Registrar Fiado</span>
-              <button onClick={() => setShowFiarModal(false)} className="text-white/70 hover:text-white font-black text-lg cursor-pointer">✕</button>
+              <button onClick={() => { setShowFiarModal(false); setActiveSearchField(null); }} className="text-white/70 hover:text-white font-black text-lg cursor-pointer">✕</button>
             </div>
             <div className="p-4 space-y-3">
-              <div className="text-xs font-bold text-zinc-500">Total a fiar: <span className="font-black text-zinc-900">{config.currencySymbol || '$'}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-zinc-500">Nombre del cliente *</label>
-                <input autoFocus value={fiarClientName} onChange={e => handleCaretPreservingChange(e, setFiarClientName, val => val.toUpperCase())}
-                  placeholder="NOMBRE COMPLETO..."
-                  className="w-full mt-1 bg-white border border-zinc-300 text-zinc-900 px-3 py-2 text-sm font-bold uppercase rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:normal-case placeholder:text-zinc-400"
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-tel-fluent')?.focus(); } }} />
-              </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
-                <div className="flex mt-1 bg-white border border-zinc-300 rounded-lg overflow-hidden focus-within:border-orange-500">
-                  <select
-                    value={fiarCountryCode}
-                    onChange={e => setFiarCountryCode(e.target.value)}
-                    className="bg-zinc-50 border-r border-zinc-200 text-zinc-800 px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none"
+              {fiarExistingAccount ? (
+                /* Cuenta Existente Detectada: Resumen Claro */
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-700">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>Confirmar Cargo en Cuenta Existente</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs text-zinc-600">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Cliente:</span>
+                      <span className="font-extrabold text-zinc-900">{fiarExistingAccount.clientName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Teléfono:</span>
+                      <span className="font-bold text-zinc-900">{fiarExistingAccount.clientPhone}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-zinc-150 pt-1.5">
+                      <span className="text-zinc-400">Saldo Anterior:</span>
+                      <span className="font-bold text-zinc-900">{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Nuevo Cargo:</span>
+                      <span className="font-extrabold text-orange-600">+{config.currencySymbol || '$'}{(basketTotal - (Number(fiarInitialPayment) || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    {fiarInitialPayment && Number(fiarInitialPayment) > 0 && (
+                      <div className="flex justify-between text-[11px] text-[#2e7d32]">
+                        <span>Anticipo ({fiarInitialMethod}):</span>
+                        <span>-{config.currencySymbol || '$'}{Number(fiarInitialPayment).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    {/* Detalle del Cargo */}
+                    <div className="border-t border-zinc-150 pt-1.5 space-y-1">
+                      <span className="text-[9px] font-black uppercase text-zinc-400 block">Detalle del cargo:</span>
+                      <div className="max-h-24 overflow-y-auto space-y-0.5 pr-1 text-[10px] text-zinc-500 font-medium">
+                        {basket.map((bi, index) => {
+                          const price = bi.customPrice ?? bi.item.price;
+                          return (
+                            <div key={index} className="flex justify-between">
+                              <span>{bi.quantity}x {bi.item.name}</span>
+                              <span>{config.currencySymbol || '$'}{(price * bi.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex justify-between border-t border-zinc-150 pt-1.5 text-sm font-black">
+                      <span className="text-zinc-550">Nuevo Saldo Total:</span>
+                      <span className="text-zinc-900">{config.currencySymbol || '$'}{(fiarExistingAccount.balance + basketTotal - (Number(fiarInitialPayment) || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Crear Nuevo Fiado: Inputs normal */
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-3">
+                      <label className="text-[10px] font-black uppercase text-zinc-500">Nombre del Cliente *</label>
+                      <div className="relative">
+                        <input value={fiarClientName} onChange={e => setFiarClientName(e.target.value)}
+                          placeholder="Nombre Completo"
+                          className="w-full mt-1 bg-white border border-zinc-300 text-zinc-900 px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:text-zinc-400"
+                          onFocus={() => setActiveSearchField('name')} />
+                        {activeSearchField === 'name' && fiarNameSuggestions.length > 0 && (
+                          <div className="absolute top-[48px] left-0 right-0 z-[10000] bg-white border border-zinc-200 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                            {fiarNameSuggestions.map(acc => {
+                              const debt = acc.entries.reduce((s, e) => s + e.subtotal, 0);
+                              const paid = acc.payments.reduce((s, p) => s + p.amount, 0);
+                              const balance = Math.max(0, debt - paid);
+                              return (
+                                <div key={acc.id}
+                                  onClick={() => selectExistingCreditAccount(acc)}
+                                  className="px-3 py-2 hover:bg-zinc-50 cursor-pointer border-b last:border-0 border-zinc-100 flex justify-between items-center text-zinc-900"
+                                >
+                                  <div>
+                                    <div className="text-xs font-bold">{acc.clientName}</div>
+                                    <div className="text-[9px] text-zinc-500">{acc.clientPhone}</div>
+                                  </div>
+                                  <div className="text-[10px] font-black text-amber-700">
+                                    Saldo: {config.currencySymbol || '$'}{balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-3">
+                      <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
+                      <div className="relative">
+                        <div className="flex mt-1 border border-zinc-300 rounded-lg overflow-hidden focus-within:border-orange-500 bg-white">
+                          <select
+                            value={fiarCountryCode}
+                            onChange={e => setFiarCountryCode(e.target.value)}
+                            className="bg-zinc-50 border-r border-zinc-300 px-2 text-xs font-bold text-zinc-700 focus:outline-none cursor-pointer appearance-none"
+                          >
+                            <option value="+52">🇲🇽 +52</option>
+                            <option value="+1">🇺🇸 +1</option>
+                          </select>
+                          <input value={fiarClientPhone}
+                            onChange={e => setFiarClientPhone(formatPhoneNumber(e.target.value))}
+                            placeholder="(351) 000-0000"
+                            className="w-full bg-white border-none text-zinc-900 px-3 py-2 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-400"
+                            onFocus={() => setActiveSearchField('phone')}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-limit-fluent')?.focus(); } }} />
+                        </div>
+                        {activeSearchField === 'phone' && fiarPhoneSuggestions.length > 0 && (
+                          <div className="absolute top-[48px] left-0 right-0 z-[10000] bg-white border border-zinc-200 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                            {fiarPhoneSuggestions.map(acc => {
+                              const debt = acc.entries.reduce((s, e) => s + e.subtotal, 0);
+                              const paid = acc.payments.reduce((s, p) => s + p.amount, 0);
+                              const balance = Math.max(0, debt - paid);
+                              return (
+                                <div key={acc.id}
+                                  onClick={() => selectExistingCreditAccount(acc)}
+                                  className="px-3 py-2 hover:bg-zinc-50 cursor-pointer border-b last:border-0 border-zinc-100 flex justify-between items-center text-zinc-900"
+                                >
+                                  <div>
+                                    <div className="text-xs font-bold">{acc.clientName}</div>
+                                    <div className="text-[9px] text-zinc-500">{acc.clientPhone}</div>
+                                  </div>
+                                  <div className="text-[10px] font-black text-amber-700">
+                                    Saldo: {config.currencySymbol || '$'}{balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-500 cursor-pointer select-none">
+                      <input 
+                        type="checkbox"
+                        checked={fiarHasLimit}
+                        onChange={e => {
+                          setFiarHasLimit(e.target.checked);
+                          if (!e.target.checked) setFiarCreditLimit('');
+                        }}
+                        className="w-4 h-4 cursor-pointer shrink-0"
+                      />
+                      <span>¿Establecerle límite de crédito?</span>
+                    </label>
+                    {fiarHasLimit && (
+                      <input id="fiar-limit-fluent" value={fiarCreditLimit} onChange={e => setFiarCreditLimit(e.target.value)}
+                        placeholder={`Ej: ${config.defaultCreditLimit ?? 1000}`}
+                        type="number"
+                        min="1"
+                        className="w-full bg-white border border-zinc-300 text-zinc-900 px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:text-zinc-400 animate-fadeIn"
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-anticipo-fluent')?.focus(); } }} />
+                    )}
+                  </div>
+                </>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-zinc-500">Anticipo / Abono Inicial ($)</label>
+                  <input id="fiar-anticipo-fluent" value={fiarInitialPayment} onChange={e => setFiarInitialPayment(e.target.value)}
+                    placeholder="0.00"
+                    type="number"
+                    min="0"
+                    className="w-full mt-1 bg-white border border-zinc-300 text-zinc-900 px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:text-zinc-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-zinc-500">Método de Anticipo</label>
+                  <select value={fiarInitialMethod} onChange={e => setFiarInitialMethod(e.target.value as any)}
+                    className="w-full mt-1 bg-white border border-zinc-300 text-zinc-900 px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 cursor-pointer"
                   >
-                    <option value="+52">🇲🇽 +52</option>
-                    <option value="+1">🇺🇸 +1</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Tarjeta">Tarjeta / Transf</option>
                   </select>
-                  <input id="fiar-tel-fluent" value={fiarClientPhone}
-                    onChange={e => setFiarClientPhone(formatPhoneNumber(e.target.value))}
-                    placeholder="(351) 000-0000"
-                    className="w-full bg-transparent border-none text-zinc-900 px-3 py-2 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-400"
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-limit-fluent')?.focus(); } }} />
                 </div>
               </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-zinc-500">Límite de Crédito ($)</label>
-                <input id="fiar-limit-fluent" value={fiarCreditLimit} onChange={e => setFiarCreditLimit(e.target.value)}
-                  placeholder={`Ej: ${config.defaultCreditLimit ?? 1000}`}
-                  type="number"
-                  min="0"
-                  className="w-full mt-1 bg-white border border-zinc-300 text-zinc-900 px-3 py-2 text-sm font-bold rounded-lg outline-none focus:border-orange-500 placeholder:font-normal placeholder:text-zinc-400"
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); } }} />
-              </div>
-              <div className="flex flex-col gap-2 pt-1 border-t border-zinc-150">
-                <div className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all">
+              <div className="flex flex-col gap-2 pt-1 border-t border-zinc-200">
+                <div 
+                  onClick={toggleFiarPrint}
+                  className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all cursor-pointer"
+                >
                   <input 
                     type="checkbox" 
                     id="fiar-check-print-fluent"
                     checked={fiarPrint}
                     onChange={toggleFiarPrint}
-                    className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                    className="w-4.5 h-4.5 accent-blue-600 bg-white border border-zinc-350 rounded shrink-0 pointer-events-none"
                   />
-                  <label htmlFor="fiar-check-print-fluent" className="text-[10px] font-black text-zinc-700 cursor-pointer uppercase tracking-normal select-none flex items-center gap-1">
-                    <Printer className="w-3.5 h-3.5 text-zinc-500" /> Imprimir ticket
+                  <label htmlFor="fiar-check-print-fluent" className="text-[10px] font-black text-zinc-500 uppercase tracking-normal select-none flex items-center gap-1 pointer-events-none">
+                    <Printer className="w-3.5 h-3.5 text-zinc-400" /> Imprimir ticket
                   </label>
                 </div>
 
                 {config.whatsappMode && config.whatsappMode !== 'disabled' && (
                   <div 
                     title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
-                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : undefined}
-                    className={`flex items-center gap-2 select-none transition-all ${
+                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : toggleFiarWhatsapp}
+                    className={`flex items-center gap-2 select-none transition-all cursor-pointer ${
                       isWaIntegratedOffline 
-                        ? 'opacity-40 grayscale cursor-pointer' 
-                        : 'hover:opacity-95 active:scale-98 cursor-pointer'
+                        ? 'opacity-40 grayscale' 
+                        : 'hover:opacity-95 active:scale-98'
                     }`}
                   >
                     <input 
@@ -1036,56 +1783,49 @@ export default function PosFluent({ logic }: Props) {
                       checked={!isWaIntegratedOffline && fiarWhatsapp}
                       disabled={isWaIntegratedOffline}
                       onChange={toggleFiarWhatsapp}
-                      className="w-4 h-4 accent-emerald-600 shrink-0 pointer-events-none"
+                      className="w-4.5 h-4.5 accent-blue-600 bg-white border border-zinc-355 rounded shrink-0"
                     />
-                    <label htmlFor="fiar-check-whatsapp-fluent" className="text-[10px] font-black text-zinc-700 uppercase tracking-normal select-none flex items-center gap-1 pointer-events-none">
-                      <MessageSquare className="w-3.5 h-3.5 text-zinc-500" /> Enviar por WhatsApp
+                    <label htmlFor="fiar-check-whatsapp-fluent" className="text-[10px] font-black text-zinc-500 uppercase tracking-normal select-none flex items-center gap-1">
+                      <MessageSquare className="w-3.5 h-3.5 text-zinc-400" /> Enviar por WhatsApp
                     </label>
                   </div>
                 )}
               </div>
-              {fiarExistingAccount && (
-                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-2">
-                  <p className="text-xs font-black text-amber-700">⚠️ {fiarExistingAccount.matchType === 'phone' ? 'Teléfono ya registrado' : 'Nombre similar detectado'}</p>
-                  {fiarExistingAccount.matchType === 'phone' ? (
-                    <p className="text-[10px] text-amber-600">Ya existe una cuenta con ese teléfono a nombre de <strong>{fiarExistingAccount.clientName}</strong> (saldo: <strong>{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>). ¿Agregar a esa cuenta?</p>
-                  ) : (
-                    <p className="text-[10px] text-amber-600">Hay una cuenta llamada <strong>{fiarExistingAccount.clientName}</strong> ({fiarExistingAccount.clientPhone}) con saldo <strong>{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. ¿Es la misma persona o es alguien diferente?</p>
-                  )}
-                  <div className="flex flex-col gap-1.5">
-                    <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} className="w-full py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-[10px] uppercase rounded-xl cursor-pointer transition-all">
-                      Agregar a cuenta de {fiarExistingAccount.clientName} ({fiarExistingAccount.clientPhone})
+              <div className="flex gap-2 pt-1">
+                {fiarExistingAccount ? (
+                  <>
+                    <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} disabled={fiarHasLimit && !fiarCreditLimit.trim()}
+                      className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-xs uppercase rounded-xl cursor-pointer transition-all">
+                      Confirmar y Agregar Cargo ({fiarExistingAccount.clientName})
                     </button>
-                    {fiarExistingAccount.matchType === 'name-only' && (
-                      <button onClick={() => { executeFiar(true, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); }} className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase rounded-xl cursor-pointer transition-all">
-                        Crear nueva cuenta para {fiarClientName.trim().toUpperCase()} ({fiarClientPhone.trim()})
-                      </button>
-                    )}
-                    <button onClick={() => setFiarExistingAccount(null)} className="w-full py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-black text-[10px] uppercase rounded-xl cursor-pointer transition-all">
+                    <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); }}
+                      className="px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-650 font-black text-xs uppercase rounded-xl cursor-pointer transition-all">
                       Cancelar
                     </button>
-                  </div>
-                </div>
-              )}
-              <div className="flex gap-2 pt-1">
-                <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} disabled={!fiarClientName.trim() || !fiarClientPhone.trim() || !fiarCreditLimit.trim()}
-                  title="Confirmar y registrar el fiado para el cliente"
-                  className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                  Confirmar fiado
-                </button>
-                <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); }}
-                  title="Cancelar y volver a la pantalla de cobro"
-                  className="px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-black text-xs uppercase rounded-xl cursor-pointer transition-all">
-                  Cancelar
-                </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} disabled={!fiarClientName.trim() || !fiarClientPhone.trim() || (fiarHasLimit && !fiarCreditLimit.trim())}
+                      title="Confirmar y registrar el fiado para el cliente"
+                      className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase rounded-xl cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                      Confirmar fiado
+                    </button>
+                    <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); }}
+                      title="Cancelar y volver a la pantalla de cobro"
+                      className="px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-650 font-black text-xs uppercase rounded-xl cursor-pointer transition-all">
+                      Cancelar
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Modal Apartar */}
-      {showApartarModal && (
+      {showApartarModal && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowApartarModal(false)}>
           <div className="w-full max-w-sm mx-4 bg-white border border-zinc-200 rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="bg-[#1a3a6b] px-4 py-3 flex items-center justify-between rounded-t-2xl">
@@ -1139,15 +1879,18 @@ export default function PosFluent({ logic }: Props) {
                   className="w-full mt-1 bg-zinc-50 border border-zinc-300 text-zinc-800 px-3 py-1.5 text-sm font-bold rounded-xl outline-none focus:border-purple-500" />
               </div>
               <div className="flex flex-col gap-2 pt-1 border-t border-zinc-150">
-                <div className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all">
+                <div 
+                  onClick={toggleApartarPrint}
+                  className="flex items-center gap-2 select-none hover:opacity-95 active:scale-98 transition-all cursor-pointer"
+                >
                   <input 
                     type="checkbox" 
                     id="apartar-check-print-fluent"
                     checked={apartarPrint}
                     onChange={toggleApartarPrint}
-                    className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                    className="w-4 h-4 accent-emerald-600 shrink-0 pointer-events-none"
                   />
-                  <label htmlFor="apartar-check-print-fluent" className="text-[10px] font-black text-zinc-700 cursor-pointer uppercase tracking-normal select-none flex items-center gap-1">
+                  <label htmlFor="apartar-check-print-fluent" className="text-[10px] font-black text-zinc-700 uppercase tracking-normal select-none flex items-center gap-1 pointer-events-none">
                     <Printer className="w-3.5 h-3.5 text-zinc-500" /> Imprimir ticket
                   </label>
                 </div>
@@ -1155,11 +1898,11 @@ export default function PosFluent({ logic }: Props) {
                 {config.whatsappMode && config.whatsappMode !== 'disabled' && (
                   <div 
                     title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
-                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : undefined}
-                    className={`flex items-center gap-2 select-none transition-all ${
+                    onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : toggleApartarWhatsapp}
+                    className={`flex items-center gap-2 select-none transition-all cursor-pointer ${
                       isWaIntegratedOffline 
-                        ? 'opacity-40 grayscale cursor-pointer' 
-                        : 'hover:opacity-95 active:scale-98 cursor-pointer'
+                        ? 'opacity-40 grayscale' 
+                        : 'hover:opacity-95 active:scale-98'
                     }`}
                   >
                     <input 
@@ -1188,7 +1931,8 @@ export default function PosFluent({ logic }: Props) {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Cambio a devolver ──────────────────────────────────────────────── */}
@@ -1401,6 +2145,72 @@ export default function PosFluent({ logic }: Props) {
               </div>
               <button type="button" onClick={cancelAndCleanupSearchModal} className="text-zinc-400 hover:text-zinc-650 p-1.5 rounded-full hover:bg-zinc-100 transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
+
+            {/* Buscador y Categorías dentro del Modal */}
+            <div className="space-y-3 bg-zinc-50/50 p-4 rounded-2xl border border-zinc-150 shrink-0 text-zinc-800">
+              {/* Buscador */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Buscar por nombre, código SKU o categoría..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setModalCurrentPage(1);
+                    setModalSelectedIndex(0);
+                  }}
+                  className="w-full pl-10 pr-9 py-2 bg-white border border-zinc-250 rounded-xl text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:border-blue-500/50 font-sans"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setModalCurrentPage(1);
+                      setModalSelectedIndex(0);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 p-1 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Categorías (Pills) */}
+              <div className="flex flex-wrap items-center gap-1.5 pb-1 select-none">
+                <button
+                  type="button"
+                  onClick={() => setModalCategoryFilter('TODAS')}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
+                    modalCategoryFilter === 'TODAS'
+                      ? 'bg-blue-600 text-white font-black shadow-md'
+                      : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200'
+                  }`}
+                >
+                  🌟 TODAS ({modalActiveInventory.length})
+                </button>
+                {modalCategoriesList.map(cat => {
+                  const count = modalActiveInventory.filter(p => (p.category || '').trim().toUpperCase() === cat).length;
+                  return (
+                    <button
+                      type="button"
+                      key={cat}
+                      onClick={() => setModalCategoryFilter(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold tracking-wide uppercase transition-all shrink-0 cursor-pointer ${
+                        modalCategoryFilter === cat
+                          ? 'bg-blue-600 text-white font-black shadow-md'
+                          : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200'
+                      }`}
+                    >
+                      {cat} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {paginatedModalItems.length > 0 ? (
               <div className="space-y-4">
                 <p className="text-xs text-zinc-500 font-medium leading-relaxed bg-zinc-50 p-3 rounded-xl border border-zinc-200">
@@ -1416,6 +2226,31 @@ export default function PosFluent({ logic }: Props) {
                     <tbody>
                       {paginatedModalItems.map((product, idx) => {
                         const isSelected = idx === modalSelectedIndex;
+                        const isStockControlled = product.manageStock !== false;
+                        const currentStock = getItemStock(product);
+
+                        const secondaryLocations: { name: string; qty: number }[] = [];
+                        if (isStockControlled) {
+                          if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all' && selectedSaleWarehouseId !== 'local') {
+                            if (product.stock > 0) {
+                              secondaryLocations.push({ name: 'Tienda Local', qty: product.stock });
+                            }
+                            Object.entries(product.warehouseStock || {}).forEach(([whId, qty]) => {
+                              if (whId !== selectedSaleWarehouseId && (qty as number) > 0) {
+                                const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                                secondaryLocations.push({ name: whName, qty: qty as number });
+                              }
+                            });
+                          } else {
+                            Object.entries(product.warehouseStock || {}).forEach(([whId, qty]) => { 
+                              if ((qty as number) > 0) {
+                                const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                                secondaryLocations.push({ name: whName, qty: qty as number });
+                              }
+                            });
+                          }
+                        }
+
                         return (
                           <tr key={product.id} onClick={() => { addToBasket(product); setIsSearchModalOpen(false); }} className={`cursor-pointer border-b border-zinc-100 ${isSelected ? 'pos-modal-row-selected font-semibold bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-zinc-50'}`}>
                             <td className={`px-4 py-1.5 font-mono text-[10px] ${isSelected ? 'text-blue-900 font-extrabold' : 'text-zinc-500'}`}>{product.code || 'S/C'}</td>
@@ -1429,7 +2264,24 @@ export default function PosFluent({ logic }: Props) {
                               </div>
                             </td>
                             <td className={`px-4 py-1.5 text-right font-mono font-black ${isSelected ? 'text-blue-900' : 'text-zinc-900'}`}>{sym}{product.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-1.5 text-center font-mono"><span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${isSelected ? 'bg-blue-100 text-blue-900' : 'bg-emerald-50 text-emerald-800'}`}>{product.stock}</span></td>
+                            <td className="px-4 py-1.5 text-center">
+                              <div className="flex flex-col items-center">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                  isSelected
+                                    ? 'bg-blue-100 text-blue-900'
+                                    : !isStockControlled ? 'bg-indigo-50 text-indigo-655' : currentStock > 5 ? 'bg-emerald-50 text-emerald-800' : 'bg-[#dfdfdf] text-zinc-700'
+                                }`}>
+                                  {!isStockControlled ? '∞' : `${currentStock} disp`}
+                                </span>
+                                {secondaryLocations.map((loc, i) => (
+                                  <span key={i} className={`text-[8.5px] font-black mt-0.5 leading-none ${
+                                    isSelected ? 'text-blue-750' : 'text-amber-600'
+                                  }`}>
+                                    +{loc.qty} en {loc.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1562,19 +2414,23 @@ export default function PosFluent({ logic }: Props) {
         </div>
       )}
 
-      {/* ── Toast ─────────────────────────────────────────────────────────── */}
-      {posToast && (
-        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-lg animate-fadeIn select-none max-w-sm ${
-          posToast.type === 'success' ? 'bg-white border-emerald-200 text-emerald-700 shadow-emerald-100'
-          : posToast.type === 'error' ? 'bg-white border-rose-200 text-rose-700 shadow-rose-100'
-          : posToast.type === 'warning' ? 'bg-white border-amber-200 text-amber-700 shadow-amber-100'
-          : 'bg-white border-zinc-200 text-zinc-700'}`}>
+      {posToast && createPortal(
+        <div 
+          className={`fixed top-4 right-4 z-[100000] flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-lg animate-fadeIn select-none max-w-sm ${
+            posToast.type === 'success' ? 'border-emerald-200 text-emerald-700 shadow-emerald-100'
+            : posToast.type === 'error' ? 'border-rose-200 text-rose-700 shadow-rose-100'
+            : posToast.type === 'warning' ? 'border-amber-200 text-amber-700 shadow-amber-100'
+            : 'border-zinc-200 text-zinc-700'
+          }`}
+          style={{ backgroundColor: '#ffffff', opacity: 1 }}
+        >
           {posToast.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />}
           {posToast.type === 'error' && <XCircle className="w-5 h-5 text-rose-500 shrink-0" />}
           {posToast.type === 'warning' && <Info className="w-5 h-5 text-amber-500 shrink-0" />}
           {posToast.type === 'info' && <Info className="w-5 h-5 text-blue-500 shrink-0" />}
           <span className="text-xs font-bold">{posToast.message}</span>
-        </div>
+        </div>,
+        document.body
       )}
 
       {showRepairSelectionModal && (
@@ -1779,6 +2635,149 @@ export default function PosFluent({ logic }: Props) {
                   className="px-5 py-2.5 text-xs font-black text-white bg-blue-600 hover:bg-blue-750 rounded-xl cursor-pointer transition-all border border-blue-700 uppercase shadow-md flex items-center gap-1.5"
                 >
                   <span>Cobrar y Enviar</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL FLUENT DE NÚMERO DE WHATSAPP PARA COTIZACIÓN EXPRESS (ESTILO WINDOWS 11) */}
+      {showQuoteWhatsappModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60] animate-fadeIn no-blur-backdrop">
+          <div className={`border max-w-md w-full rounded-2xl shadow-2xl p-6 relative animate-scaleUp ${
+            isLight ? 'bg-white border-zinc-200 text-zinc-800' : 'bg-[#202020] border-white/10 text-white'
+          }`}>
+            <button
+              type="button"
+              onClick={() => setShowQuoteWhatsappModal(false)}
+              className="absolute top-4 right-4 text-zinc-450 hover:text-zinc-850 transition-colors cursor-pointer select-none"
+              title="Cerrar (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className={`flex items-center gap-2 mb-4 border-b pb-3 ${isLight ? 'border-zinc-150' : 'border-white/10'}`}>
+              <span className="text-xl">💬</span>
+              <h3 className="text-sm font-sans font-black text-amber-600 uppercase tracking-wider select-none">
+                Cotizar Carrito por WhatsApp
+              </h3>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-[11px] text-zinc-500 leading-relaxed select-none">
+                Se generará una imagen digital de la cotización y se enviará por WhatsApp al cliente seleccionado.
+              </p>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-455 font-extrabold uppercase tracking-wide block select-none">Nombre del Cliente (Opcional)</label>
+                <div className={`flex border rounded-xl overflow-hidden ${
+                  isLight ? 'bg-zinc-55 border-zinc-200 focus-within:border-amber-500' : 'bg-[#1b1b1b] border-white/10 focus-within:border-amber-500'
+                }`}>
+                  <input
+                    type="text"
+                    value={quoteClientName}
+                    onChange={(e) => setQuoteClientName(e.target.value)}
+                    placeholder="Nombre del cliente..."
+                    className={`w-full bg-transparent border-none px-3.5 py-2.5 text-sm font-bold outline-none ${
+                      isLight ? 'text-zinc-900 placeholder:text-zinc-400' : 'text-white placeholder:text-zinc-500'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-455 font-extrabold uppercase tracking-wide block select-none">Número de WhatsApp (Celular)</label>
+                <div className={`flex border rounded-xl overflow-hidden ${
+                  isLight ? 'bg-zinc-55 border-zinc-200 focus-within:border-amber-500' : 'bg-[#1b1b1b] border-white/10 focus-within:border-amber-500'
+                }`}>
+                  <select
+                    value={quoteCountryCode}
+                    onChange={e => setQuoteCountryCode(e.target.value)}
+                    className={`border-r px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none ${
+                      isLight ? 'bg-zinc-100 border-zinc-200 text-zinc-800' : 'bg-[#2d2d2d] border-white/10 text-white'
+                    }`}
+                  >
+                    <option value="+52">🇲🇽 +52</option>
+                    <option value="+1">🇺🇸 +1</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={quoteWhatsappPhone}
+                    onChange={(e) => setQuoteWhatsappPhone(formatPhoneNumber(e.target.value))}
+                    placeholder="(351) 000-0000"
+                    className={`w-full bg-transparent border-none px-3.5 py-2.5 text-sm font-bold outline-none text-right ${
+                      isLight ? 'text-zinc-900 placeholder:text-zinc-400' : 'text-white placeholder:text-zinc-500'
+                    }`}
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (!quoteWhatsappPhone.trim()) {
+                          alert('Por favor ingresa un número de WhatsApp válido.');
+                          return;
+                        }
+                        const res = await sendPosQuoteByWhatsapp(
+                          quoteWhatsappPhone,
+                          quoteClientName,
+                          basket,
+                          basketTotal,
+                          config,
+                          quoteCountryCode,
+                          undefined,
+                          undefined,
+                          undefined,
+                          undefined,
+                          currentUser?.name,
+                          warehouses
+                        );
+                        if (res.ok) {
+                          setBasket([]);
+                          setShowQuoteWhatsappModal(false);
+                        }
+                      }
+                    }}
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className={`flex justify-end gap-3 pt-3 border-t ${isLight ? 'border-zinc-150' : 'border-white/10'}`}>
+                <button
+                  type="button"
+                  onClick={() => setShowQuoteWhatsappModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-zinc-500 hover:text-zinc-800 transition-colors cursor-pointer select-none uppercase"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!quoteWhatsappPhone.trim()) {
+                      alert('Por favor ingresa un número de WhatsApp válido.');
+                      return;
+                    }
+                    const res = await sendPosQuoteByWhatsapp(
+                      quoteWhatsappPhone,
+                      quoteClientName,
+                      basket,
+                      basketTotal,
+                      config,
+                      quoteCountryCode,
+                      undefined,
+                      undefined,
+                      undefined,
+                      undefined,
+                      currentUser?.name,
+                      warehouses
+                    );
+                    if (res.ok) {
+                      setBasket([]);
+                      setShowQuoteWhatsappModal(false);
+                    }
+                  }}
+                  className="px-5 py-2.5 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 rounded-xl cursor-pointer transition-all border border-amber-700 uppercase shadow-md flex items-center gap-1.5"
+                >
+                  <span>Enviar Cotización</span>
                 </button>
               </div>
             </div>
@@ -2037,6 +3036,372 @@ export default function PosFluent({ logic }: Props) {
       )}
 
       {renderPriceCheckerModal()}
+
+      {renderFavoritesModal()}
+
+      {/* Modal 2: F6 (Calculadora) */}
+      {showSoftCalculator && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn" onClick={() => setShowSoftCalculator(false)}>
+          <div className={`max-w-xs w-full rounded-2xl shadow-2xl p-5 relative animate-scaleUp border ${
+            isLight ? 'bg-white border-zinc-200 text-zinc-800' : 'bg-[#202020] border-white/10 text-white'
+          }`} onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setShowSoftCalculator(false)}
+              className={`absolute top-4 right-4 transition-colors cursor-pointer select-none ${
+                isLight ? 'text-zinc-400 hover:text-zinc-700' : 'text-zinc-500 hover:text-white'
+              }`}
+              title="Cerrar (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className={`flex items-center gap-2 mb-4 border-b pb-2.5 ${isLight ? 'border-zinc-200' : 'border-white/10'}`}>
+              <Calculator className="w-4 h-4 text-blue-500" />
+              <h3 className="text-xs font-display font-black text-blue-500 uppercase tracking-widest select-none">
+                🎛️ Calculadora Rápida (F6)
+              </h3>
+            </div>
+
+            {/* Display Area */}
+            <div className={`border rounded-xl p-3.5 mb-4 text-right select-all ${isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-black/20 border-white/5'}`}>
+              <div className="text-[10px] text-zinc-500 font-mono tracking-wider h-4 overflow-hidden truncate">
+                {softCalculatorExpr || '0'}
+              </div>
+              <div className="text-xl font-bold font-mono text-blue-500 truncate pt-1">
+                {softCalculatorResult !== null ? softCalculatorResult : (softCalculatorExpr.split(/[+\-*/]/).pop() || '0')}
+              </div>
+            </div>
+
+            {/* Operator/Number buttons */}
+            <div className="grid grid-cols-4 gap-2 font-mono text-xs">
+              {['C', 'DEL', '(', ')'].map((btn) => (
+                <button
+                  key={btn}
+                  type="button"
+                  onClick={() => handleCalcBtn(btn)}
+                  className={`p-2.5 font-bold rounded-lg border transition-all cursor-pointer select-none ${
+                    isLight 
+                      ? 'bg-zinc-100 hover:bg-zinc-200 border-zinc-200 text-zinc-700' 
+                      : 'bg-zinc-900 hover:bg-zinc-800 border-white/5 text-zinc-300'
+                  }`}
+                >
+                  {btn}
+                </button>
+              ))}
+              {['7', '8', '9', '/'].map((btn) => (
+                <button
+                  key={btn}
+                  type="button"
+                  onClick={() => handleCalcBtn(btn)}
+                  className={`p-2.5 rounded-lg border transition-all cursor-pointer select-none ${
+                    isLight 
+                      ? 'bg-white hover:bg-zinc-50 border-zinc-200 text-zinc-850' 
+                      : 'bg-[#2a2a2a] hover:bg-[#333333] border-white/10 text-white'
+                  }`}
+                >
+                  {btn}
+                </button>
+              ))}
+              {['4', '5', '6', '*'].map((btn) => (
+                <button
+                  key={btn}
+                  type="button"
+                  onClick={() => handleCalcBtn(btn)}
+                  className={`p-2.5 rounded-lg border transition-all cursor-pointer select-none ${
+                    isLight 
+                      ? 'bg-white hover:bg-zinc-50 border-zinc-200 text-zinc-850' 
+                      : 'bg-[#2a2a2a] hover:bg-[#333333] border-white/10 text-white'
+                  }`}
+                >
+                  {btn}
+                </button>
+              ))}
+              {['1', '2', '3', '-'].map((btn) => (
+                <button
+                  key={btn}
+                  type="button"
+                  onClick={() => handleCalcBtn(btn)}
+                  className={`p-2.5 rounded-lg border transition-all cursor-pointer select-none ${
+                    isLight 
+                      ? 'bg-white hover:bg-zinc-50 border-zinc-200 text-zinc-850' 
+                      : 'bg-[#2a2a2a] hover:bg-[#333333] border-white/10 text-white'
+                  }`}
+                >
+                  {btn}
+                </button>
+              ))}
+              {['0', '.', '=', '+'].map((btn) => (
+                <button
+                  key={btn}
+                  type="button"
+                  onClick={() => handleCalcBtn(btn)}
+                  className={`p-2.5 rounded-lg border transition-all font-bold cursor-pointer select-none ${
+                    btn === '=' 
+                      ? 'bg-blue-500 hover:bg-blue-600 text-white border-blue-600' 
+                      : (isLight 
+                          ? 'bg-white hover:bg-zinc-50 border-zinc-200 text-zinc-850' 
+                          : 'bg-[#2a2a2a] hover:bg-[#333333] border-white/10 text-white')
+                  }`}
+                >
+                  {btn}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9px] text-zinc-450 text-center uppercase font-bold tracking-wider pt-3 select-none">
+              Soporta teclado numérico físico
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3: F9 (Contador de Caja y Monedas) */}
+      {showSoftCoinsCounter && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto animate-fadeIn" onClick={() => setShowSoftCoinsCounter(false)}>
+          <div className={`max-w-md w-full rounded-2xl shadow-2xl p-6 relative animate-scaleUp border ${
+            isLight ? 'bg-white border-zinc-200 text-zinc-800' : 'bg-[#202020] border-white/10 text-white'
+          }`} onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setShowSoftCoinsCounter(false)}
+              className={`absolute top-4 right-4 transition-colors cursor-pointer select-none ${
+                isLight ? 'text-zinc-400 hover:text-zinc-700' : 'text-zinc-500 hover:text-white'
+              }`}
+              title="Cerrar (Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className={`flex items-center justify-between mb-4 border-b pb-3 ${isLight ? 'border-zinc-150' : 'border-white/10'}`}>
+              <div className="flex items-center gap-2">
+                <Coins className="w-5 h-5 text-amber-500 animate-pulse" />
+                <h3 className="text-xs font-display font-black text-amber-550 uppercase tracking-widest select-none">
+                  🪙 Control de Caja Chica (F9)
+                </h3>
+              </div>
+              <span className={`text-[9px] font-bold font-mono px-2 py-0.5 rounded-full uppercase border ${
+                isLight ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-amber-950/20 border-amber-800/30 text-amber-400'
+              }`}>
+                Arqueo Rápido
+              </span>
+            </div>
+
+            <p className={`text-[10.5px] mb-4 leading-relaxed select-none font-sans ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
+              Herramienta para arqueo de caja chica. Introduzca las piezas por denominación para calcular el total acumulado de efectivo. En armonía con su hoja de desgloses.
+            </p>
+
+            {/* THREE-COLUMN GRID HEADER */}
+            <div className="grid grid-cols-12 gap-3 text-center text-[10px] font-bold uppercase text-zinc-455 font-mono px-1 mb-2">
+              <span className="col-span-4 text-left">Cantidad</span>
+              <span className="col-span-4">Denominación</span>
+              <span className="col-span-4 text-right">Importe</span>
+            </div>
+
+            <div className="max-h-[300px] overflow-y-auto pr-1 space-y-2 scrollbar-thin">
+              {Object.entries(softCoinsList).map(([denom, count]) => {
+                const val = parseFloat(denom);
+                const isBill = val >= 20;
+                
+                // Stylized badge helpers for visual representation
+                let badge = (
+                  <span className={`px-2 py-1 rounded text-[9.5px] font-black font-mono border w-full block text-center shadow-inner ${
+                    isLight ? 'bg-zinc-50 border-zinc-250 text-zinc-650' : 'bg-zinc-900 border-zinc-700 text-zinc-450'
+                  }`}>
+                    🪙 ${denom}
+                  </span>
+                );
+                if (val === 1000) {
+                  badge = (
+                    <span className="px-2 py-1 rounded text-[9.5px] font-black font-mono border bg-slate-900 border-slate-700 text-slate-350 w-full block text-center shadow-inner">
+                      💵 $1,000
+                    </span>
+                  );
+                } else if (val === 500) {
+                  badge = (
+                    <span className="px-2 py-1 rounded text-[9.5px] font-black font-mono border bg-amber-950/40 border-amber-900/40 text-amber-400 w-full block text-center shadow-inner">
+                      💵 $500
+                    </span>
+                  );
+                } else if (val === 200) {
+                  badge = (
+                    <span className="px-2 py-1 rounded text-[9.5px] font-black font-mono border bg-emerald-950/45 border-emerald-900/45 text-emerald-400 w-full block text-center shadow-inner">
+                      💵 $200
+                    </span>
+                  );
+                } else if (val === 100) {
+                  badge = (
+                    <span className="px-2 py-1 rounded text-[9.5px] font-black font-mono border bg-rose-950/45 border-rose-900/45 text-rose-450 w-full block text-center shadow-inner">
+                      💵 $100
+                    </span>
+                  );
+                } else if (val === 50) {
+                  badge = (
+                    <span className="px-2 py-1 rounded text-[9.5px] font-black font-mono border bg-fuchsia-950/40 border-fuchsia-900/40 text-fuchsia-400 w-full block text-center shadow-inner">
+                      💵 $50
+                    </span>
+                  );
+                } else if (val === 20) {
+                  badge = (
+                    <span className="px-2 py-1 rounded text-[9.5px] font-black font-mono border bg-teal-950/40 border-teal-900/40 text-teal-405 w-full block text-center shadow-inner">
+                      💵 $20
+                    </span>
+                  );
+                } else if (val === 10) {
+                  badge = (
+                    <span className={`px-2 py-1 rounded text-[9.5px] font-black font-mono border w-full block text-center shadow-inner ${
+                      isLight ? 'bg-yellow-50 border-yellow-200 text-yellow-750' : 'bg-yellow-950/30 border-yellow-900/40 text-yellow-500'
+                    }`}>
+                      🪙 $10
+                    </span>
+                  );
+                } else if (val === 0.5) {
+                  badge = (
+                    <span className={`px-2 py-1 rounded text-[9.5px] font-black font-mono border w-full block text-center shadow-inner ${
+                      isLight ? 'bg-orange-50 border-orange-200 text-orange-750' : 'bg-orange-950/20 border-orange-900/30 text-orange-400'
+                    }`}>
+                      🪙 50¢
+                    </span>
+                  );
+                }
+
+                return (
+                  <div key={denom} className="grid grid-cols-12 gap-3 items-center">
+                    {/* QTY INPUT */}
+                    <div className="col-span-4">
+                      <input
+                        type="number"
+                        min="0"
+                        value={count === 0 ? '' : count}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          setSoftCoinsList(prev => ({ ...prev, [denom]: val < 0 ? 0 : val }));
+                        }}
+                        placeholder="0"
+                        className={`w-full text-center border rounded-lg py-1 font-bold font-mono text-xs focus:outline-none focus:border-blue-500 transition-colors ${
+                          isLight 
+                            ? 'bg-zinc-50 border-zinc-250 text-zinc-800 placeholder-zinc-405' 
+                            : 'bg-black/20 border-white/10 text-white placeholder-zinc-700'
+                        }`}
+                      />
+                    </div>
+
+                    {/* DENOM LABEL FRAME */}
+                    <div className="col-span-4 flex justify-center">
+                      {badge}
+                    </div>
+
+                    {/* COMPUTED SUB-IMPORTE */}
+                    <div className="col-span-4">
+                      <div className={`w-full text-right border rounded-lg py-1 pr-3 text-xs font-black font-mono ${
+                        isLight 
+                          ? 'bg-zinc-50/50 border-zinc-200 text-zinc-700' 
+                          : 'bg-black/10 border-white/5 text-amber-400'
+                      }`}>
+                        ${(val * (Number(count) || 0)).toFixed(1)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* FOOTER */}
+            <div className={`border-t pt-4 mt-4 flex items-center justify-between ${isLight ? 'border-zinc-200' : 'border-white/10'}`}>
+              <div className="flex flex-col select-none">
+                <span className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-widest font-mono">Dinero Total</span>
+                <span className={`text-xl font-mono font-black ${isLight ? 'text-blue-600' : 'text-emerald-400'}`}>
+                  ${softCoinsTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  key="clear-coins"
+                  type="button"
+                  onClick={() => {
+                    setSoftCoinsList({
+                      '1000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0, '0.5': 0
+                    });
+                    triggerToast('Arqueo vaciado correctamente.', 'info');
+                  }}
+                  className={`px-3 py-1.5 border rounded-lg text-xs font-semibold transition-all cursor-pointer select-none ${
+                    isLight 
+                      ? 'bg-white hover:bg-zinc-50 border-zinc-250 text-zinc-650' 
+                      : 'bg-zinc-900 hover:bg-zinc-800 border-white/10 text-zinc-400'
+                  }`}
+                >
+                  Vaciar
+                </button>
+
+                <button
+                  key="copy-coins"
+                  type="button"
+                  onClick={() => {
+                    setPayCash(Number(softCoinsTotal.toFixed(2)));
+                    triggerToast(`Importe total de $${softCoinsTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} copiado al campo "Efectivo Recibido"`, 'success');
+                    setShowSoftCoinsCounter(false);
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-750 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer select-none"
+                >
+                  Usar Pago
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {outOfStockAlertItem && createPortal(
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center p-4 z-[80] select-none font-sans animate-fadeIn">
+          <div className={`max-w-md w-full rounded-lg shadow-2xl p-6 relative animate-scaleUp border ${
+            isLight ? 'bg-white border-zinc-200 text-zinc-800' : 'bg-[#282828] border-white/10 text-white'
+          }`}>
+            <div className="flex items-start gap-4">
+              <div className="shrink-0 flex items-center justify-center h-10 w-10 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-500 text-lg">
+                ⚠️
+              </div>
+              <div className="flex-1 space-y-2.5">
+                <h3 className="text-sm font-semibold tracking-wide uppercase text-amber-500">
+                  Advertencia de Inventario
+                </h3>
+                
+                <div className="space-y-1">
+                  <p className="text-xs font-black uppercase tracking-tight">
+                    {outOfStockAlertItem.item.name}
+                  </p>
+                  <p className={`text-[11px] leading-relaxed ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                    {outOfStockAlertItem.reason === 'outofstock' 
+                      ? 'No hay existencias de este artículo registradas en la ubicación seleccionada.'
+                      : `La cantidad en el carrito supera las existencias físicas actuales (Máximo disponible: ${outOfStockAlertItem.maxStock} pzas).`}
+                  </p>
+                  {outOfStockAlertItem.warehouseName && (
+                    <p className="text-[10px] text-blue-500 font-bold uppercase tracking-wide mt-1">
+                      Bodega: {outOfStockAlertItem.warehouseName}
+                    </p>
+                  )}
+                </div>
+
+                <div className={`text-[9px] p-2.5 rounded-md leading-normal border ${
+                  isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-500' : 'bg-black/20 border-white/5 text-zinc-400'
+                }`}>
+                  El parámetro de control "Permitir Ventas Sin Stock" está inactivo.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 mt-4 border-t border-zinc-500/15">
+              <button
+                type="button"
+                onClick={() => setOutOfStockAlertItem(null)}
+                className="px-5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded transition-all cursor-pointer shadow-sm select-none"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

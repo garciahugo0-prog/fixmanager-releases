@@ -182,9 +182,29 @@ export default function EtiquetasView({ inventory, config }: EtiquetasViewProps)
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const abastoLog: AbastoEntry[] = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('fixmanager_abasto_log') || '[]'); }
-    catch { return []; }
-  }, []);
+    try {
+      const logsRaw = localStorage.getItem('fixmanager_replenishment_logs') || '[]';
+      const logs: any[] = JSON.parse(logsRaw);
+      return logs.map(log => {
+        const items = log.items.map((it: any) => {
+          const invItem = inventory.find(inv => inv.name.toUpperCase().trim() === it.name.toUpperCase().trim());
+          return {
+            id: invItem?.id || `temp-${Date.now()}-${Math.random()}`,
+            name: it.name,
+            barcode: invItem?.code || '',
+            price: invItem?.price || 0,
+            amount: it.addedQty
+          };
+        });
+        return {
+          date: log.date,
+          items
+        };
+      });
+    } catch {
+      return [];
+    }
+  }, [inventory]);
 
   const filtered = useMemo(() => {
     const cleanSearch = search.replace(/,(?!\s)/g, '-');
@@ -230,7 +250,8 @@ export default function EtiquetasView({ inventory, config }: EtiquetasViewProps)
         const inv = inventory.find(inv => inv.id === i.id);
         return { id: i.id, name: i.name, code: inv?.code || i.barcode, price: i.price, brand: inv?.brand, qty: i.amount };
       });
-      const d = new Date(entry.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+      const dateStr = entry.date.includes('T') ? entry.date : (entry.date + 'T12:00:00');
+      const d = new Date(dateStr).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
       setQueue(newQueue);
       showReplace(`Cola cargada con el abasto del ${d} — ${newQueue.length} producto${newQueue.length !== 1 ? 's' : ''}`);
     }
@@ -241,7 +262,8 @@ export default function EtiquetasView({ inventory, config }: EtiquetasViewProps)
     const willUpdate  = !!singleItem && !!queue.find(q => q.id === singleItem.id);
 
     if (willReplace) {
-      const d = new Date(entry.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+      const dateStr = entry.date.includes('T') ? entry.date : (entry.date + 'T12:00:00');
+      const d = new Date(dateStr).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
       setConfirmPending({
         title: 'Reemplazar cola de impresión',
         message: `La cola actual tiene ${queue.length} producto${queue.length !== 1 ? 's' : ''} y será reemplazada completa con el abasto del ${d} (${entry.items.length} producto${entry.items.length !== 1 ? 's' : ''}).`,
@@ -474,10 +496,15 @@ export default function EtiquetasView({ inventory, config }: EtiquetasViewProps)
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {abastoLog.map(entry => {
-                  const isOpen = expandedDates.has(entry.date);
-                  const d = new Date(entry.date + 'T12:00:00');
-                  const formatted = d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });
+                  const dateStr = entry.date.includes('T') ? entry.date : (entry.date + 'T12:00:00');
+                  const d = new Date(dateStr);
+                  const formatted = isNaN(d.getTime())
+                    ? 'Fecha de abasto'
+                    : d.toLocaleDateString('es-MX', entry.date.includes('T')
+                        ? { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }
+                        : { weekday: 'short', day: 'numeric', month: 'short' });
                   const totalPzs = entry.items.reduce((a, i) => a + i.amount, 0);
+                  const isOpen = expandedDates.has(entry.date);
                   return (
                     <div key={entry.date} style={{ background: cardBg, border, borderRadius: isRetro ? 0 : 8, overflow: 'hidden' }}>
                       {/* Encabezado de fecha */}

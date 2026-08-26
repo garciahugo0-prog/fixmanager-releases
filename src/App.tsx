@@ -9,10 +9,10 @@ import { createPortal } from 'react-dom';
 import { supabase } from './supabase';
 import { syncDataWithCloud } from './utils/syncEngine';
 import { Printer, RefreshCw, FileDown, X, MessageSquare, Smartphone } from 'lucide-react';
-import { sendTelegram, tgVentaPOS, tgNuevaOrden, tgCambioEstado, tgOrdenEntregada, tgStockBajo, msgProductoAgregado, tgRecepcionMultiple, tgNuevoFiado, tgAbonoFiado, tgApertura, tgMovimientoCaja } from './utils/telegram';
-import { sendWhatsappNotification, buildWhatsappOrderStatusMessage, buildWhatsappOrderReceptionMessage, buildWhatsappSaleTicketMessage, buildWhatsappFiadoCargoMessage, buildWhatsappApartadoMessage, showUiToast } from './utils/whatsapp';
-import { buildPosTicketHtml, buildTicketHtml, buildServiceLabelHtml, buildEntryTicketHtml, buildBatchEntryTicketHtml, buildQuoteTicketHtml, buildConsolidatedTicketHtml, buildMediaCartaBatchIndividualTicketsHtml, buildLetterQuoteTicketHtml, buildApartadoTicketHtml } from './utils/ticketBuilder';
-import { ActiveTab, RepairOrder, ServicePrice, InventoryItem, RefaccionItem, DonorDevice, Client, Expense, Sale, WorkshopConfig, AppUser, ADMIN_PERMISSIONS, AuditAction, AuditEntry, CorteEntry, AperturaEntry, PrintJob, Quote, QuoteDevice, CreditAccount, CreditSaleEntry, CreditPayment, ApartadoEntry, ApartadoPayment, QuoteCatalogItem, InsumoCatalogItem, ChipActivation } from './types';
+import { sendTelegram, tgVentaPOS, tgVentaRecharge, tgNuevaOrden, tgCambioEstado, tgOrdenEntregada, tgStockBajo, msgProductoAgregado, tgRecepcionMultiple, tgNuevoFiado, tgAbonoFiado, tgApertura, tgMovimientoCaja } from './utils/telegram';
+import { sendWhatsappNotification, buildWhatsappOrderStatusMessage, buildWhatsappOrderReceptionMessage, buildWhatsappSaleTicketMessage, buildWhatsappFiadoCargoMessage, buildWhatsappApartadoMessage, showUiToast, formatPhoneForWhatsapp } from './utils/whatsapp';
+import { buildPosTicketHtml, buildRechargeTicketHtml, buildTicketHtml, buildServiceLabelHtml, buildEntryTicketHtml, buildBatchEntryTicketHtml, buildQuoteTicketHtml, buildConsolidatedTicketHtml, buildMediaCartaBatchIndividualTicketsHtml, buildLetterQuoteTicketHtml, buildApartadoTicketHtml } from './utils/ticketBuilder';
+import { ActiveTab, RepairOrder, ServicePrice, InventoryItem, RefaccionItem, DonorDevice, Client, Expense, Sale, WorkshopConfig, AppUser, ADMIN_PERMISSIONS, AuditAction, AuditEntry, CorteEntry, AperturaEntry, PrintJob, Quote, QuoteDevice, CreditAccount, CreditSaleEntry, CreditPayment, ApartadoEntry, ApartadoPayment, QuoteCatalogItem, InsumoCatalogItem, ChipActivation, Warehouse } from './types';
 import {
   INITIAL_CONFIG,
   INITIAL_SERVICES,
@@ -85,13 +85,13 @@ export const safeParseJSON = <T,>(key: string, defaultValue: T): T => {
 
 type AppScreen = 'welcome-choice' | 'setup' | 'login' | 'resume' | 'license' | 'apertura' | 'active' | 'cloud-restore';
 // Lazy-loaded components from SecondaryViews
-const PreciosView = lazy(() => import('./components/SecondaryViews').then(m => ({ default: m.PreciosView })));
-const VentasView = lazy(() => import('./components/SecondaryViews').then(m => ({ default: m.VentasView })));
-const ClientesView = lazy(() => import('./components/SecondaryViews').then(m => ({ default: m.ClientesView })));
-const CortesView = lazy(() => import('./components/SecondaryViews').then(m => ({ default: m.CortesView })));
-const GastosView = lazy(() => import('./components/SecondaryViews').then(m => ({ default: m.GastosView })));
-const MovimientoModal = lazy(() => import('./components/SecondaryViews').then(m => ({ default: m.MovimientoModal })));
-const ConfigView = lazy(() => import('./components/SecondaryViews').then(m => ({ default: m.ConfigView })));
+const PreciosView = lazy(() => import('./components/PreciosView'));
+const VentasView = lazy(() => import('./components/VentasView'));
+const ClientesView = lazy(() => import('./components/ClientesView'));
+const CortesView = lazy(() => import('./components/CortesView'));
+const GastosView = lazy(() => import('./components/GastosView'));
+const MovimientoModal = lazy(() => import('./components/MovimientoModal'));
+const ConfigView = lazy(() => import('./components/ConfigView'));
 
 // Migra claves localStorage del prefijo antiguo (smartec_/smtc_) al nuevo (fixmanager_/fxmgr_)
 function migrateLocalStorageKeys() {
@@ -158,33 +158,50 @@ const ScreenFallback = () => (
   </div>
 );
 
-export default function App() {
-  // Migrar datos locales a UUIDs/timestamps de sincronización antes de inicializar hooks
-  try {
-    migrateLocalDataToUUIDs();
-  } catch (e) {
-    console.error('[Migration] Error en migración sincrónica inicial:', e);
-  }
+// Migrar datos locales a UUIDs/timestamps de sincronización antes de inicializar hooks
+try {
+  migrateLocalDataToUUIDs();
+} catch (e) {
+  console.error('[Migration] Error en migración sincrónica inicial:', e);
+}
 
+export default function App() {
   const [customAlert, setCustomAlert] = useState<{ message: string; resolve: () => void } | null>(null);
 
   useEffect(() => {
     const api = (window as any).electronAPI;
-    if (api && api.whatsappGetStatus) {
-      api.whatsappGetStatus().then((info: any) => {
-        const isConnected = info && info.status === 'CONNECTED';
-        (window as any).whatsappConnected = isConnected;
-        window.dispatchEvent(new CustomEvent('whatsapp-status-update', { detail: isConnected }));
-      }).catch(() => {});
-    }
+    const checkStatus = () => {
+      if (api && api.whatsappGetStatus) {
+        api.whatsappGetStatus().then((info: any) => {
+          const isConnected = info && info.status === 'CONNECTED';
+          (window as any).whatsappConnected = isConnected;
+          (window as any).whatsappStatus = info?.status || 'DISCONNECTED';
+          window.dispatchEvent(new CustomEvent('whatsapp-status-update', { detail: isConnected }));
+        }).catch(() => {});
+      }
+    };
 
+    checkStatus();
+
+    let unsub: any;
     if (api && api.onWhatsappStatusChange) {
-      api.onWhatsappStatusChange((info: any) => {
-        const isConnected = info && info.status === 'CONNECTED';
+      unsub = api.onWhatsappStatusChange((info: any) => {
+        const status = typeof info === 'string' ? info : (info?.status || 'DISCONNECTED');
+        const isConnected = status === 'CONNECTED';
         (window as any).whatsappConnected = isConnected;
+        (window as any).whatsappStatus = status;
         window.dispatchEvent(new CustomEvent('whatsapp-status-update', { detail: isConnected }));
       });
     }
+
+    const interval = setInterval(checkStatus, 4000);
+    window.addEventListener('focus', checkStatus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', checkStatus);
+      if (typeof unsub === 'function') unsub();
+    };
   }, []);
 
   useEffect(() => {
@@ -1470,6 +1487,12 @@ const handleImportData = (mode: 'merge' | 'restore') => {
     }
   };
 
+  const [fiadosInitialSelectedAccountId, setFiadosInitialSelectedAccountId] = useState<string | null>(null);
+  const [fiadosInitialSelectedApartadoId, setFiadosInitialSelectedApartadoId] = useState<string | null>(null);
+  const [fiadosInitialActiveTab, setFiadosInitialActiveTab] = useState<'fiados' | 'apartados'>('fiados');
+  const [fiadosHighlightedEntryId, setFiadosHighlightedEntryId] = useState<string | null>(null);
+  const [fiadosHighlightedApartadoId, setFiadosHighlightedApartadoId] = useState<string | null>(null);
+
   const [configSubTab, setConfigSubTab] = useState<'global' | 'printer' | 'users' | 'notifications' | 'dev' | 'audit' | 'network' | 'taecel'>('global');
   const [showTaecelPromo, setShowTaecelPromo] = useState(() => {
     return !localStorage.getItem('fixmanager_seen_taecel_promo');
@@ -1518,6 +1541,20 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         if (parsed.address && parsed.address.trim() === 'Av. Principal #104, Col. Centro') parsed.address = '';
         if (parsed.whatsappMode === undefined || parsed.whatsappMode === null) {
           parsed.whatsappMode = 'direct';
+        }
+        
+        const savedWh = localStorage.getItem('fixmanager_warehouses');
+        let hasWh = false;
+        if (savedWh) {
+          try {
+            const whList = JSON.parse(savedWh);
+            if (Array.isArray(whList) && whList.length > 0) {
+              hasWh = true;
+            }
+          } catch (e) {}
+        }
+        if (hasWh) {
+          parsed.enableWarehouses = true;
         }
         
         return { ...INITIAL_CONFIG, ...parsed };
@@ -1915,7 +1952,6 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         
         debugLogsObj[deviceId] = [...deviceLogs.slice(-150), logLine];
         localConfig.debugLogs = debugLogsObj;
-        localConfig.updatedAt = time;
         
         localStorage.setItem('fixmanager_config', JSON.stringify(localConfig));
         rawSetConfig(localConfig);
@@ -1954,6 +1990,10 @@ const handleImportData = (mode: 'merge' | 'restore') => {
 
   const [insumosCatalog, setInsumosCatalog] = useState<InsumoCatalogItem[]>(() => {
     return safeParseJSON<InsumoCatalogItem[]>('fixmanager_insumos_catalog', []);
+  });
+
+  const [warehouses, setWarehouses] = useState<Warehouse[]>(() => {
+    return safeParseJSON<Warehouse[]>('fixmanager_warehouses', []);
   });
 
   const [inventory, rawSetInventory] = useState<InventoryItem[]>(() => {
@@ -2040,6 +2080,217 @@ const handleImportData = (mode: 'merge' | 'restore') => {
   const [chipActivations, rawSetChipActivations] = useState<ChipActivation[]>(() => {
     try { return JSON.parse(localStorage.getItem('fixmanager_chip_activations') || '[]'); } catch { return []; }
   });
+
+  // --- WhatsApp Bulk Promo Campaign ---
+  const [isSendingPromos, setIsSendingPromos] = useState(false);
+  const [sendingCurrentIndex, setSendingCurrentIndex] = useState(0);
+  const [sendingTotal, setSendingTotal] = useState(0);
+  const [sendingLogs, setSendingLogs] = useState<Record<string, 'pending' | 'sending' | 'success' | 'error'>>({});
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  const sendingCancelRef = useRef(false);
+  const [showBulkPromoModal, setShowBulkPromoModal] = useState(false);
+  const [promoMessage, setPromoMessage] = useState(
+    "Hola {nombre}, te informamos que en *{taller}* tenemos promociones increíbles en micas y accesorios esta semana. ¡Visítanos!\n\n" +
+    "📍 *Ubícanos aquí:*\n{direccion}\n\n" +
+    "🗺️ *Ver en Google Maps:*\n{maps_link}\n\n" +
+    "🕒 *Horarios:*\n{horarios}\n\n" +
+    "📞 *Tel:* {telefono_taller}\n" +
+    "💬 *WhatsApp:* {whatsapp}\n\n" +
+    "🌐 *Nuestras Redes Sociales:*\n" +
+    "Facebook: {facebook}\n" +
+    "Instagram: {instagram}\n" +
+    "TikTok: {tiktok}"
+  );
+  const [selectedClientIds, setSelectedClientIds] = useState<Record<string, boolean>>({});
+  const [promoSearchQuery, setPromoSearchQuery] = useState('');
+  const [promoFilterType, setPromoFilterType] = useState<'all' | 'debt' | 'active'>('all');
+  const [activeTemplateType, setActiveTemplateType] = useState<'promo' | 'cobro' | 'estatus' | 'custom'>('promo');
+
+  const showToast = (msg: string, type: 'warn' | 'ok' = 'warn') => {
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = `position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;font-family:sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4);pointer-events:none;white-space:nowrap;background:${type==='ok'?'#16a34a':'#b45309'};color:#fff;`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
+  };
+
+  const getClientStatsForPromo = (c: Client) => {
+    const sym = config.currencySymbol || '$';
+    const clientOrders = orders.filter(o =>
+      o.customerPhone === c.phone ||
+      o.customerName.toLowerCase().trim() === c.name.toLowerCase().trim()
+    );
+    const totalGastado = clientOrders
+      .filter(o => o.status === 'Entregado y Pagado')
+      .reduce((s, o) => s + o.cost, 0);
+    const saldoPendiente = clientOrders
+      .filter(o => !['Entregado', 'Entregado y Pagado', 'Cancelado', 'Fallido'].includes(o.status))
+      .reduce((s, o) => s + Math.max(0, o.cost - o.advancePayment), 0);
+    const ordenesActivas = clientOrders.filter(o =>
+      !['Entregado', 'Entregado y Pagado', 'Cancelado', 'Fallido'].includes(o.status)
+    ).length;
+    return { totalGastado, saldoPendiente, ordenesActivas, sym };
+  };
+
+  const formatSocialLinkForPromo = (platform: 'facebook' | 'instagram' | 'tiktok', username: string | undefined): string => {
+    if (!username) return '';
+    const trimmed = username.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    const cleanUser = trimmed.replace(/^@/, '');
+    if (platform === 'facebook') return `https://facebook.com/${cleanUser}`;
+    if (platform === 'instagram') return `https://instagram.com/${cleanUser}`;
+    if (platform === 'tiktok') return `https://tiktok.com/@${cleanUser}`;
+    return trimmed;
+  };
+
+  const formatBusinessHoursForPromo = (hoursStr: string | undefined): string => {
+    if (!hoursStr) return 'No definido';
+    try {
+      const obj = JSON.parse(hoursStr);
+      if (typeof obj !== 'object' || obj === null) return hoursStr;
+
+      const daysOrder = ['lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'sabado', 'sábado', 'domingo'];
+      const formattedDays: string[] = [];
+
+      for (const day of daysOrder) {
+        const dayData = obj[day];
+        if (dayData && dayData.isOpen) {
+          const dayNameCapitalized = day.charAt(0).toUpperCase() + day.slice(1);
+          if (dayData.type === 'split') {
+            formattedDays.push(`${dayNameCapitalized}: ${dayData.openTime}-${dayData.closeTime} / ${dayData.openTime2}-${dayData.closeTime2}`);
+          } else {
+            formattedDays.push(`${dayNameCapitalized}: ${dayData.openTime}-${dayData.closeTime}`);
+          }
+        }
+      }
+
+      if (formattedDays.length > 0) {
+        return formattedDays.join('\n');
+      }
+      return hoursStr;
+    } catch (e) {
+      return hoursStr;
+    }
+  };
+
+  const handleStartSendingPromos = async (selectedClients: Client[]) => {
+    setIsSendingPromos(true);
+    setSendingCurrentIndex(0);
+    setSendingTotal(selectedClients.length);
+    sendingCancelRef.current = false;
+
+    const initialLogs: Record<string, 'pending' | 'sending' | 'success' | 'error'> = {};
+    selectedClients.forEach(c => {
+      initialLogs[c.id] = 'pending';
+    });
+    setSendingLogs(initialLogs);
+
+    const api = (window as any).electronAPI;
+
+    for (let i = 0; i < selectedClients.length; i++) {
+      if (sendingCancelRef.current) {
+        showToast('⚠️ Envío de promociones cancelado');
+        break;
+      }
+
+      const client = selectedClients[i];
+      setSendingCurrentIndex(i);
+      setSendingLogs(prev => ({ ...prev, [client.id]: 'sending' }));
+
+      // Personalize message
+      const { saldoPendiente, ordenesActivas, sym } = getClientStatsForPromo(client);
+      
+      const storeAddressParts = [
+        config.addressStreet,
+        config.addressNumber,
+        config.addressColonia,
+        config.addressCity,
+        config.addressState,
+        config.addressZip,
+        config.addressCountry
+      ].map(p => p?.trim()).filter(Boolean);
+      const storeAddress = storeAddressParts.length > 0 ? storeAddressParts.join(', ') : (config.address || '');
+
+      let msgText = promoMessage;
+
+      if (!config.socialFacebook) {
+        msgText = msgText.replace(/.*Facebook:.*{facebook}.*\n?/gi, '');
+      }
+      if (!config.socialInstagram) {
+        msgText = msgText.replace(/.*Instagram:.*{instagram}.*\n?/gi, '');
+      }
+      if (!config.socialTiktok) {
+        msgText = msgText.replace(/.*TikTok:.*{tiktok}.*\n?/gi, '');
+      }
+      if (!config.socialFacebook && !config.socialInstagram && !config.socialTiktok) {
+        msgText = msgText.replace(/🌐 \*Nuestras Redes Sociales:\*\n?/gi, '');
+      }
+
+      const personalizedMsg = msgText
+        .replace(/{nombre}/gi, client.name)
+        .replace(/{taller}/gi, config.storeName || 'nuestro taller')
+        .replace(/{saldo_pendiente}/gi, `${sym}${saldoPendiente.toFixed(2)}`)
+        .replace(/{ordenes_activas}/gi, String(ordenesActivas))
+        .replace(/{direccion}/gi, storeAddress)
+        .replace(/{maps_link}/gi, config.googleMapsLink || '')
+        .replace(/{facebook}/gi, formatSocialLinkForPromo('facebook', config.socialFacebook))
+        .replace(/{instagram}/gi, formatSocialLinkForPromo('instagram', config.socialInstagram))
+        .replace(/{tiktok}/gi, formatSocialLinkForPromo('tiktok', config.socialTiktok))
+        .replace(/{telefono_taller}/gi, config.phone || '')
+        .replace(/{whatsapp}/gi, (() => {
+          const waPhone = (config.phone2 || config.phone || '').replace(/\D/g, '');
+          const cc = config.whatsappDefaultCountryCode || '52';
+          return waPhone ? `https://wa.me/${cc}${waPhone}` : '';
+        })())
+        .replace(/{horarios}/gi, formatBusinessHoursForPromo(config.businessHours));
+
+      const cc = client.countryCode || config.whatsappDefaultCountryCode || '52';
+      const formattedPhone = formatPhoneForWhatsapp(client.phone, cc);
+
+      let success = false;
+      try {
+        const mode = config.whatsappMode || 'disabled';
+        if (mode === 'integrated' && api?.whatsappSendMessage) {
+          const res = await api.whatsappSendMessage(formattedPhone, personalizedMsg);
+          success = !!res?.success;
+        } else {
+          const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(personalizedMsg)}`;
+          if (api?.openExternal) api.openExternal(waUrl);
+          else window.open(waUrl, '_blank');
+          success = true;
+        }
+      } catch (e) {
+        console.error('[Mass Send] Error sending to', client.phone, e);
+        success = false;
+      }
+
+      setSendingLogs(prev => ({ ...prev, [client.id]: success ? 'success' : 'error' }));
+
+      // Delay between sends
+      if (i < selectedClients.length - 1) {
+        const randomSeconds = Math.floor(Math.random() * (18 - 8 + 1)) + 8;
+        let elapsed = 0;
+        while (elapsed < randomSeconds) {
+          if (sendingCancelRef.current) break;
+          setCountdownSeconds(randomSeconds - elapsed);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          elapsed++;
+        }
+        setCountdownSeconds(null);
+      }
+    }
+
+    setSendingCurrentIndex(selectedClients.length);
+    setIsSendingPromos(false);
+    if (!sendingCancelRef.current) {
+      showToast('🎉 ¡Envío de promociones masivas finalizado!', 'ok');
+    }
+  };
+
+  const handleCancelSendingPromos = () => {
+    sendingCancelRef.current = true;
+    setIsSendingPromos(false);
+  };
 
   const setCreditAccounts = (newVal: CreditAccount[] | ((prev: CreditAccount[]) => CreditAccount[])) => {
     rawSetCreditAccounts(prev => {
@@ -2201,6 +2452,7 @@ const handleImportData = (mode: 'merge' | 'restore') => {
           else if (key === 'fixmanager_config') setConfig(data, true);
           else if (key === 'fixmanager_credit_accounts') rawSetCreditAccounts(data);
           else if (key === 'fixmanager_apartados') rawSetApartados(data);
+          else if (key === 'fixmanager_chip_activations') rawSetChipActivations(data);
         });
       } catch (e: any) {
         syncSuccess = false;
@@ -2222,10 +2474,10 @@ const handleImportData = (mode: 'merge' | 'restore') => {
   }, [triggerCloudSync]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      triggerCloudSync();
-    }, 30000); // Polling cada 30 segundos
-    return () => clearInterval(interval);
+    (window as any).triggerCloudSync = triggerCloudSync;
+    return () => {
+      delete (window as any).triggerCloudSync;
+    };
   }, [triggerCloudSync]);
 
   // Sincronizar de inmediato cuando se restablece la conexión a internet
@@ -2450,21 +2702,12 @@ const handleImportData = (mode: 'merge' | 'restore') => {
           try {
             const [widthMm, heightMm] = config.labelPaperSize.replace('mm', '').split('x').map(Number);
             if (!isNaN(widthMm) && !isNaN(heightMm)) {
-              if (isVertical) {
-                finalOpts.paperWidthMicrons = heightMm * 1000;
-                finalOpts.paperHeightMicrons = widthMm * 1000;
-              } else {
-                finalOpts.paperWidthMicrons = widthMm * 1000;
-                finalOpts.paperHeightMicrons = heightMm * 1000;
-              }
+              finalOpts.paperWidthMicrons = widthMm * 1000;
+              finalOpts.paperHeightMicrons = heightMm * 1000;
             }
           } catch (e) {
             console.error('Error al parsear el tamaño de la etiqueta:', e);
           }
-        } else if (finalOpts.paperWidthMicrons && finalOpts.paperHeightMicrons && isVertical) {
-          const temp = finalOpts.paperWidthMicrons;
-          finalOpts.paperWidthMicrons = finalOpts.paperHeightMicrons;
-          finalOpts.paperHeightMicrons = temp;
         }
       } else {
         if (!finalOpts.deviceName || finalOpts.deviceName.trim() === '') {
@@ -3865,10 +4108,14 @@ const handleImportData = (mode: 'merge' | 'restore') => {
       const saleMapped = {
         id: newSale.id,
         items: (newSale.items || []).map((i: any) => ({
+          itemId: i.itemId || '',
           name: i.name || i.description || '',
           description: i.description || i.name || '',
           quantity: i.quantity,
-          price: i.price
+          price: i.price,
+          originalPrice: i.originalPrice,
+          discountValue: i.discountValue,
+          discountType: i.discountType
         })),
         total: newSale.total,
         createdAt: newSale.createdAt || new Date().toISOString(),
@@ -3882,9 +4129,18 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         discount: newSale.discount,
         discountType: newSale.discountType,
         discountValue: newSale.discountValue,
+        createdBy: newSale.createdBy || currentUser?.name || '',
       };
+      const isRecharge =
+        newSale.id.startsWith('R-') ||
+        newSale.id.startsWith('RC-') ||
+        (newSale.items || []).some((item: any) => {
+          const id = item.itemId || item.id;
+          return id && typeof id === 'string' && id.startsWith('recharge-');
+        }) ||
+        !!(newSale.confirmationCode && typeof newSale.confirmationCode === 'string' && newSale.confirmationCode.includes('Folio Aut:'));
       const msg = buildWhatsappSaleTicketMessage(saleMapped as any, config);
-      const html = buildPosTicketHtml(saleMapped, config);
+      const html = isRecharge ? buildRechargeTicketHtml(saleMapped as any, config) : buildPosTicketHtml(saleMapped, config);
       sendWhatsappNotification(config, options.whatsappPhone || '', msg, html, true, newSale.change, options.whatsappCountryCode).then(res => {
         if (!res.ok) {
           console.warn('[WhatsApp] Error al enviar ticket de venta:', res.error);
@@ -3910,7 +4166,20 @@ const handleImportData = (mode: 'merge' | 'restore') => {
       }
     }
 
-    if (config.notifyOnSale !== false) { sendTelegram(config, tgVentaPOS(newSale, config), 'Venta POS'); }
+    if (config.notifyOnSale !== false) {
+      const isRecharge =
+        newSale.id.startsWith('R-') ||
+        newSale.id.startsWith('RC-') ||
+        (newSale.items || []).some((item: any) => {
+          const id = item.itemId || item.id;
+          return id && typeof id === 'string' && id.startsWith('recharge-') && id !== 'recharge-commission';
+        }) ||
+        !!(newSale.confirmationCode && typeof newSale.confirmationCode === 'string' && newSale.confirmationCode.includes('Folio Aut:'));
+      const telegramMsg = isRecharge 
+        ? tgVentaRecharge(saleWithUser, config) 
+        : tgVentaPOS(saleWithUser, config);
+      sendTelegram(config, telegramMsg, isRecharge ? 'Recarga / Servicio' : 'Venta POS');
+    }
 
     // Process repair orders in the sale:
     newSale.items.forEach(item => {
@@ -3945,12 +4214,24 @@ const handleImportData = (mode: 'merge' | 'restore') => {
 
     // Decrement inventory stock count
     const updatedInventory = inventory.map((inv) => {
-      const soldItem = newSale.items.find((i) => i.itemId === inv.id);
+      const soldItem = newSale.items.find((i: any) => i.itemId === inv.id);
       if (soldItem && inv.manageStock !== false) {
-        return {
-          ...inv,
-          stock: Math.max(0, inv.stock - soldItem.quantity)
-        };
+        if (soldItem.fromWarehouseId) {
+          const updatedWhStock = { ...inv.warehouseStock };
+          updatedWhStock[soldItem.fromWarehouseId] = Math.max(0, (updatedWhStock[soldItem.fromWarehouseId] || 0) - soldItem.quantity);
+          if (updatedWhStock[soldItem.fromWarehouseId] === 0) {
+            delete updatedWhStock[soldItem.fromWarehouseId];
+          }
+          return {
+            ...inv,
+            warehouseStock: updatedWhStock
+          };
+        } else {
+          return {
+            ...inv,
+            stock: Math.max(0, inv.stock - soldItem.quantity)
+          };
+        }
       }
       return inv;
     });
@@ -3958,12 +4239,24 @@ const handleImportData = (mode: 'merge' | 'restore') => {
 
     // Decrement refacciones stock count
     const updatedRefacciones = refacciones.map((ref) => {
-      const soldItem = newSale.items.find((i) => i.itemId === ref.id);
+      const soldItem = newSale.items.find((i: any) => i.itemId === ref.id);
       if (soldItem && ref.manageStock !== false) {
-        return {
-          ...ref,
-          stock: Math.max(0, ref.stock - soldItem.quantity)
-        };
+        if (soldItem.fromWarehouseId) {
+          const updatedWhStock = { ...ref.warehouseStock };
+          updatedWhStock[soldItem.fromWarehouseId] = Math.max(0, (updatedWhStock[soldItem.fromWarehouseId] || 0) - soldItem.quantity);
+          if (updatedWhStock[soldItem.fromWarehouseId] === 0) {
+            delete updatedWhStock[soldItem.fromWarehouseId];
+          }
+          return {
+            ...ref,
+            warehouseStock: updatedWhStock
+          };
+        } else {
+          return {
+            ...ref,
+            stock: Math.max(0, ref.stock - soldItem.quantity)
+          };
+        }
       }
       return ref;
     });
@@ -3977,7 +4270,16 @@ const handleImportData = (mode: 'merge' | 'restore') => {
       }));
       const saleMapped = {
         id: newSale.id,
-        items: (newSale.items || []).map((i: any) => ({ description: i.description || i.name || '', quantity: i.quantity, price: i.price })),
+        items: (newSale.items || []).map((i: any) => ({
+          itemId: i.itemId || '',
+          description: i.description || i.name || '',
+          name: i.name || i.description || '',
+          quantity: i.quantity,
+          price: i.price,
+          originalPrice: i.originalPrice,
+          discountValue: i.discountValue,
+          discountType: i.discountType
+        })),
         total: newSale.total,
         createdAt: newSale.createdAt || new Date().toISOString(),
         paymentMethod: newSale.paymentMethod,
@@ -3985,8 +4287,18 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         cardReceived: newSale.cardReceived,
         change: newSale.change,
         notes: newSale.notes || '',
+        confirmationCode: newSale.confirmationCode || '',
+        createdBy: newSale.createdBy || currentUser?.name || '',
       };
-      const html = buildPosTicketHtml(saleMapped, config);
+      const isRecharge =
+        newSale.id.startsWith('R-') ||
+        newSale.id.startsWith('RC-') ||
+        (newSale.items || []).some((item: any) => {
+          const id = item.itemId || item.id;
+          return id && typeof id === 'string' && id.startsWith('recharge-');
+        }) ||
+        !!(newSale.confirmationCode && typeof newSale.confirmationCode === 'string' && newSale.confirmationCode.includes('Folio Aut:'));
+      const html = isRecharge ? buildRechargeTicketHtml(saleMapped as any, config) : buildPosTicketHtml(saleMapped, config);
       const effectivePosWidth = config.hybridPrintMode
         ? (config.posPaperWidth || '80mm')
         : (config.ticketPaperWidth || '80mm');
@@ -4187,6 +4499,16 @@ const handleImportData = (mode: 'merge' | 'restore') => {
       }
       localStorage.setItem(logKey, JSON.stringify(existing.slice(0, 30)));
     }
+  };
+
+  const handleSetWarehouses = (newWarehouses: Warehouse[]) => {
+    const processed = newWarehouses.map(w => {
+      const uuid = w.uuid || generateUUID();
+      const updatedAt = w.updatedAt || new Date().toISOString();
+      return { ...w, uuid, updatedAt };
+    });
+    setWarehouses(processed);
+    localStorage.setItem('fixmanager_warehouses', JSON.stringify(processed));
   };
 
   // Wrapper de setInventory que detecta items nuevos y restock para notificaciones WA
@@ -4601,12 +4923,22 @@ const handleImportData = (mode: 'merge' | 'restore') => {
 
   // ─── Handlers de crédito / fiados ────────────────────────────────────────────
 
-  const handleAddCreditEntry = (accountId: string, entry: CreditSaleEntry) => {
+  const handleAddCreditEntry = (accountId: string, entry: CreditSaleEntry, decrementStock = false) => {
     const entryWithSession = { ...entry, sessionId: entry.sessionId ?? sessionId };
     setCreditAccounts(prev => prev.map(a => a.id === accountId
       ? { ...a, entries: [...a.entries, entryWithSession], lastActivityAt: new Date().toISOString(), isClosed: false }
       : a
     ));
+    if (decrementStock) {
+      setInventory(prev => prev.map(inv => {
+        const soldItem = entry.items.find(i => i.itemId === inv.id);
+        return soldItem ? { ...inv, stock: Math.max(0, inv.stock - soldItem.quantity) } : inv;
+      }));
+      setRefacciones(prev => prev.map(ref => {
+        const soldItem = entry.items.find(i => i.itemId === ref.id);
+        return soldItem ? { ...ref, stock: Math.max(0, ref.stock - soldItem.quantity) } : ref;
+      }));
+    }
     if (config.notifyOnFiado !== false) {
       const account = creditAccounts.find(a => a.id === accountId);
       if (account) {
@@ -4869,6 +5201,13 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         console.error('[WhatsApp] Error sending new layaway:', err);
       });
     }
+
+    setFiadosInitialSelectedApartadoId(newApartado.id);
+    setFiadosInitialActiveTab('apartados');
+    setFiadosHighlightedApartadoId(newApartado.id);
+    setFiadosInitialSelectedAccountId(null);
+    setFiadosHighlightedEntryId(null);
+    setActiveTab('Fiados');
   };
 
   const handleAddApartadoPayment = (apartadoId: string, payment: ApartadoPayment) => {
@@ -4962,9 +5301,13 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         document.body.className = 'theme-modern mode-dark';
       }
     } else {
-      document.body.className = `theme-${config.theme || 'modern'} mode-${config.themeMode || 'dark'}`;
+      if (appScreen === 'welcome-choice' || appScreen === 'cloud-restore') {
+        document.body.className = 'theme-modern mode-dark';
+      } else {
+        document.body.className = `theme-${config.theme || 'modern'} mode-${config.themeMode || 'dark'}`;
+      }
     }
-  }, [config.theme, config.themeMode, mobileTheme]);
+  }, [config.theme, config.themeMode, mobileTheme, appScreen]);
 
   const handleToggleMobileTheme = () => {
     const next = mobileTheme === 'dark' ? 'light' : 'dark';
@@ -5700,6 +6043,30 @@ const handleImportData = (mode: 'merge' | 'restore') => {
       const soldItem = items.find(i => i.itemId === ref.id);
       return soldItem ? { ...ref, stock: Math.max(0, ref.stock - soldItem.quantity) } : ref;
     }));
+
+    // Process repair orders in the fiado sale:
+    items.forEach(item => {
+      const itemId = item.itemId || item.id;
+      if (itemId && typeof itemId === 'string' && itemId.startsWith('repair-')) {
+        const orderId = itemId.replace('repair-', '');
+        
+        let cashRatio = 0;
+        let cardRatio = 0;
+        
+        const totalPayments = payCash + payCard;
+        if (totalPayments > 0 && total > 0) {
+          cashRatio = payCash / total;
+          cardRatio = payCard / total;
+        }
+        
+        const itemTotal = item.price * (item.quantity || 1);
+        const cashPaid = itemTotal * cashRatio;
+        const cardPaid = itemTotal * cardRatio;
+        
+        handleDeliverOrder(orderId, cashPaid, cardPaid);
+      }
+    });
+
     const existing = forceNew ? null : creditAccounts.find(a => !a.isClosed && !a.deletedAt && (a.clientPhone === clientPhone || a.clientName === clientName));
     
     const prevBalance = existing ? Math.max(0, existing.entries.reduce((s, e) => s + e.subtotal, 0) - existing.payments.reduce((s, p) => s + p.amount, 0)) : 0;
@@ -5773,7 +6140,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
       .store{font-size:15px;font-weight:900;text-align:center;margin-bottom:1px}
       hr{border:none;border-top:1.5px dashed #000;margin:4px 0}
       .badge{display:block;font-weight:900;text-align:center;font-size:13px;background:#000;color:#fff;padding:2px 0;margin:3px 0}
-      .kv{display:flex;justify-content:space-between;font-size:10px;margin:1px 0}
+      .kv{display:flex;justify-content:space-between;font-size:10px;margin:1px 0;align-items:flex-start}
+      .kv span:first-child{word-break:break-all;flex:1;min-width:0;text-align:left;padding-right:6px}
+      .kv span:last-child{flex-shrink:0;text-align:right}
       .bold{font-weight:900}.total-row{font-size:13px;font-weight:900;text-align:right;border-top:2px solid #000;margin-top:4px;padding-top:2px}
       .footer{font-size:10px;font-weight:700;text-align:center;margin-top:5px}
     </style></head><body>
@@ -5783,8 +6152,14 @@ const handleImportData = (mode: 'merge' | 'restore') => {
       <div class="kv"><span>CLIENTE:</span><span class="bold">${clientName}</span></div>
       ${clientPhone ? `<div class="kv"><span>TEL:</span><span>${clientPhone}</span></div>` : ''}
       <hr>${rows}<hr>
-      <div class="total-row">CARGO: ${sym}${total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-      <div class="kv" style="margin-top:3px"><span>SALDO PENDIENTE:</span><span class="bold">${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      <div class="total-row">CARGO DE HOY: ${sym}${total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+      ${prevBalance > 0 ? `
+        <div class="kv" style="margin-top:2px"><span>SALDO ANTERIOR:</span><span>${sym}${prevBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ` : ''}
+      ${paymentAmount > 0 ? `
+        <div class="kv" style="margin-top:2px"><span>ABONO INICIAL:</span><span>${sym}${paymentAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ` : ''}
+      <div class="kv" style="margin-top:3px;border-top:1px dashed #000;padding-top:2px"><span>SALDO PENDIENTE TOTAL:</span><span class="bold">${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
       <div class="footer">${config.ticketFooter || ''}</div>
     </body></html>`;
     const shouldPrint = options ? !!options.printTicket : true;
@@ -5827,7 +6202,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         .store{font-size:15px;font-weight:900;text-align:center;margin-bottom:1px}
         hr{border:none;border-top:1.5px dashed #000;margin:4px 0}
         .badge{display:block;font-weight:900;text-align:center;font-size:13px;background:#000;color:#fff;padding:2px 0;margin:3px 0}
-        .kv{display:flex;justify-content:space-between;font-size:10px;margin:1px 0}
+        .kv{display:flex;justify-content:space-between;font-size:10px;margin:1px 0;align-items:flex-start}
+        .kv span:first-child{word-break:break-all;flex:1;min-width:0;text-align:left;padding-right:6px}
+        .kv span:last-child{flex-shrink:0;text-align:right}
         .bold{font-weight:900}.total-row{font-size:13px;font-weight:900;text-align:right;border-top:2px solid #000;margin-top:4px;padding-top:2px}
         .footer{font-size:10px;font-weight:700;text-align:center;margin-top:5px}
       </style></head><body>
@@ -5837,14 +6214,27 @@ const handleImportData = (mode: 'merge' | 'restore') => {
         <div class="kv"><span>CLIENTE:</span><span class="bold">${clientName}</span></div>
         ${clientPhone ? `<div class="kv"><span>TEL:</span><span>${clientPhone}</span></div>` : ''}
         <hr>${rowsForWa}<hr>
-        <div class="total-row">CARGO: ${sym}${total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-        <div class="kv" style="margin-top:3px"><span>SALDO PENDIENTE:</span><span class="bold">${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+        <div class="total-row">CARGO DE HOY: ${sym}${total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        ${prevBalance > 0 ? `
+          <div class="kv" style="margin-top:2px"><span>SALDO ANTERIOR:</span><span>${sym}${prevBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+        ` : ''}
+        ${paymentAmount > 0 ? `
+          <div class="kv" style="margin-top:2px"><span>ABONO INICIAL:</span><span>${sym}${paymentAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+        ` : ''}
+        <div class="kv" style="margin-top:3px;border-top:1px dashed #000;padding-top:2px"><span>SALDO PENDIENTE TOTAL:</span><span class="bold">${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
         <div class="footer">${config.ticketFooter || ''}</div>
       </body></html>`;
-      sendWhatsappNotification(config, clientPhone, msg, whatsappHtml).catch(err => {
+      sendWhatsappNotification(config, clientPhone, msg, whatsappHtml, true, undefined, undefined, true).catch(err => {
         console.error('[WhatsApp] Error sending POS fiado cargo:', err);
       });
     }
+
+    setFiadosInitialSelectedAccountId(finalAccountId);
+    setFiadosInitialActiveTab('fiados');
+    setFiadosHighlightedEntryId(entry.id);
+    setFiadosInitialSelectedApartadoId(null);
+    setFiadosHighlightedApartadoId(null);
+    setActiveTab('Fiados');
   };
 
   if (isMobile()) {
@@ -5925,6 +6315,10 @@ const handleImportData = (mode: 'merge' | 'restore') => {
           expenses={expenses}
           cortesHistorial={cortesHistorial}
           quotes={quotes}
+          warehouses={warehouses}
+          chipActivations={chipActivations}
+          onUpdateChipActivation={handleUpdateChipActivation}
+          onDeleteChipActivation={handleDeleteChipActivation}
         />
         </Suspense>
         {isCorteModalOpen && (
@@ -6037,6 +6431,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
           lanStatus={lanStatus}
           lanSyncBlocked={lanSyncBlocked}
           terminalName={terminalName}
+          isSendingPromos={isSendingPromos}
+          sendingCurrentIndex={sendingCurrentIndex}
+          sendingTotal={sendingTotal}
           ordersByStatus={{
   pendiente: orders.filter(o => o.status === 'Pendiente').length,
   diagnostico: orders.filter(o => o.status === 'Diagnóstico').length,
@@ -6118,6 +6515,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                 if (licenseStatus === 'active') setShowLicenseModal(true);
                 else setAppScreen('login');
               }}
+              isSendingPromos={isSendingPromos}
+              sendingCurrentIndex={sendingCurrentIndex}
+              sendingTotal={sendingTotal}
             />
           </div>
 
@@ -6145,6 +6545,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                   lowStockCount={lowStockCount}
                   currentUser={currentUser}
                   onOpenMovimiento={setMovimientoModal}
+                  isSendingPromos={isSendingPromos}
+                  sendingCurrentIndex={sendingCurrentIndex}
+                  sendingTotal={sendingTotal}
                 />
               </div>
             </div>
@@ -6411,6 +6814,10 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                     inventory={inventory}
                     services={services}
                     refacciones={refacciones}
+                    warehouses={warehouses}
+                    creditAccounts={creditAccounts}
+                    onSetInventory={setInventory}
+                    onSetRefacciones={setRefacciones}
                     onCompleteSale={handleCompleteSale}
                     onAddItem={(newItem) => setInventory(prev => [newItem, ...prev])}
                     checkFiarClient={(name, phone) => {
@@ -6470,10 +6877,13 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                     setSelectedOrderId={setSelectedOrderId}
                     setActiveTab={setActiveTab}
                     onCancelSale={handleCancelSale}
+                    onPartialRefundSale={handlePartialRefundSale}
                     currentUser={currentUser}
                     chipActivations={chipActivations}
                     onUpdateChipActivation={handleUpdateChipActivation}
                     onDeleteChipActivation={handleDeleteChipActivation}
+                    warehouses={warehouses}
+                    users={users}
                   />
                 )}
 
@@ -6489,6 +6899,9 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                     setActiveTab={setActiveTab}
                     setConfigSubTab={setConfigSubTab}
                     currentUser={currentUser}
+                    warehouses={warehouses}
+                    onSetWarehouses={handleSetWarehouses}
+                    users={users}
                   />
                 )}
 
@@ -6504,6 +6917,8 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                       setPrefillFromRefaccion(item);
                       setActiveTab('Nueva');
                     }}
+                    warehouses={warehouses}
+                    onSetWarehouses={handleSetWarehouses}
                   />
                 )}
 
@@ -6531,6 +6946,31 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                     onDeleteClient={handleDeleteClient}
                     onEditClient={handleEditClient}
                     onSetClients={handleSetClients}
+                    isSendingPromos={isSendingPromos}
+                    setIsSendingPromos={setIsSendingPromos}
+                    sendingCurrentIndex={sendingCurrentIndex}
+                    setSendingCurrentIndex={setSendingCurrentIndex}
+                    sendingTotal={sendingTotal}
+                    setSendingTotal={setSendingTotal}
+                    sendingLogs={sendingLogs}
+                    setSendingLogs={setSendingLogs}
+                    countdownSeconds={countdownSeconds}
+                    setCountdownSeconds={setCountdownSeconds}
+                    sendingCancelRef={sendingCancelRef}
+                    showBulkPromoModal={showBulkPromoModal}
+                    setShowBulkPromoModal={setShowBulkPromoModal}
+                    promoMessage={promoMessage}
+                    setPromoMessage={setPromoMessage}
+                    selectedClientIds={selectedClientIds}
+                    setSelectedClientIds={setSelectedClientIds}
+                    promoSearchQuery={promoSearchQuery}
+                    setPromoSearchQuery={setPromoSearchQuery}
+                    promoFilterType={promoFilterType}
+                    setPromoFilterType={setPromoFilterType}
+                    activeTemplateType={activeTemplateType}
+                    setActiveTemplateType={setActiveTemplateType}
+                    handleStartSending={handleStartSendingPromos}
+                    handleCancelSending={handleCancelSendingPromos}
                   />
                 )}
 
@@ -6538,6 +6978,8 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                   <FiadosView
                     accounts={creditAccounts}
                     inventory={inventory}
+                    refacciones={refacciones}
+                    clients={clients}
                     config={config}
                     currentUser={currentUser}
                     users={users}
@@ -6550,6 +6992,17 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                     onCreateApartado={handleCreateApartado}
                     onAddApartadoPayment={handleAddApartadoPayment}
                     onUpdateApartadoStatus={handleUpdateApartadoStatus}
+                    initialSelectedAccountId={fiadosInitialSelectedAccountId}
+                    initialSelectedApartadoId={fiadosInitialSelectedApartadoId}
+                    initialActiveTab={fiadosInitialActiveTab}
+                    highlightedEntryId={fiadosHighlightedEntryId}
+                    highlightedApartadoId={fiadosHighlightedApartadoId}
+                    onClearNavigationStates={() => {
+                      setFiadosInitialSelectedAccountId(null);
+                      setFiadosInitialSelectedApartadoId(null);
+                      setFiadosHighlightedEntryId(null);
+                      setFiadosHighlightedApartadoId(null);
+                    }}
                   />
                 )}
 
@@ -6618,6 +7071,7 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                     apartados={apartados}
                     inventory={inventory}
                     refacciones={refacciones}
+                    warehouses={warehouses}
                     onUpdateOrder={(updated) => {
                       setOrders(prev => prev.map(o => o.id === updated.id ? updated : o));
                       localStorage.setItem('fixmanager_orders', JSON.stringify(orders.map(o => o.id === updated.id ? updated : o)));
@@ -6982,13 +7436,22 @@ const handleImportData = (mode: 'merge' | 'restore') => {
 
       {/* BANNER SUAVE — licencia vencida durante sesión activa */}
       {showLicenseBanner && (
-        <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:99998, background:'#7f1d1d', borderBottom:'2px solid #dc2626', padding:'6px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
-          <span style={{ color:'#fca5a5', fontSize:11, fontWeight:700 }}>
-            ⛔ Tu licencia ha vencido — Al cerrar sesión no podrás volver a ingresar hasta renovar
-          </span>
+        <div className={`fixed top-0 left-0 right-0 z-[99998] px-4 py-2 flex items-center justify-between gap-3 shadow-lg select-none ${
+          isRetro
+            ? (isLight ? 'bg-red-100 border-b-2 border-red-600 text-red-950 font-mono font-black' : 'bg-red-950 border-b-2 border-red-600 text-red-100 font-mono font-black')
+            : (isLight ? 'bg-red-600 border-b border-red-700 text-white font-bold' : 'bg-red-950/95 border-b border-red-800/80 text-red-100 backdrop-blur-md font-bold')
+        }`}>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-sm animate-pulse">⛔</span>
+            <span>Tu licencia ha vencido — Al cerrar sesión no podrás volver a ingresar hasta renovar</span>
+          </div>
           <button
             onClick={() => setShowRenewConfirmation(true)}
-            style={{ background:'#dc2626', border:'1px solid #ef4444', color:'white', fontSize:10, fontWeight:900, padding:'3px 10px', borderRadius:4, cursor:'pointer', letterSpacing:'0.05em', textTransform:'uppercase', whiteSpace:'nowrap' }}
+            className={`px-3 py-1 text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1 ${
+              isRetro
+                ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-800 border-r-zinc-800 text-red-700 hover:bg-white hover:text-red-900'
+                : (isLight ? 'bg-white hover:bg-red-50 text-red-700 border border-white/40 rounded-lg shadow' : 'bg-red-600 hover:bg-red-500 text-white rounded-lg shadow')
+            }`}
           >
             Renovar licencia →
           </button>

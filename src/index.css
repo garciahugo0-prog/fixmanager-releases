@@ -19,6 +19,9 @@
   }
 
   html, body, #root {
+    position: fixed;
+    top: 0;
+    left: 0;
     height: 100%;
     width: 100%;
     overflow: hidden;
@@ -3002,24 +3005,24 @@ main .fixed .bg-\[\#0e0f12\]\/90 {
 }
 
 /* Excepción absoluta de altísima especificidad para filas seleccionadas en el POS del tema retro (Win95) para evitar texto negro */
-body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td,
-body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td *,
-body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td div,
-body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td span,
-body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td b,
-body .theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td strong,
-body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td,
-body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td *,
-body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td div,
-body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td span,
-body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td b,
-body .theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td strong,
-body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td,
-body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td *,
-body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td div,
-body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td span,
-body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td b,
-body .theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td strong {
+body.theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td,
+body.theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td *,
+body.theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td div,
+body.theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td span,
+body.theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td b,
+body.theme-retro-window #pos-view-root #pos-modal-table-container tr.pos-modal-row-selected td strong,
+body.theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td,
+body.theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td *,
+body.theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td div,
+body.theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td span,
+body.theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td b,
+body.theme-retro-window #pos-fav-modal-table-container tr.pos-fav-row-selected td strong,
+body.theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td,
+body.theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td *,
+body.theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td div,
+body.theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td span,
+body.theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td b,
+body.theme-retro-window #pos-fav-modal-table-container-retro tr.pos-fav-row-selected td strong {
   color: #ffffff !important;
 }
 
@@ -3825,16 +3828,29 @@ body.theme-retro-window.mode-light .fixed .bg-\[\#800000\] {
   background-color: rgba(0, 0, 0, 0.75) !important;
 }
 
-/* Fuerza el botón de WhatsApp a verde WhatsApp con texto blanco en cualquier tema y estado */
-button.whatsapp-green-btn,
-button.whatsapp-green-btn *,
-.theme-retro-window.mode-light button.whatsapp-green-btn,
-.theme-retro-window.mode-light button.whatsapp-green-btn * {
+/* Fuerza el botón de WhatsApp a verde WhatsApp cuando está conectado, y gris cuando está desvinculado/offline */
+button.whatsapp-green-btn:not(.wa-offline):not(:disabled),
+button.whatsapp-green-btn:not(.wa-offline):not(:disabled) *,
+.theme-retro-window.mode-light button.whatsapp-green-btn:not(.wa-offline):not(:disabled),
+.theme-retro-window.mode-light button.whatsapp-green-btn:not(.wa-offline):not(:disabled) * {
   background-color: #25d366 !important;
   color: #ffffff !important;
 }
-button.whatsapp-green-btn:hover {
+button.whatsapp-green-btn:not(.wa-offline):not(:disabled):hover {
   background-color: #20ba5a !important;
+}
+
+button.whatsapp-green-btn.wa-offline,
+button.whatsapp-green-btn.wa-offline *,
+button.whatsapp-green-btn:disabled,
+button.whatsapp-green-btn:disabled *,
+.theme-retro-window.mode-light button.whatsapp-green-btn.wa-offline,
+.theme-retro-window.mode-light button.whatsapp-green-btn.wa-offline * {
+  background-color: #71717a !important;
+  color: #d4d4d8 !important;
+  border-color: #52525b !important;
+  filter: grayscale(1) !important;
+  opacity: 0.65 !important;
 }
 /* Override to prevent white-on-white text in the active subcategory count badge under the retro theme */
 .theme-retro-window button.bg-\[\#000080\] span.sub-count-badge,
@@ -3942,5 +3958,177 @@ button.whatsapp-green-btn:hover {
   z-index: 9999999;
   animation: confettiFall 3s linear forwards;
 }
+
+/* Specific overrides to force white text on warehouse selection buttons when active/hovered inside retro theme */
+#pos-view-root button.pos-modal-row-selected,
+#pos-view-root button.pos-modal-row-selected *,
+#pos-view-root button.pos-modal-row-selected span,
+#pos-view-root button.pos-modal-row-selected div {
+  color: #ffffff !important;
+}
+
+/* Custom utility classes to bypass global light-mode text-color overrides */
+.theme-modern.mode-light .text-white-important,
+.theme-fluent.mode-light .text-white-important,
+.text-white-important,
+.theme-modern.mode-light .text-white-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *):not(.text-amber-500):not(.text-emerald-450):not(.text-emerald-400-important):not(.text-amber-500-important),
+.theme-fluent.mode-light .text-white-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *):not(.text-amber-500):not(.text-emerald-450):not(.text-emerald-400-important):not(.text-amber-500-important),
+.text-white-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *):not(.text-amber-500):not(.text-emerald-450):not(.text-emerald-400-important):not(.text-amber-500-important) {
+  color: #ffffff !important;
+}
+
+.theme-modern.mode-light .text-zinc-300-important,
+.theme-fluent.mode-light .text-zinc-300-important,
+.text-zinc-300-important,
+.theme-modern.mode-light .text-zinc-300-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *),
+.theme-fluent.mode-light .text-zinc-300-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *),
+.text-zinc-300-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *) {
+  color: #d4d4d8 !important;
+}
+
+.theme-modern.mode-light .text-zinc-400-important,
+.theme-fluent.mode-light .text-zinc-400-important,
+.text-zinc-400-important,
+.theme-modern.mode-light .text-zinc-400-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *),
+.theme-fluent.mode-light .text-zinc-400-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *),
+.text-zinc-400-important *:not(#header-return-group-btn):not(#header-return-group-btn *):not([id^="header-status-badge"]):not([id^="header-status-badge"] *) {
+  color: #a1a1aa !important;
+}
+
+.theme-modern.mode-light .text-emerald-400-important,
+.theme-fluent.mode-light .text-emerald-400-important,
+.text-emerald-400-important,
+.theme-modern.mode-light .text-emerald-400-important *,
+.theme-fluent.mode-light .text-emerald-400-important *,
+.text-emerald-400-important * {
+  color: #34d399 !important;
+}
+
+.theme-modern.mode-light .text-amber-500-important,
+.theme-fluent.mode-light .text-amber-500-important,
+.text-amber-500-important,
+.theme-modern.mode-light .text-amber-500-important *,
+.theme-fluent.mode-light .text-amber-500-important *,
+.text-amber-500-important * {
+  color: #fbbf24 !important;
+}
+
+.theme-modern.mode-light .text-zinc-800-important,
+.theme-modern.mode-light .text-zinc-800-important * {
+  color: #1e293b !important;
+}
+
+.theme-modern.mode-light .text-zinc-600-important,
+.theme-modern.mode-light .text-zinc-600-important * {
+  color: #4b5563 !important;
+}
+
+.theme-modern.mode-light .text-zinc-500-important,
+.theme-modern.mode-light .text-zinc-500-important * {
+  color: #6b7280 !important;
+}
+
+/* Custom Address Autocomplete Dropdown Overrides */
+.address-autocomplete-dropdown {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  margin-top: 4px !important;
+  max-h: 160px !important;
+  overflow-y: auto !important;
+  z-index: 10000 !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Light mode dropdowns (Modern, Fluent, Retro) */
+.mode-light .address-autocomplete-dropdown {
+  background-color: #ffffff !important;
+  border: 1px solid #e4e4e7 !important;
+  border-radius: 6px !important;
+}
+
+/* Dark mode dropdowns (Modern, Fluent, Retro) */
+.mode-dark .address-autocomplete-dropdown {
+  background-color: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 6px !important;
+}
+
+/* Retro theme dropdown (overrides both light/dark mode for retro style) */
+.theme-retro-window .address-autocomplete-dropdown,
+.theme-retro-window.mode-light .fixed .address-autocomplete-dropdown,
+.theme-retro-window.mode-dark .fixed .address-autocomplete-dropdown {
+  background-color: #dfdfdf !important;
+  border-top: 2px solid #ffffff !important;
+  border-left: 2px solid #ffffff !important;
+  border-bottom: 2px solid #3f3f46 !important;
+  border-right: 2px solid #3f3f46 !important;
+  border-radius: 0px !important;
+}
+
+/* Dropdown Item buttons */
+button.address-autocomplete-item,
+.theme-retro-window.mode-light .fixed button.address-autocomplete-item,
+.theme-retro-window.mode-dark .fixed button.address-autocomplete-item {
+  width: 100% !important;
+  text-align: left !important;
+  font-size: 11px !important;
+  padding: 6px 10px !important;
+  transition: background-color 0.1s ease !important;
+  cursor: pointer !important;
+  display: block !important;
+  border: none !important;
+  border-radius: 0px !important;
+  background: none !important;
+}
+
+/* Item colors for Light Mode */
+.mode-light button.address-autocomplete-item {
+  color: #18181b !important;
+}
+.mode-light button.address-autocomplete-item:hover {
+  background-color: #f4f4f5 !important;
+}
+.mode-light button.address-autocomplete-item.active {
+  background-color: #fbbf24 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+/* Item colors for Dark Mode */
+.mode-dark button.address-autocomplete-item {
+  color: #d4d4d8 !important;
+}
+.mode-dark button.address-autocomplete-item:hover {
+  background-color: #27272a !important;
+}
+.mode-dark button.address-autocomplete-item.active {
+  background-color: #fbbf24 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+/* Item colors for Retro Theme (both modes) */
+.theme-retro-window button.address-autocomplete-item,
+.theme-retro-window.mode-light .fixed button.address-autocomplete-item,
+.theme-retro-window.mode-dark .fixed button.address-autocomplete-item {
+  color: #000000 !important;
+  font-weight: bold !important;
+  font-family: monospace !important;
+}
+.theme-retro-window button.address-autocomplete-item:hover,
+.theme-retro-window.mode-light .fixed button.address-autocomplete-item:hover,
+.theme-retro-window.mode-dark .fixed button.address-autocomplete-item:hover {
+  background-color: rgba(0, 0, 128, 0.1) !important;
+  color: #000000 !important;
+}
+.theme-retro-window button.address-autocomplete-item.active,
+.theme-retro-window.mode-light .fixed button.address-autocomplete-item.active,
+.theme-retro-window.mode-dark .fixed button.address-autocomplete-item.active {
+  background-color: #000080 !important;
+  color: #ffffff !important;
+  font-weight: bold !important;
+}
+
 
 

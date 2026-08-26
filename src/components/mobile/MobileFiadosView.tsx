@@ -9,10 +9,12 @@ import {
   Calendar, 
   FileText, 
   CheckCircle2, 
-  AlertTriangle, 
+  AlertTriangle,
   ArrowLeft,
   DollarSign,
-  Package
+  Package,
+  Trash2,
+  ShoppingBag
 } from 'lucide-react';
 import { 
   CreditAccount, 
@@ -21,13 +23,19 @@ import {
   WorkshopConfig, 
   AppUser, 
   ApartadoEntry, 
-  ApartadoPayment 
+  ApartadoPayment,
+  InventoryItem,
+  RefaccionItem,
+  Client
 } from '../../types';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
 
 interface MobileFiadosViewProps {
   accounts: CreditAccount[];
   apartados: ApartadoEntry[];
+  inventory: InventoryItem[];
+  refacciones: RefaccionItem[];
+  clients: Client[];
   config: WorkshopConfig;
   currentUser: AppUser | null;
   isLight: boolean;
@@ -35,6 +43,7 @@ interface MobileFiadosViewProps {
   onAddEntry: (accountId: string, entry: CreditSaleEntry) => void;
   onAddPayment: (accountId: string, payment: CreditPayment) => void;
   onDeleteAccount: (accountId: string) => void;
+  onCreateCreditAccount: (account: CreditAccount) => void;
   onCreateApartado: (a: ApartadoEntry) => void;
   onAddApartadoPayment: (apartadoId: string, payment: ApartadoPayment) => void;
   onUpdateApartadoStatus: (apartadoId: string, status: ApartadoEntry['status']) => void;
@@ -43,6 +52,9 @@ interface MobileFiadosViewProps {
 export default function MobileFiadosView({
   accounts = [],
   apartados = [],
+  inventory = [],
+  refacciones = [],
+  clients = [],
   config,
   currentUser,
   isLight,
@@ -50,6 +62,8 @@ export default function MobileFiadosView({
   onAddEntry,
   onAddPayment,
   onDeleteAccount,
+  onCreateCreditAccount,
+  onCreateApartado,
   onAddApartadoPayment,
   onUpdateApartadoStatus
 }: MobileFiadosViewProps) {
@@ -71,11 +85,35 @@ export default function MobileFiadosView({
   const [abonoAmount, setAbonoAmount] = useState('');
   const [abonoMethod, setAbonoMethod] = useState<'Efectivo' | 'Tarjeta/Transfer' | 'Tarjeta' | 'Transferencia'>('Efectivo');
   const [abonoNotes, setAbonoNotes] = useState('');
+  const [abonoTargetEntryId, setAbonoTargetEntryId] = useState<string | null>(null);
+  const [abonoTargetItemId, setAbonoTargetItemId] = useState<string | null>(null);
 
   const [showAddApartadoAbonoModal, setShowAddApartadoAbonoModal] = useState(false);
   const [aptAbonoAmount, setAptAbonoAmount] = useState('');
   const [aptAbonoMethod, setAptAbonoMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia'>('Efectivo');
   const [aptAbonoNotes, setAptAbonoNotes] = useState('');
+
+  // Estados para Crear Nueva Cuenta de Fiado
+  const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newCreditLimit, setNewCreditLimit] = useState('');
+
+  // Estados para Agregar Artículos a Cuenta de Fiado
+  const [showAddItemsModal, setShowAddItemsModal] = useState(false);
+  const [itemsToAdd, setItemsToAdd] = useState<{ itemId?: string; name: string; qty: number; price: number }[]>([]);
+  const [addItemSearchQuery, setAddItemSearchQuery] = useState('');
+
+  // Estados para Crear Nuevo Apartado
+  const [showCreateApartadoModal, setShowCreateApartadoModal] = useState(false);
+  const [newAptClientName, setNewAptClientName] = useState('');
+  const [newAptClientPhone, setNewAptClientPhone] = useState('');
+  const [newAptDueDate, setNewAptDueDate] = useState('');
+  const [newAptNotes, setNewAptNotes] = useState('');
+  const [newAptItems, setNewAptItems] = useState<{ itemId?: string; name: string; quantity: number; price: number }[]>([]);
+  const [newAptInitialAmount, setNewAptInitialAmount] = useState('');
+  const [newAptInitialMethod, setNewAptInitialMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia'>('Efectivo');
+  const [aptItemSearchQuery, setAptItemSearchQuery] = useState('');
 
   // ─── Helpers de Fiados ───────────────────────────────────────────────────────
   const getBalance = (a: CreditAccount) => {
@@ -127,7 +165,50 @@ export default function MobileFiadosView({
     });
   }, [apartados, searchQuery]);
 
-  // Manejar abonos en cuenta de fiado
+  const genId = () => `FD-${Date.now().toString(36).toUpperCase()}`;
+  const genAptId = () => `APT-${Date.now().toString(36).toUpperCase()}`;
+
+  const combinedItems = useMemo(() => {
+    const activeRef = refacciones.filter(r => r.active !== false);
+    const surrogateRef: InventoryItem[] = activeRef.map(r => ({
+      id: r.id,
+      code: r.code || '',
+      name: `[REFACCIÓN] ${r.name.toUpperCase()} (${(r.deviceBrand || '').toUpperCase()} ${(r.deviceModel || '').toUpperCase()})`,
+      brand: r.brand,
+      category: r.category || 'Refacciones',
+      stock: r.stock,
+      minStock: r.minStock || 0,
+      price: r.price,
+      wholesalePrice: r.wholesalePrice,
+      cost: r.cost || 0,
+      imageUrl: r.imageUrl,
+      extraImages: r.extraImages,
+      favorite: !!r.favorite,
+      reservedQty: 0,
+      manageStock: r.manageStock !== false,
+      warehouseStock: r.warehouseStock,
+      isChip: false,
+    }));
+    return [...inventory, ...surrogateRef];
+  }, [inventory, refacciones]);
+
+  // Filtrado de inventario para Agregar Artículos a Fiado
+  const filteredCombinedItems = useMemo(() => {
+    if (!addItemSearchQuery.trim()) return [];
+    const query = addItemSearchQuery.toLowerCase().trim();
+    return combinedItems.filter(i => {
+      return i.name.toLowerCase().includes(query) || (i.code && i.code.toLowerCase().includes(query));
+    }).slice(0, 10);
+  }, [combinedItems, addItemSearchQuery]);
+
+  // Filtrado de inventario para Crear Nuevo Apartado
+  const filteredAptCombinedItems = useMemo(() => {
+    if (!aptItemSearchQuery.trim()) return [];
+    const query = aptItemSearchQuery.toLowerCase().trim();
+    return combinedItems.filter(i => {
+      return i.name.toLowerCase().includes(query) || (i.code && i.code.toLowerCase().includes(query));
+    }).slice(0, 10);
+  }, [combinedItems, aptItemSearchQuery]);
   const handleConfirmAbonoFiado = () => {
     if (!selectedAccount) return;
     const amt = parseFloat(abonoAmount);
@@ -146,7 +227,9 @@ export default function MobileFiadosView({
       createdAt: new Date().toISOString(),
       amount: amt,
       method: abonoMethod,
-      note: abonoNotes.trim() || undefined
+      note: abonoNotes.trim() || undefined,
+      entryId: abonoTargetEntryId || undefined,
+      itemId: abonoTargetItemId || undefined
     };
 
     onAddPayment(selectedAccount.id, newPayment);
@@ -164,6 +247,8 @@ export default function MobileFiadosView({
     setAbonoAmount('');
     setAbonoNotes('');
     setAbonoMethod('Efectivo');
+    setAbonoTargetEntryId(null);
+    setAbonoTargetItemId(null);
     setShowAddAbonoModal(false);
   };
 
@@ -204,6 +289,99 @@ export default function MobileFiadosView({
     setCargoConcept('');
     setCargoAmount('');
     setShowAddCargoModal(false);
+  };
+
+  // Handler para crear cuenta de fiado
+  const handleConfirmCreateAccount = () => {
+    if (!newClientName.trim()) {
+      alert('⚠️ Por favor ingresa el nombre del cliente.');
+      return;
+    }
+    const limit = parseFloat(newCreditLimit);
+    const newAccount: CreditAccount = {
+      id: genId(),
+      clientName: newClientName.trim().toUpperCase(),
+      clientPhone: newClientPhone.trim(),
+      creditLimit: isNaN(limit) ? undefined : limit,
+      createdAt: new Date().toISOString(),
+      lastActivityAt: new Date().toISOString(),
+      entries: [],
+      payments: [],
+      isClosed: false
+    };
+    onCreateCreditAccount(newAccount);
+    setShowCreateAccountModal(false);
+    // Auto-seleccionar la nueva cuenta creada para que puedan agregarle artículos directamente
+    setSelectedAccount(newAccount);
+  };
+
+  // Handler para agregar artículos al fiado seleccionado
+  const handleConfirmAgregarItems = () => {
+    if (!selectedAccount || itemsToAdd.length === 0) return;
+    const subtotal = itemsToAdd.reduce((s, i) => s + i.qty * i.price, 0);
+    const entry: CreditSaleEntry = {
+      id: genId(),
+      createdAt: new Date().toISOString(),
+      items: itemsToAdd.map(i => ({ itemId: i.itemId, name: i.name, quantity: i.qty, price: i.price })),
+      subtotal,
+    };
+    onAddEntry(selectedAccount.id, entry);
+    // Actualizar cuenta localmente para que se vea reflejado en la pantalla de detalles
+    setSelectedAccount(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        entries: [entry, ...prev.entries],
+        lastActivityAt: entry.createdAt
+      };
+    });
+    setItemsToAdd([]);
+    setAddItemSearchQuery('');
+    setShowAddItemsModal(false);
+  };
+
+  // Handler para crear nuevo apartado
+  const handleConfirmCreateApartado = () => {
+    if (!newAptClientName.trim()) {
+      alert('⚠️ Por favor ingresa el nombre del cliente.');
+      return;
+    }
+    const items = newAptItems.filter(i => i.name.trim() && i.price > 0 && i.quantity > 0);
+    if (items.length === 0) {
+      alert('⚠️ Por favor agrega al menos un artículo válido al apartado.');
+      return;
+    }
+    const initialAmt = parseFloat(newAptInitialAmount);
+    if (isNaN(initialAmt) || initialAmt < 0) {
+      alert('⚠️ Por favor ingresa un monto inicial válido.');
+      return;
+    }
+    const totalValue = items.reduce((s, i) => s + i.price * i.quantity, 0);
+    if (initialAmt > totalValue) {
+      alert(`⚠️ El pago inicial no puede ser mayor al valor total del apartado (${sym}${totalValue.toFixed(2)}).`);
+      return;
+    }
+    const firstPayment: ApartadoPayment = {
+      id: `APT-PAY-${Date.now().toString(36).toUpperCase()}`,
+      date: new Date().toISOString(),
+      amount: initialAmt,
+      method: newAptInitialMethod,
+    };
+    const newStatus: ApartadoEntry['status'] = initialAmt >= totalValue ? 'Listo' : 'Activo';
+    const newApt: ApartadoEntry = {
+      id: genAptId(),
+      clientName: newAptClientName.trim().toUpperCase(),
+      clientPhone: newAptClientPhone.trim() || undefined,
+      items: items.map(i => ({ itemId: i.itemId, name: i.name.trim(), price: i.price, quantity: i.quantity })),
+      totalValue,
+      payments: [firstPayment],
+      status: newStatus,
+      createdAt: new Date().toISOString(),
+      dueDate: newAptDueDate || undefined,
+      notes: newAptNotes.trim() || undefined,
+    };
+    onCreateApartado(newApt);
+    setShowCreateApartadoModal(false);
   };
 
   // Eliminar cuenta de fiado
@@ -306,22 +484,49 @@ export default function MobileFiadosView({
         }`}
       >
         {/* Fila del Título y Regreso */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                isLight 
+                  ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700' 
+                  : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-300'
+              }`}
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h2 className="text-base font-black uppercase tracking-tight leading-none">Créditos y Apartados</h2>
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mt-1 block">Gestión de Cobro</span>
+            </div>
+          </div>
+
           <button
             type="button"
-            onClick={onClose}
-            className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-              isLight 
-                ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700' 
-                : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-300'
-            }`}
+            onClick={() => {
+              if (activeTab === 'fiados') {
+                setNewClientName('');
+                setNewClientPhone('');
+                setNewCreditLimit('');
+                setShowCreateAccountModal(true);
+              } else {
+                setNewAptClientName('');
+                setNewAptClientPhone('');
+                setNewAptDueDate('');
+                setNewAptNotes('');
+                setNewAptItems([]);
+                setNewAptInitialAmount('');
+                setNewAptInitialMethod('Efectivo');
+                setShowCreateApartadoModal(true);
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-black uppercase bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-650 text-white rounded-2xl shadow-md active:scale-95 transition-all cursor-pointer"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <Plus className="w-4 h-4" />
+            <span>{activeTab === 'fiados' ? 'Nuevo' : 'Nuevo'}</span>
           </button>
-          <div>
-            <h2 className="text-base font-black uppercase tracking-tight leading-none">Créditos y Apartados</h2>
-            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mt-1 block">Gestión de Cobro</span>
-          </div>
         </div>
 
         {/* Pestañas estilo Segmented Control (iOS Nativo con Color y Alma) */}
@@ -354,7 +559,7 @@ export default function MobileFiadosView({
             }}
             className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 ${
               activeTab === 'apartados'
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-650/20 scale-100'
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/20 scale-100'
                 : isLight
                   ? 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
@@ -427,6 +632,14 @@ export default function MobileFiadosView({
                         <h4 className="text-xs font-black uppercase tracking-wide leading-none truncate">{account.clientName}</h4>
                         <span className="text-[10px] font-black text-zinc-500 mt-1 block">
                           {account.clientPhone ? formatPhoneNumber(account.clientPhone) : 'Sin teléfono'}
+                          {' • '}
+                          <span className="text-amber-500 font-bold">
+                            Límite: {(() => {
+                              const clientMatch = clients?.find(c => c.phone === account.clientPhone || c.name.toLowerCase().trim() === account.clientName.toLowerCase().trim());
+                              const limit = clientMatch?.creditLimit ?? account.creditLimit;
+                              return limit !== undefined && limit > 0 ? `${sym}${limit.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : 'Sin límite';
+                            })()}
+                          </span>
                         </span>
                       </div>
                     </div>
@@ -513,14 +726,17 @@ export default function MobileFiadosView({
 
       {/* ─── MODAL DETALLE DE CUENTA FIADO ───────────────────────────────────── */}
       {selectedAccount && (
-        <div className={`fixed inset-0 z-[99992] flex flex-col ${
-          isLight ? 'bg-slate-50' : 'bg-zinc-950'
-        }`}>
+        <div 
+          style={{ position: 'fixed' }}
+          className={`inset-0 z-[99992] flex flex-col ${
+            isLight ? 'bg-slate-50' : 'bg-[#0c1224]'
+          }`}
+        >
           {/* Header */}
           <div 
-            style={{ paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))' }}
-            className={`px-5 pb-3 border-b shrink-0 flex items-center justify-between ${
-              isLight ? 'bg-white border-slate-200' : 'bg-[#0c1224] border-zinc-800/80'
+            style={{ paddingTop: 'calc(14px + env(safe-area-inset-top, 0px))' }}
+            className={`px-5 pb-3 shrink-0 flex items-center justify-between ${
+              isLight ? 'bg-slate-50' : 'bg-[#0c1224]'
             }`}
           >
             <div className="flex items-center gap-3">
@@ -529,7 +745,7 @@ export default function MobileFiadosView({
                 onClick={() => setSelectedAccount(null)}
                 className={`p-2 rounded-xl border transition-colors cursor-pointer ${
                   isLight 
-                    ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700' 
+                    ? 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700' 
                     : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-300'
                 }`}
               >
@@ -539,6 +755,14 @@ export default function MobileFiadosView({
                 <h2 className="text-xs font-black uppercase tracking-wide leading-none">{selectedAccount.clientName}</h2>
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mt-1 block">
                   {selectedAccount.clientPhone ? formatPhoneNumber(selectedAccount.clientPhone) : 'Sin teléfono'}
+                  {' • '}
+                  <span className="text-amber-500">
+                    Límite: {(() => {
+                      const clientMatch = clients?.find(c => c.phone === selectedAccount.clientPhone || c.name.toLowerCase().trim() === selectedAccount.clientName.toLowerCase().trim());
+                      const limit = clientMatch?.creditLimit ?? selectedAccount.creditLimit;
+                      return limit !== undefined && limit > 0 ? `${sym}${limit.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Sin límite';
+                    })()}
+                  </span>
                 </span>
               </div>
             </div>
@@ -553,109 +777,280 @@ export default function MobileFiadosView({
           </div>
 
           {/* Resumen del Saldo */}
-          <div className={`p-5 border-b shrink-0 grid grid-cols-3 gap-2.5 text-center ${
-            isLight ? 'bg-white border-slate-100' : 'bg-[#0a0f1d] border-zinc-900'
-          }`}>
-            <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/20">
+          <div className="px-5 py-4 shrink-0 grid grid-cols-3 gap-2.5 text-center bg-transparent">
+            <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/25">
               <span className="text-[8px] font-black uppercase tracking-wider text-red-500 block">Total Cargos</span>
               <span className="text-xs font-black font-mono mt-1 block text-red-500">{sym}{getDebtTotal(selectedAccount).toFixed(2)}</span>
             </div>
-            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25">
               <span className="text-[8px] font-black uppercase tracking-wider text-emerald-500 block">Total Abonos</span>
               <span className="text-xs font-black font-mono mt-1 block text-emerald-500">{sym}{getPaidTotal(selectedAccount).toFixed(2)}</span>
             </div>
-            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25">
               <span className="text-[8px] font-black uppercase tracking-wider text-amber-500 block">Saldo Restante</span>
               <span className="text-xs font-black font-mono mt-1 block text-amber-500">{sym}{getBalance(selectedAccount).toFixed(2)}</span>
             </div>
           </div>
 
           {/* Historial de transacciones */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Historial de Transacciones</h4>
+          <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            {/* Cargos / Artículos Fiados */}
+            <div>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-3 flex items-center gap-1.5">
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>Artículos Fiados (Cargos)</span>
+              </h4>
 
-            {/* Listar transacciones */}
-            {(() => {
-              const allTx = [
-                ...selectedAccount.entries.map(e => ({ ...e, txType: 'cargo' })),
-                ...selectedAccount.payments.map(p => ({ ...p, txType: 'abono' }))
-              ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              {selectedAccount.entries.length === 0 ? (
+                <div className={`p-4 text-center rounded-2xl border border-dashed text-xs font-bold ${
+                  isLight ? 'border-slate-200 text-slate-400 bg-white' : 'border-zinc-800 text-zinc-500 bg-zinc-900/20'
+                }`}>
+                  No hay cargos registrados en esta cuenta.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {[...selectedAccount.entries]
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                    .map((entry) => {
+                      const entryPayments = selectedAccount.payments.filter(p => p.entryId === entry.id);
+                      const totalPaidForEntry = entryPayments.reduce((s, p) => s + p.amount, 0);
+                      const entryRemaining = Math.max(0, entry.subtotal - totalPaidForEntry);
+                      const isEntryFullyPaid = totalPaidForEntry >= entry.subtotal;
+                      const isEntryPartiallyPaid = totalPaidForEntry > 0 && totalPaidForEntry < entry.subtotal;
 
-              if (allTx.length === 0) {
-                return (
-                  <div className="text-center py-6 text-xs text-zinc-500 font-bold">
-                    No hay transacciones registradas en esta cuenta.
-                  </div>
-                );
-              }
-
-              return (
-                <div className="space-y-2.5">
-                  {allTx.map((tx, idx) => {
-                    const isCargo = tx.txType === 'cargo';
-                    return (
-                      <div
-                        key={tx.id || idx}
-                        className={`p-3.5 rounded-2xl border flex items-center justify-between ${
-                          isCargo
-                            ? 'border-red-500/15 bg-red-500/5'
-                            : 'border-emerald-500/15 bg-emerald-500/5'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="text-lg">
-                            {isCargo ? '🔺' : '🟢'}
-                          </span>
-                          <div className="min-w-0 flex-1 pr-2">
-                            <span className="text-xs font-black uppercase tracking-tight block break-all whitespace-normal">
-                              {isCargo ? (tx as any).description || 'CARGO DE VENTA' : 'ABONO REGISTRADO'}
-                            </span>
-                            <span className="text-[8px] font-black text-zinc-500 mt-0.5 block">
-                              {new Date(tx.date).toLocaleDateString('es-MX', {
+                      return (
+                        <div
+                          key={entry.id}
+                          className={`rounded-2xl border p-4 flex flex-col gap-3 transition-all ${
+                            isLight
+                              ? 'bg-white border-slate-200/80 shadow-xs'
+                              : 'bg-zinc-900/60 border-zinc-850'
+                          }`}
+                        >
+                          {/* Header de la tarjeta */}
+                          <div className="flex justify-between items-start gap-2 border-b pb-2 border-zinc-150 dark:border-zinc-800">
+                            <span className="text-[9px] font-black text-zinc-450 uppercase tracking-tight block">
+                              {new Date(entry.createdAt).toLocaleDateString('es-MX', {
                                 day: '2-digit',
-                                month: '2-digit',
+                                month: 'short',
                                 year: 'numeric',
                                 hour: '2-digit',
-                                minute: '2-digit'
+                                minute: '2-digit',
+                                hour12: true
                               })}
-                              {!(isCargo) && (tx as any).note ? ` • ${(tx as any).note}` : ''}
                             </span>
+
+                            {isEntryFullyPaid ? (
+                              <span className="text-[8.5px] font-black uppercase px-2 py-0.5 bg-emerald-500/10 text-emerald-500 rounded-lg border border-emerald-500/20">
+                                ✓ Liquidado
+                              </span>
+                            ) : isEntryPartiallyPaid ? (
+                              <span className="text-[8.5px] font-black uppercase px-2 py-0.5 bg-orange-500/10 text-orange-500 rounded-lg border border-orange-500/20">
+                                Abonado: {sym}{totalPaidForEntry.toFixed(2)}
+                              </span>
+                            ) : (
+                              <span className="text-[8.5px] font-black uppercase px-2 py-0.5 bg-red-500/10 text-red-500 rounded-lg border border-red-500/20">
+                                Pendiente
+                              </span>
+                            )}
+                          </div>
+
+                           {/* Lista de productos fiados en este cargo */}
+                          <div className="space-y-1.5">
+                            {entry.items.map((it, idx) => {
+                              const itemPayments = selectedAccount.payments.filter(p => p.entryId === entry.id && p.itemId === it.itemId);
+                              const totalPaidForItem = itemPayments.reduce((s, p) => s + p.amount, 0);
+                              const itemTotal = it.price * it.quantity;
+                              const isItemFullyPaid = totalPaidForItem >= itemTotal;
+                              const isItemPartiallyPaid = totalPaidForItem > 0 && totalPaidForItem < itemTotal;
+
+                              const showItemBadges = entry.items.length > 1 || it.quantity > 1;
+                              const showPayItemButton = showItemBadges && !isItemFullyPaid && !isEntryFullyPaid;
+
+                              const amtToPay = (it.quantity > 1 && totalPaidForItem === 0) ? it.price : (itemTotal - totalPaidForItem);
+                              const defaultNote = (it.quantity > 1 && totalPaidForItem === 0) ? `Pago de: 1x ${it.name}` : `Pago de: ${it.quantity}x ${it.name}`;
+
+                              return (
+                                <div key={idx} className="flex justify-between items-center text-xs py-1 border-b last:border-0 border-zinc-100 dark:border-zinc-800/40">
+                                  <div className="flex-1 min-w-0 pr-2 flex items-center gap-1.5 flex-wrap">
+                                    <span className={`font-bold truncate ${isLight ? 'text-slate-800' : 'text-zinc-100'}`}>
+                                      {it.name}
+                                    </span>
+                                    {it.quantity > 1 && (
+                                      <span className="text-[10px] font-mono font-black text-zinc-450">
+                                        ×{it.quantity}
+                                      </span>
+                                    )}
+                                    {showItemBadges && isItemFullyPaid && (
+                                      <span className="text-[8px] font-black uppercase px-1.5 py-0.2 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/20 shrink-0">✓ Pagado</span>
+                                    )}
+                                    {showItemBadges && isItemPartiallyPaid && (
+                                      <span className="text-[8px] font-black uppercase px-1.5 py-0.2 bg-orange-500/10 text-orange-500 rounded border border-orange-500/20 shrink-0">Abonado: {sym}{totalPaidForItem.toFixed(2)}</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {showPayItemButton && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAbonoAmount(amtToPay.toFixed(2));
+                                          setAbonoTargetEntryId(entry.id);
+                                          setAbonoTargetItemId(it.itemId);
+                                          setAbonoNotes(defaultNote);
+                                          setShowAddAbonoModal(true);
+                                        }}
+                                        className="px-1.5 py-0.5 text-[8.5px] font-black uppercase bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 rounded-lg border border-emerald-500/20 cursor-pointer active:scale-95 transition-all"
+                                      >
+                                        Pagar Art.
+                                      </button>
+                                    )}
+                                    <span className={`font-black font-mono shrink-0 ${isLight ? 'text-slate-650' : 'text-zinc-350'}`}>
+                                      {sym}{itemTotal.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Footer de la tarjeta con precio y acción */}
+                          <div className="flex justify-between items-center pt-2 mt-1 border-t border-dashed border-zinc-150 dark:border-zinc-800">
+                            <div>
+                              <span className="text-[8px] font-black uppercase text-zinc-450 tracking-wider block">Monto del Cargo</span>
+                              <span className="text-sm font-black font-mono text-red-500">
+                                {sym}{entry.subtotal.toFixed(2)}
+                              </span>
+                            </div>
+
+                            {!isEntryFullyPaid && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAbonoAmount(entryRemaining.toFixed(2));
+                                  setAbonoTargetEntryId(entry.id);
+                                  setAbonoNotes(`Liquidación de cargo: ${entry.id}`);
+                                  setShowAddAbonoModal(true);
+                                }}
+                                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 shadow-md shadow-amber-500/10 cursor-pointer"
+                              >
+                                💵 {isEntryPartiallyPaid ? 'Liquidar Resto' : 'Liquidar Cargo'}
+                              </button>
+                            )}
                           </div>
                         </div>
-
-                        <span className={`text-xs font-black font-mono ${
-                          isCargo ? 'text-red-500' : 'text-emerald-500'
-                        }`}>
-                          {isCargo ? '+' : '-'}{sym}{(isCargo ? (tx as any).subtotal : (tx as any).amount).toFixed(2)}
-                        </span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
-              );
-            })()}
+              )}
+            </div>
+
+            {/* Abonos Registrados */}
+            <div className="pt-2">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-3 flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Abonos Registrados</span>
+              </h4>
+
+              {selectedAccount.payments.length === 0 ? (
+                <div className={`p-4 text-center rounded-2xl border border-dashed text-xs font-bold ${
+                  isLight ? 'border-slate-200 text-slate-400 bg-white' : 'border-zinc-800 text-zinc-500 bg-zinc-900/20'
+                }`}>
+                  No hay abonos registrados en esta cuenta.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {[...selectedAccount.payments]
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                    .map((p) => {
+                      return (
+                        <div
+                          key={p.id}
+                          className={`p-3.5 rounded-2xl border flex items-center justify-between transition-all ${
+                            isLight
+                              ? 'bg-emerald-500/5 border-emerald-500/15 text-slate-800 shadow-xs'
+                              : 'bg-emerald-950/10 border-emerald-900/20 text-zinc-150'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-lg">🟢</span>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-black uppercase tracking-tight">
+                                  Abono Registrado
+                                </span>
+                                <span className="text-[8.5px] font-bold px-1.5 py-0.2 bg-emerald-500/10 text-emerald-500 rounded">
+                                  {p.method}
+                                </span>
+                              </div>
+                              <span className="text-[9px] font-black text-zinc-450 mt-0.5 block">
+                                {new Date(p.createdAt).toLocaleDateString('es-MX', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: true
+                                })}
+                              </span>
+                              {p.note && (
+                                <span className="text-[9.5px] font-bold text-zinc-500 dark:text-zinc-400 mt-1 block">
+                                  Nota: {p.note}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <span className="text-xs font-black font-mono text-emerald-500">
+                            -{sym}{p.amount.toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Botones de acción inferiores */}
-          <div className={`p-5 border-t shrink-0 flex gap-2.5 ${
-            isLight ? 'bg-white border-slate-200' : 'bg-[#0c1224] border-zinc-900'
-          }`}>
-            <button
-              type="button"
-              onClick={() => setShowAddCargoModal(true)}
-              className={`flex-1 py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider border transition-colors cursor-pointer text-center ${
-                isLight
-                  ? 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
-                  : 'bg-zinc-900 border-zinc-850 text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              Nuevo Cargo
-            </button>
+          <div 
+            style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}
+            className={`px-5 pt-4 shrink-0 flex flex-col gap-2.5 ${
+              isLight ? 'bg-slate-50' : 'bg-[#0c1224]'
+            }`}
+          >
+            <div className="flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowAddCargoModal(true)}
+                className={`flex-1 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-wider border transition-colors cursor-pointer text-center ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                    : 'bg-zinc-900 border-zinc-850 text-zinc-300 hover:bg-zinc-800'
+                }`}
+              >
+                Cargo Manual
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setItemsToAdd([]);
+                  setAddItemSearchQuery('');
+                  setShowAddItemsModal(true);
+                }}
+                className={`flex-1 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-wider border transition-colors cursor-pointer text-center ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                    : 'bg-zinc-900 border-zinc-850 text-zinc-300 hover:bg-zinc-800'
+                }`}
+              >
+                Agregar Artículos
+              </button>
+            </div>
             <button
               type="button"
               disabled={getBalance(selectedAccount) === 0}
               onClick={() => setShowAddAbonoModal(true)}
-              className="flex-1 py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 cursor-pointer text-center disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 cursor-pointer text-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Registrar Abono
             </button>
@@ -665,14 +1060,17 @@ export default function MobileFiadosView({
 
       {/* ─── MODAL DETALLE DE APARTADO ───────────────────────────────────────── */}
       {selectedApartado && (
-        <div className={`fixed inset-0 z-[99992] flex flex-col ${
-          isLight ? 'bg-slate-50' : 'bg-zinc-950'
-        }`}>
+        <div 
+          style={{ position: 'fixed' }}
+          className={`inset-0 z-[99992] flex flex-col ${
+            isLight ? 'bg-slate-50' : 'bg-[#0c1224]'
+          }`}
+        >
           {/* Header */}
           <div 
-            style={{ paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))' }}
-            className={`px-5 pb-3 border-b shrink-0 flex items-center justify-between ${
-              isLight ? 'bg-white border-slate-200' : 'bg-[#0c1224] border-zinc-800/80'
+            style={{ paddingTop: 'calc(14px + env(safe-area-inset-top, 0px))' }}
+            className={`px-5 pb-3 shrink-0 flex items-center justify-between ${
+              isLight ? 'bg-slate-50' : 'bg-[#0c1224]'
             }`}
           >
             <div className="flex items-center gap-3">
@@ -681,7 +1079,7 @@ export default function MobileFiadosView({
                 onClick={() => setSelectedApartado(null)}
                 className={`p-2 rounded-xl border transition-colors cursor-pointer ${
                   isLight 
-                    ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700' 
+                    ? 'bg-white border-slate-200 hover:bg-slate-100 text-slate-700' 
                     : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-zinc-300'
                 }`}
               >
@@ -705,18 +1103,16 @@ export default function MobileFiadosView({
           </div>
 
           {/* Resumen del Saldo */}
-          <div className={`p-5 border-b shrink-0 grid grid-cols-3 gap-2.5 text-center ${
-            isLight ? 'bg-white border-slate-100' : 'bg-[#0a0f1d] border-zinc-900'
-          }`}>
-            <div className={`p-3 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-150' : 'bg-zinc-900/50 border-zinc-850'}`}>
+          <div className="px-5 py-4 shrink-0 grid grid-cols-3 gap-2.5 text-center bg-transparent">
+            <div className={`p-3 rounded-2xl border ${isLight ? 'bg-white border-slate-150' : 'bg-zinc-900/50 border-zinc-800'}`}>
               <span className="text-[8px] font-black uppercase tracking-wider text-zinc-400 block">Total Apartado</span>
               <span className="text-xs font-black font-mono mt-1 block">{sym}{selectedApartado.totalValue.toFixed(2)}</span>
             </div>
-            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25">
               <span className="text-[8px] font-black uppercase tracking-wider text-emerald-500 block">Abonado</span>
               <span className="text-xs font-black font-mono mt-1 block text-emerald-500">{sym}{getAptPaid(selectedApartado).toFixed(2)}</span>
             </div>
-            <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/20">
+            <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/25">
               <span className="text-[8px] font-black uppercase tracking-wider text-purple-500 block">Pendiente</span>
               <span className="text-xs font-black font-mono mt-1 block text-purple-500">{sym}{getAptBalance(selectedApartado).toFixed(2)}</span>
             </div>
@@ -797,9 +1193,12 @@ export default function MobileFiadosView({
 
           {/* Botones de acción de Apartado */}
           {selectedApartado.status !== 'Entregado' && (
-            <div className={`p-5 border-t shrink-0 flex gap-2.5 ${
-              isLight ? 'bg-white border-slate-200' : 'bg-[#0c1224] border-zinc-900'
-            }`}>
+            <div 
+              style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}
+              className={`px-5 pt-4 shrink-0 flex gap-2.5 ${
+                isLight ? 'bg-slate-50' : 'bg-[#0c1224]'
+              }`}
+            >
               <button
                 type="button"
                 disabled={getAptBalance(selectedApartado) === 0}
@@ -953,6 +1352,8 @@ export default function MobileFiadosView({
                   setAbonoAmount('');
                   setAbonoNotes('');
                   setAbonoMethod('Efectivo');
+                  setAbonoTargetEntryId(null);
+                  setAbonoTargetItemId(null);
                   setShowAddAbonoModal(false);
                 }}
                 className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider border transition-colors cursor-pointer text-center ${
@@ -1051,9 +1452,509 @@ export default function MobileFiadosView({
               <button
                 type="button"
                 onClick={handleConfirmAbonoApartado}
-                className="flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider bg-purple-650 hover:bg-purple-700 text-white cursor-pointer active:scale-95 transition-all text-center"
+                className="flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider bg-purple-600 hover:bg-purple-700 text-white cursor-pointer active:scale-95 transition-all text-center"
               >
                 Abonar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL CREAR NUEVA CUENTA DE FIADO ────────────────────────────────── */}
+      {showCreateAccountModal && (
+        <div className="fixed inset-0 z-[99995] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className={`w-full max-w-sm rounded-3xl p-5 flex flex-col gap-4 ${
+            isLight ? 'bg-white text-slate-900 shadow-2xl' : 'bg-zinc-900 border border-zinc-800 text-white shadow-2xl'
+          }`}>
+            <h3 className="text-base font-black uppercase tracking-tight">Crear Cuenta de Fiado</h3>
+
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-black uppercase tracking-wider text-zinc-450 block">Nombre del Cliente *:</label>
+              <input
+                type="text"
+                value={newClientName}
+                onChange={e => setNewClientName(e.target.value)}
+                placeholder="Nombre completo..."
+                className={`w-full h-10 px-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                  isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                }`}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-black uppercase tracking-wider text-zinc-455 block">Teléfono (Opcional):</label>
+              <input
+                type="text"
+                value={newClientPhone}
+                onChange={e => setNewClientPhone(e.target.value)}
+                placeholder="Ej. 1234567890..."
+                className={`w-full h-10 px-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                  isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                }`}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-black uppercase tracking-wider text-zinc-455 block">Límite de Crédito (Opcional):</label>
+              <input
+                type="number"
+                value={newCreditLimit}
+                onChange={e => setNewCreditLimit(e.target.value)}
+                placeholder={`Ej: ${config.defaultCreditLimit ?? 1000}`}
+                className={`w-full h-10 px-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                  isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                }`}
+              />
+            </div>
+
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateAccountModal(false)}
+                className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider border transition-colors cursor-pointer text-center ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-300 text-slate-650 hover:bg-slate-200'
+                    : 'bg-zinc-950 border-zinc-850 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCreateAccount}
+                className="flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-95 transition-all text-center"
+              >
+                Crear Cuenta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL AGREGAR ARTÍCULOS A FIADO ─────────────────────────────────── */}
+      {showAddItemsModal && selectedAccount && (
+        <div className="fixed inset-0 z-[99995] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className={`w-full max-w-md rounded-3xl p-5 flex flex-col gap-4 max-h-[85vh] ${
+            isLight ? 'bg-white text-slate-900 shadow-2xl' : 'bg-zinc-900 border border-zinc-800 text-white shadow-2xl'
+          }`}>
+            <div className="flex justify-between items-center border-b pb-2 border-zinc-150 dark:border-zinc-800">
+              <h3 className="text-sm font-black uppercase tracking-tight">Agregar Artículos</h3>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">{selectedAccount.clientName}</span>
+            </div>
+
+            {/* Buscador de artículos */}
+            <div className="relative">
+              <div className="flex items-center relative">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3" />
+                <input
+                  type="text"
+                  value={addItemSearchQuery}
+                  onChange={e => setAddItemSearchQuery(e.target.value)}
+                  placeholder="Buscar por nombre o código..."
+                  className={`w-full h-10 pl-9 pr-8 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                  }`}
+                />
+                {addItemSearchQuery && (
+                  <button
+                    onClick={() => setAddItemSearchQuery('')}
+                    className="absolute right-3 text-zinc-400 hover:text-red-500"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Resultados de búsqueda */}
+              {addItemSearchQuery.trim() && (
+                <div className={`absolute z-10 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-xl border shadow-lg ${
+                  isLight ? 'bg-white border-slate-200' : 'bg-zinc-950 border-zinc-800'
+                }`}>
+                  {filteredCombinedItems.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-zinc-500 font-bold">Sin resultados</div>
+                  ) : (
+                    filteredCombinedItems.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          const exists = itemsToAdd.find(it => it.itemId === item.id);
+                          if (exists) {
+                            setItemsToAdd(prev => prev.map(it => it.itemId === item.id ? { ...it, qty: it.qty + 1 } : it));
+                          } else {
+                            setItemsToAdd(prev => [...prev, { itemId: item.id, name: item.name, qty: 1, price: item.price }]);
+                          }
+                          setAddItemSearchQuery('');
+                        }}
+                        className={`w-full text-left px-3 py-2 border-b last:border-b-0 text-xs font-bold flex justify-between items-center ${
+                          isLight ? 'hover:bg-slate-50 border-slate-100' : 'hover:bg-zinc-900 border-zinc-900'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1 pr-2">
+                          <div className="truncate">{item.name}</div>
+                          <div className="text-[9px] text-zinc-500 font-black">Stock: {item.stock}</div>
+                        </div>
+                        <span className="shrink-0 text-blue-500 font-mono">{sym}{item.price.toFixed(2)}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Lista de artículos en el carrito */}
+            <div className="flex-1 overflow-y-auto min-h-[100px] max-h-[35vh] space-y-2 pr-1">
+              {itemsToAdd.length === 0 ? (
+                <div className="h-full flex flex-col justify-center items-center py-6 text-center text-zinc-400">
+                  <ShoppingBag className="w-8 h-8 stroke-1 text-zinc-400" />
+                  <span className="text-[10px] font-bold uppercase mt-2">Busca y selecciona artículos arriba</span>
+                </div>
+              ) : (
+                itemsToAdd.map((it, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-3 rounded-2xl border flex items-center justify-between gap-2.5 ${
+                      isLight ? 'bg-slate-50 border-slate-200/60' : 'bg-zinc-950 border-zinc-900'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate leading-snug">{it.name}</div>
+                      <div className="text-[10px] text-zinc-505 font-mono mt-0.5">{sym}{it.price.toFixed(2)} x {it.qty} = {sym}{(it.price * it.qty).toFixed(2)}</div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (it.qty > 1) {
+                            setItemsToAdd(prev => prev.map((item, i) => i === idx ? { ...item, qty: item.qty - 1 } : item));
+                          } else {
+                            setItemsToAdd(prev => prev.filter((_, i) => i !== idx));
+                          }
+                        }}
+                        className="w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold active:scale-90 border-zinc-300 dark:border-zinc-800 hover:bg-red-500/10 hover:text-red-500 cursor-pointer"
+                      >
+                        -
+                      </button>
+                      <span className="text-xs font-mono font-black w-4 text-center">{it.qty}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setItemsToAdd(prev => prev.map((item, i) => i === idx ? { ...item, qty: item.qty + 1 } : item));
+                        }}
+                        className="w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold active:scale-90 border-zinc-300 dark:border-zinc-800 cursor-pointer"
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setItemsToAdd(prev => prev.filter((_, i) => i !== idx));
+                        }}
+                        className="w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold text-red-500 active:scale-90 border-red-500/25 bg-red-500/10 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Total Subtotal */}
+            {itemsToAdd.length > 0 && (
+              <div className="flex justify-between items-center pt-2 border-t border-dashed border-zinc-200 dark:border-zinc-800 shrink-0">
+                <span className="text-xs font-black uppercase text-zinc-550">Total Cargo:</span>
+                <span className="text-sm font-black font-mono text-blue-500">
+                  {sym}{itemsToAdd.reduce((s, i) => s + i.qty * i.price, 0).toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {/* Botones de confirmar/cancelar */}
+            <div className="flex gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setItemsToAdd([]);
+                  setAddItemSearchQuery('');
+                  setShowAddItemsModal(false);
+                }}
+                className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider border transition-colors cursor-pointer text-center ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-300 text-slate-650 hover:bg-slate-200'
+                    : 'bg-zinc-950 border-zinc-850 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={itemsToAdd.length === 0}
+                onClick={handleConfirmAgregarItems}
+                className="flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider bg-blue-650 hover:bg-blue-700 text-white cursor-pointer active:scale-95 transition-all text-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Confirmar Cargo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL CREAR NUEVO APARTADO ──────────────────────────────────────── */}
+      {showCreateApartadoModal && (
+        <div className="fixed inset-0 z-[99995] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className={`w-full max-w-md rounded-3xl p-5 flex flex-col gap-4 max-h-[90vh] ${
+            isLight ? 'bg-white text-slate-900 shadow-2xl' : 'bg-zinc-900 border border-zinc-800 text-white shadow-2xl'
+          }`}>
+            <div className="flex justify-between items-center border-b pb-2 border-zinc-150 dark:border-zinc-800">
+              <h3 className="text-sm font-black uppercase tracking-tight">Crear Nuevo Apartado</h3>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase">Fórmula</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {/* Nombre de cliente */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-450 block">Nombre del Cliente *:</label>
+                <input
+                  type="text"
+                  value={newAptClientName}
+                  onChange={e => setNewAptClientName(e.target.value)}
+                  placeholder="Nombre completo..."
+                  className={`w-full h-10 px-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                  }`}
+                />
+              </div>
+
+              {/* Teléfono */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-455 block">Teléfono (Opcional):</label>
+                <input
+                  type="text"
+                  value={newAptClientPhone}
+                  onChange={e => setNewAptClientPhone(e.target.value)}
+                  placeholder="Ej. 1234567890..."
+                  className={`w-full h-10 px-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                  }`}
+                />
+              </div>
+
+              {/* Fecha de vencimiento */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-455 block">Fecha Límite / Vencimiento:</label>
+                <input
+                  type="date"
+                  value={newAptDueDate}
+                  onChange={e => setNewAptDueDate(e.target.value)}
+                  className={`w-full h-10 px-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                  }`}
+                />
+              </div>
+
+              {/* Buscador de artículos */}
+              <div className="space-y-1.5 relative">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-455 block">Buscar Artículos *:</label>
+                <div className="flex items-center relative">
+                  <Search className="w-4 h-4 text-zinc-400 absolute left-3" />
+                  <input
+                    type="text"
+                    value={aptItemSearchQuery}
+                    onChange={e => setAptItemSearchQuery(e.target.value)}
+                    placeholder="Buscar por nombre o código..."
+                    className={`w-full h-10 pl-9 pr-8 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                    }`}
+                  />
+                  {aptItemSearchQuery && (
+                    <button
+                      onClick={() => setAptItemSearchQuery('')}
+                      className="absolute right-3 text-zinc-400 hover:text-red-500"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Resultados de búsqueda */}
+                {aptItemSearchQuery.trim() && (
+                  <div className={`absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-xl border shadow-lg ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-zinc-950 border-zinc-800'
+                  }`}>
+                    {filteredAptCombinedItems.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-zinc-500 font-bold">Sin resultados</div>
+                    ) : (
+                      filteredAptCombinedItems.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            const exists = newAptItems.find(it => it.itemId === item.id);
+                            if (exists) {
+                              setNewAptItems(prev => prev.map(it => it.itemId === item.id ? { ...it, quantity: it.quantity + 1 } : it));
+                            } else {
+                              setNewAptItems(prev => [...prev, { itemId: item.id, name: item.name, quantity: 1, price: item.price }]);
+                            }
+                            setAptItemSearchQuery('');
+                          }}
+                          className={`w-full text-left px-3 py-2 border-b last:border-b-0 text-xs font-bold flex justify-between items-center ${
+                            isLight ? 'hover:bg-slate-50 border-slate-100' : 'hover:bg-zinc-900 border-zinc-900'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <div className="truncate">{item.name}</div>
+                            <div className="text-[9px] text-zinc-500 font-black">Stock: {item.stock}</div>
+                          </div>
+                          <span className="shrink-0 text-blue-500 font-mono">{sym}{item.price.toFixed(2)}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Lista de artículos del apartado */}
+              {newAptItems.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-zinc-405 block">Artículos Seleccionados:</span>
+                  {newAptItems.map((it, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-2xl border flex items-center justify-between gap-2.5 ${
+                        isLight ? 'bg-slate-50 border-slate-200/60' : 'bg-zinc-950 border-zinc-900'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold truncate leading-snug">{it.name}</div>
+                        <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{sym}{it.price.toFixed(2)} x {it.quantity} = {sym}{(it.price * it.quantity).toFixed(2)}</div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (it.quantity > 1) {
+                              setNewAptItems(prev => prev.map((item, i) => i === idx ? { ...item, quantity: item.quantity - 1 } : item));
+                            } else {
+                              setNewAptItems(prev => prev.filter((_, i) => i !== idx));
+                            }
+                          }}
+                          className="w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold active:scale-90 border-zinc-300 dark:border-zinc-800 hover:bg-red-500/10 hover:text-red-500 cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <span className="text-xs font-mono font-black w-4 text-center">{it.quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewAptItems(prev => prev.map((item, i) => i === idx ? { ...item, quantity: item.quantity + 1 } : item));
+                          }}
+                          className="w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold active:scale-90 border-zinc-300 dark:border-zinc-800 cursor-pointer"
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewAptItems(prev => prev.filter((_, i) => i !== idx));
+                          }}
+                          className="w-7 h-7 rounded-lg border flex items-center justify-center text-xs font-bold text-red-500 active:scale-90 border-red-500/25 bg-red-500/10 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Monto inicial */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-450 block">Monto Inicial de Pago / Abono *:</label>
+                <input
+                  type="number"
+                  value={newAptInitialAmount}
+                  onChange={e => setNewAptInitialAmount(e.target.value)}
+                  placeholder="0.00"
+                  className={`w-full h-10 px-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                  }`}
+                />
+              </div>
+
+              {/* Método de pago inicial */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-450 block">Método de Pago:</label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {['Efectivo', 'Tarjeta', 'Transferencia'].map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setNewAptInitialMethod(method as any)}
+                      className={`py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border cursor-pointer transition-all ${
+                        newAptInitialMethod === method
+                          ? 'bg-purple-600 border-purple-600 text-white shadow-md'
+                          : isLight
+                            ? 'bg-slate-100 border-slate-200 text-slate-650 hover:bg-slate-200'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-455 hover:bg-zinc-800'
+                      }`}
+                    >
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Notas */}
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-455 block">Notas o Comentarios (Opcional):</label>
+                <textarea
+                  value={newAptNotes}
+                  onChange={e => setNewAptNotes(e.target.value)}
+                  placeholder="Instrucciones adicionales..."
+                  rows={2}
+                  className={`w-full p-3 text-xs font-bold rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-880 text-white'
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* Total Subtotal */}
+            {newAptItems.length > 0 && (
+              <div className="flex justify-between items-center pt-2 border-t border-dashed border-zinc-200 dark:border-zinc-800 shrink-0">
+                <span className="text-xs font-black uppercase text-zinc-550">Total Apartado:</span>
+                <span className="text-sm font-black font-mono text-purple-600">
+                  {sym}{newAptItems.reduce((s, i) => s + i.quantity * i.price, 0).toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {/* Botones de confirmar/cancelar */}
+            <div className="flex gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateApartadoModal(false);
+                }}
+                className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider border transition-colors cursor-pointer text-center ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-300 text-slate-650 hover:bg-slate-200'
+                    : 'bg-zinc-950 border-zinc-850 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!newAptClientName.trim() || newAptItems.length === 0}
+                onClick={handleConfirmCreateApartado}
+                className="flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider bg-purple-600 hover:bg-purple-700 text-white cursor-pointer active:scale-95 transition-all text-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Crear Apartado
               </button>
             </div>
           </div>

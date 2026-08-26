@@ -17,7 +17,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { RepairOrder, ServicePrice, WorkshopConfig, Client, AppUser, QuoteDevice, RefaccionItem } from '../types';
 import { formatPhoneNumber } from '../utils/phoneFormatter';
-import { buildConsolidatedTicketHtml, buildTicketHtml } from '../utils/ticketBuilder';
+import { buildConsolidatedTicketHtml, buildTicketHtml, buildServiceLabelHtml } from '../utils/ticketBuilder';
 import { DEFAULT_OFFLINE_MODELS, INITIAL_SERVICES } from '../data';
 import { handleCaretPreservingChange } from '../utils/domHelpers';
 import { generateNextOrderId } from '../utils/folioUtils';
@@ -1841,6 +1841,14 @@ function ExtraEquipoModal({ isRetro, isLight, allModels, services, extraDraft, s
   );
 }
 
+const getLocalDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function NuevaView({
   services,
   onCreateOrder,
@@ -1937,6 +1945,49 @@ export default function NuevaView({
   // Form input states
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showTicketPreviewModal, setShowTicketPreviewModal] = useState(false);
+  const [showLabelPreviewModal, setShowLabelPreviewModal] = useState(false);
+
+  const getLabelNoteMaxLength = (paperSize: string): number => {
+    const size = paperSize || '51x25mm';
+    const [w, h] = size.replace('mm', '').split('x').map(Number);
+    if (!w || !h) return 80;
+    if (h <= 16) return 0;
+    if (h <= 20) {
+      if (w <= 40) return 30;
+      if (w <= 60) return 45;
+      return 60;
+    }
+    if (h <= 35) {
+      if (w <= 30) return 35;
+      if (w <= 40) return 60; // e.g. 40x30mm -> 60 characters
+      if (w <= 60) return 85; // e.g. 51x25mm / 50x30mm -> 85 characters
+      return 120;
+    }
+    if (w >= 80) return 200;
+    return 150;
+  };
+  const labelMaxLength = getLabelNoteMaxLength(config.labelPaperSize || '51x25mm');
+
+  const getLabelNoteMaxLines = (paperSize: string): number => {
+    const size = paperSize || '51x25mm';
+    const [, h] = size.replace('mm', '').split('x').map(Number);
+    if (!h) return 3;
+    return h <= 22 ? 1 : 3;
+  };
+  const labelMaxLines = getLabelNoteMaxLines(config.labelPaperSize || '51x25mm');
+
+  const handleLabelNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    const lines = text.split('\n');
+    if (lines.length > labelMaxLines) {
+      return; // Bloquea si excede el límite físico de líneas de la etiqueta
+    }
+    if (labelMaxLength > 0 && text.length > labelMaxLength) {
+      return;
+    }
+    handleCaretPreservingChange(e, setLabelTextNote);
+  };
+
   const [deviceType, setDeviceType] = useState<string>('Phone');
   const [deviceTypeQuery, setDeviceTypeQuery] = useState('');
   const [deviceTypeOpen, setDeviceTypeOpen] = useState(false);
@@ -2126,6 +2177,14 @@ export default function NuevaView({
   // Focused index for phone-conflict modal: 0 = "Usar existente", 1 = "Continuar nuevo"
   const [conflictFocusedIdx, setConflictFocusedIdx] = useState(0);
 
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false);
+  const [clientNameSuggestionIndex, setClientNameSuggestionIndex] = useState(-1);
+  const [clientPhoneSuggestionIndex, setClientPhoneSuggestionIndex] = useState(-1);
+
+  useEffect(() => { setClientNameSuggestionIndex(-1); }, [customerName]);
+  useEffect(() => { setClientPhoneSuggestionIndex(-1); }, [customerPhone]);
+
   useEffect(() => {
     if (isRegisteringNewClient) {
       setTimeout(() => {
@@ -2185,10 +2244,17 @@ export default function NuevaView({
   const matchedClientsFiltered = React.useMemo(() => {
     const q = clientSearchQuery.trim().toLowerCase();
     if (!q) return [];
-    return activeClients.filter(c =>
-      c.name.toLowerCase().includes(q) ||
-      c.phone.replace(/\D/g, '').includes(q.replace(/\D/g, ''))
-    );
+    const cleanQ = q.replace(/\D/g, '');
+    return activeClients.filter(c => {
+      const nameMatch = c.name.toLowerCase().includes(q);
+      const normalizedPhone = c.phone.replace(/\D/g, '');
+      const phoneMatch = cleanQ.length > 0 && (
+        normalizedPhone.startsWith(cleanQ) ||
+        normalizedPhone.substring(3).startsWith(cleanQ) ||
+        (['55', '33', '81'].some(ac => normalizedPhone.startsWith(ac)) && normalizedPhone.substring(2).startsWith(cleanQ))
+      );
+      return nameMatch || phoneMatch;
+    });
   }, [clientSearchQuery, activeClients]);
 
   const activeClientSuggestions = React.useMemo(() => {
@@ -2557,6 +2623,7 @@ export default function NuevaView({
   const [selectedServiceId, setSelectedServiceId] = useState(services[0]?.id || '');
   const [faultDescription, setFaultDescription] = useState('');
   const [proposedSolution, setProposedSolution] = useState('');
+  const [labelTextNote, setLabelTextNote] = useState('');
   const [showNotesOnLabel, setShowNotesOnLabel] = useState(false);
   const [hidePriceOnLabel, setHidePriceOnLabel] = useState(config.hidePriceOnLabel ?? false);
   const isPersonalMode = (config.workshopMode ?? 'personal') === 'personal';
@@ -2699,7 +2766,7 @@ export default function NuevaView({
     receivedAccessories: [],
   });
   const [estimatedDelivery, setEstimatedDelivery] = useState<string>(
-    () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    () => getLocalDateString()
   );
 
   const handleTogglePaymentMethod = (method: 'Efectivo' | 'Tarjeta/Transfer') => {
@@ -2839,6 +2906,31 @@ export default function NuevaView({
   const [printTicket, setPrintTicket] = useState(true);
   const [printLabel, setPrintLabel] = useState(true);
   const [sendWhatsappTicket, setSendWhatsappTicket] = useState(false);
+  const [waConnected, setWaConnected] = useState<boolean>(() => {
+    return (window as any).whatsappConnected || false;
+  });
+
+  useEffect(() => {
+    const handleStatus = (e: Event) => {
+      setWaConnected((e as CustomEvent).detail);
+    };
+    window.addEventListener('whatsapp-status-update', handleStatus);
+
+    const api = (window as any).electronAPI;
+    if (api && api.whatsappGetStatus) {
+      api.whatsappGetStatus().then((info: any) => {
+        const isConnected = info && info.status === 'CONNECTED';
+        (window as any).whatsappConnected = isConnected;
+        setWaConnected(isConnected);
+      }).catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener('whatsapp-status-update', handleStatus);
+    };
+  }, []);
+
+  const isWaIntegratedOffline = !waConnected;
 
   const togglePrintTicket = () => {
     setPrintTicket(prev => {
@@ -2851,6 +2943,10 @@ export default function NuevaView({
   };
 
   const toggleSendWhatsapp = () => {
+    if (isWaIntegratedOffline) {
+      window.alert('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.');
+      return;
+    }
     setSendWhatsappTicket(prev => {
       const nextVal = !prev;
       if (nextVal) {
@@ -3024,7 +3120,12 @@ export default function NuevaView({
     }
 
     const matches = clients.filter(c => {
-      const phoneMatch = queryPhone.length >= 3 && c.phone.replace(/\D/g, '').includes(queryPhone);
+      const normalizedPhone = c.phone.replace(/\D/g, '');
+      const phoneMatch = queryPhone.length >= 3 && (
+        normalizedPhone.startsWith(queryPhone) ||
+        normalizedPhone.substring(3).startsWith(queryPhone) ||
+        (['55', '33', '81'].some(ac => normalizedPhone.startsWith(ac)) && normalizedPhone.substring(2).startsWith(queryPhone))
+      );
       const nameMatch = queryName.length >= 3 && c.name.toLowerCase().includes(queryName.toLowerCase());
       return phoneMatch || nameMatch;
     });
@@ -3133,6 +3234,7 @@ export default function NuevaView({
     deviceModelNumber,
     devicePin,
     proposedSolution,
+    labelTextNote,
     faultDescription,
     selectedServiceId,
     services,
@@ -3345,12 +3447,13 @@ export default function NuevaView({
     setRepairCost('');
     setFaultDescription('');
     setProposedSolution('');
+    setLabelTextNote('');
     setShowNotesOnLabel(false);
     setAdvancePayment('');
     setCashReceived('');
     setSelectedMethods(['Efectivo']);
     setMethodAmounts({ Efectivo: '', 'Tarjeta/Transfer': '' });
-    setEstimatedDelivery(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+    setEstimatedDelivery(getLocalDateString());
     setErrorMsg('');
     setActiveStep(0);
     setParts([]);
@@ -3393,6 +3496,7 @@ export default function NuevaView({
     setDevicePin(device.pin);
     setFaultDescription(fault.fault.toUpperCase());
     setProposedSolution('');
+    setLabelTextNote('');
     setDeviceSearchQuery(device.model.toUpperCase());
     setIsRegisteringNewPhone(false);
 
@@ -3424,6 +3528,26 @@ export default function NuevaView({
   const handleNextStep = () => {
     setErrorMsg('');
     if (activeStep === 3) { handleSubmit(); return; }
+
+    // Si estamos en el paso del cliente pero en la pantalla de busqueda inicial sin haber seleccionado aun
+    if (activeStep === 2 && !isRegisteringNewClient && !detectedClient) {
+      const query = clientSearchQuery.trim();
+      if (!query) {
+        setErrorMsg('Escriba el nombre o telefono del cliente para continuar.');
+        return;
+      }
+      if (focusedClientIndex >= 0 && focusedClientIndex < activeClientSuggestions.length) {
+        handleSelectClient(activeClientSuggestions[focusedClientIndex]);
+      } else if (exactClientMatches.length > 0) {
+        setExactMatchModal({ candidates: exactClientMatches, focusedIdx: 0 });
+      } else if (activeClientSuggestions.length > 0 && query.length >= 3) {
+        handleSelectClient(activeClientSuggestions[0]);
+      } else {
+        handleRegisterNewClient();
+      }
+      return;
+    }
+
     if (isStepValid(activeStep)) {
       if (activeStep === 0) {
         if (deviceType) {
@@ -3606,7 +3730,9 @@ export default function NuevaView({
       devicePin: devicePin.trim(),
       receivedAccessories: selectedAccessories.length > 0 ? selectedAccessories : undefined,
       faultDescription: fullFault.toUpperCase(),
-      diagnosticsNote: fullDiagnostics,
+      diagnosticsNote: 'Diagnóstico de ingreso inicial registrado.',
+      ticketNote: proposedSolution.trim(),
+      labelNote: labelTextNote.trim(),
       assignedTechnician: assignedTechnician.toUpperCase(),
       status: 'Pendiente',
       serviceType: mainServiceType,
@@ -3643,8 +3769,8 @@ export default function NuevaView({
     const accumulatedOrders: RepairOrder[] = [finalOrder];
     const extraOrders: RepairOrder[] = extraEquipos.map(eq => {
       const eqOrderId = generateNextOrderId([...(orders || []), ...accumulatedOrders]);
-      const eqParts = eq.parts.map(p => ({
-        name: p.name.trim(),
+      const eqParts = (eq.parts || []).map(p => ({
+        name: (p.name || '').trim(),
         cost: Number(p.cost) || 0,
         price: Number(p.price) || 0,
         refaccionId: p.refaccionId,
@@ -3652,7 +3778,7 @@ export default function NuevaView({
       }));
       
       const eqCost = Number(eq.cost) || 0;
-      let eqServiceType = eq.serviceType.toUpperCase();
+      let eqServiceType = (eq.serviceType || eq.faultDescription || '').toUpperCase();
 
       if (eqParts.length === 1 && eqCost > 0) {
         eqParts[0].price = eqCost;
@@ -3674,7 +3800,7 @@ export default function NuevaView({
         eqServiceType = eqParts.map(p => `${p.name} - ${sym}${p.price!.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join('\n');
       }
 
-      const matchedExtraSvc = services.find(s => s.name.toLowerCase() === eq.serviceType.toLowerCase());
+      const matchedExtraSvc = services.find(s => s.name.toLowerCase() === (eq.serviceType || '').toLowerCase());
       const extraSvcCost = matchedExtraSvc ? (matchedExtraSvc.cost || 0) : 0;
 
       const createdExtra: RepairOrder = {
@@ -3682,13 +3808,13 @@ export default function NuevaView({
         customerName: customerName.trim().toUpperCase(),
         customerPhone: customerPhone.trim(),
         customerCountryCode,
-        deviceType: eq.deviceType,
-        deviceBrand: eq.deviceBrand.toUpperCase(),
-        deviceModel: eq.deviceModel.toUpperCase(),
-        deviceModelNumber: eq.deviceModelNumber.toUpperCase(),
-        devicePin: eq.devicePin,
+        deviceType: eq.deviceType || 'Phone',
+        deviceBrand: (eq.deviceBrand || '').toUpperCase(),
+        deviceModel: (eq.deviceModel || '').toUpperCase(),
+        deviceModelNumber: (eq.deviceModelNumber || '').toUpperCase(),
+        devicePin: eq.devicePin || 'SIN CLAVE',
         receivedAccessories: eq.receivedAccessories && eq.receivedAccessories.length > 0 ? eq.receivedAccessories : undefined,
-        faultDescription: eq.faultDescription.toUpperCase(),
+        faultDescription: (eq.faultDescription || '').toUpperCase(),
         diagnosticsNote: 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.',
         assignedTechnician: assignedTechnician.toUpperCase(),
         status: 'Pendiente' as const,
@@ -3703,7 +3829,11 @@ export default function NuevaView({
         isPaid: false,
         parts: eqParts,
         showNotesOnLabel: showNotesOnLabel,
+        hidePriceOnLabel: hidePriceOnLabel,
       };
+
+      accumulatedOrders.push(createdExtra);
+      return createdExtra;
     });
 
     if (batchId) {
@@ -3935,7 +4065,13 @@ export default function NuevaView({
         <div className={`w-full ${isRetro ? 'bg-[#eaeef3] border-zinc-300' : 'bg-[#0f121d]/95 backdrop-blur-md border-zinc-800/80 text-zinc-100'} rounded-2xl border-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden font-sans select-none my-1`}>
           
           {/* Header bar: Recepcion de equipos */}
-          <div className={`${isRetro ? 'bg-gradient-to-r from-[#031124] to-[#0d2a4a] border-zinc-300' : 'bg-gradient-to-r from-[#111827] via-[#1e293b] to-[#0f172a] border-zinc-800'} text-white px-5 py-4 flex items-center justify-between border-b shadow-md relative`}>
+          <div className={`${
+            isRetro 
+              ? 'bg-gradient-to-r from-[#031124] to-[#0d2a4a] border-zinc-300 text-white' 
+              : isLight 
+                ? 'bg-gradient-to-r from-[#1a3a6b] to-[#2e5b9a] border-zinc-200 text-white-important' 
+                : 'bg-gradient-to-r from-[#111827] via-[#1e293b] to-[#0f172a] border-zinc-800 text-white'
+          } px-5 py-4 flex items-center justify-between border-b shadow-md relative`}>
             <div className="flex items-center gap-3">
               {/* Inside container resembles the colored cube in the screenshot */}
               <div className="w-9 h-9 relative flex items-center justify-center bg-gradient-to-b from-red-500 via-blue-500 to-amber-500 rounded-md shadow-md border border-white/20">
@@ -3951,7 +4087,7 @@ export default function NuevaView({
             <div className="flex items-center gap-3">
               {(customerName || customerPhone) ? (
                 <div className="text-right select-none font-sans bg-black/60 px-3.5 py-1.5 rounded-lg border border-white/20 shadow-md header-customer-box">
-                  <div className={`text-[9.5px] font-black ${isRetro ? 'retro-emerald-text' : 'text-emerald-450'} tracking-widest uppercase mb-0.5`}>
+                  <div className={`text-[9.5px] font-black ${isRetro ? 'retro-emerald-text' : isLight ? 'text-emerald-400-important' : 'text-emerald-450'} tracking-widest uppercase mb-0.5`}>
                     👤 Cliente Registrado
                   </div>
                   {customerName && (
@@ -3967,7 +4103,7 @@ export default function NuevaView({
                 </div>
               ) : (
                 <div className="text-right select-none font-sans bg-black/50 px-3.5 py-1.5 rounded-lg border border-white/15 shadow-inner animate-pulse-slow header-customer-box">
-                  <div className={`text-[9.5px] font-black ${isRetro ? 'retro-amber-text' : 'text-amber-500'} tracking-widest uppercase mb-0.5`}>
+                  <div className={`text-[9.5px] font-black ${isRetro ? 'retro-amber-text' : isLight ? 'text-amber-500-important' : 'text-amber-500'} tracking-widest uppercase mb-0.5`}>
                     👤 Cliente
                   </div>
                   <div className={`text-[11px] font-black ${isRetro ? 'retro-slate-300-text' : 'text-zinc-300'} tracking-wide leading-tight uppercase`}>
@@ -3982,7 +4118,13 @@ export default function NuevaView({
           </div>
 
           {/* Integrated Wizard horizontal stepper */}
-          <div className={`py-3.5 px-5 ${isRetro ? 'bg-[#e1e6ed] border-zinc-200 text-[#556980]' : 'bg-[#151926]/90 border-zinc-900 text-zinc-400'} border-b flex overflow-x-auto items-center justify-between text-[11px] font-bold gap-4 pb-3.5 scrollbar-thin`}>
+          <div className={`py-3.5 px-5 ${
+            isRetro 
+              ? 'bg-[#e1e6ed] border-zinc-200 text-[#556980]' 
+              : isLight 
+                ? 'bg-zinc-100 border-zinc-250 text-zinc-650' 
+                : 'bg-[#151926]/90 border-zinc-900 text-zinc-400'
+          } border-b flex overflow-x-auto items-center justify-between text-[11px] font-bold gap-4 pb-3.5 scrollbar-thin`}>
             <div className="flex items-center flex-wrap gap-4 md:gap-2">
             {[
               { idx: 0, label: deviceModel ? `${deviceBrand.toUpperCase()} ${deviceModel.toUpperCase()}` : 'Modelo de teléfono' },
@@ -4001,17 +4143,17 @@ export default function NuevaView({
                 >
                   <div className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] ${
                     isCurrent 
-                      ? (isRetro ? 'bg-[#113a7c] text-white' : 'bg-amber-500 text-black font-black') 
+                      ? (isRetro ? 'bg-[#113a7c] text-white' : isLight ? 'bg-blue-600 text-white' : 'bg-amber-500 text-black font-black') 
                       : isPassed 
                         ? 'bg-emerald-600 text-white font-sans' 
-                        : (isRetro ? 'bg-zinc-400 text-white' : 'bg-zinc-800 text-zinc-500 border border-zinc-700')
+                        : (isRetro ? 'bg-zinc-400 text-white' : isLight ? 'bg-zinc-300 text-zinc-550' : 'bg-zinc-800 text-zinc-500 border border-zinc-700')
                   }`}>
                     {s.idx + 1}
                   </div>
                   <span className={`uppercase font-sans font-black tracking-wide text-[10px] ${
                     isCurrent 
-                      ? (isRetro ? 'text-[#113a7c]' : 'text-amber-400') 
-                      : (isRetro ? 'text-[#556980]' : 'text-zinc-400')
+                      ? (isRetro ? 'text-[#113a7c]' : isLight ? 'text-blue-600' : 'text-amber-400') 
+                      : (isRetro ? 'text-[#556980]' : isLight ? 'text-zinc-500' : 'text-zinc-400')
                   }`}>
                     {s.label}
                   </span>
@@ -4019,7 +4161,6 @@ export default function NuevaView({
               );
             })}
             </div>
-            {/* X — Cerrar con confirmación si hay progreso */}
             <button
               type="button"
               onClick={() => { if (activeStep > 0 || customerName || deviceModel) { setShowExitConfirm(true); } else { clearAllFields(); } }}
@@ -4027,7 +4168,9 @@ export default function NuevaView({
               className={`shrink-0 ml-2 w-7 h-7 flex items-center justify-center rounded-full transition-all cursor-pointer select-none ${
                 isRetro
                   ? 'bg-zinc-200 hover:bg-red-100 text-zinc-500 hover:text-red-700 border border-zinc-300'
-                  : 'bg-zinc-800/60 hover:bg-red-900/40 text-zinc-500 hover:text-red-400 border border-zinc-700'
+                  : isLight 
+                    ? 'bg-zinc-200/80 hover:bg-red-500/10 text-zinc-550 hover:text-red-650 border border-zinc-300'
+                    : 'bg-zinc-800/60 hover:bg-red-900/40 text-zinc-500 hover:text-red-400 border border-zinc-700'
               }`}
             >
               <X className="w-3.5 h-3.5" />
@@ -5708,33 +5851,82 @@ export default function NuevaView({
                           <label className={`block text-[9.5px] font-extrabold ${isRetro ? 'text-[#000080]' : 'text-zinc-400'} tracking-widest uppercase`}>
                             Nombre Completo del Cliente *
                           </label>
-                          <div className="flex rounded-lg overflow-hidden border border-[#b2c0cc] focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600 bg-white shadow-sm">
-                            <div className="bg-zinc-100 px-3 py-2 flex items-center justify-center border-r border-[#b2c0cc] text-zinc-500 shrink-0">
-                              <User className="w-4 h-4 text-zinc-500" />
-                            </div>
-                            <input
-                              id="new-customer-name-input"
-                              type="text"
-                              required
-                              placeholder="Escribe apellido(s) y nombre..."
-                              value={customerName}
-                              onChange={(e) => handleCaretPreservingChange(e, setCustomerName, val => val.toUpperCase())}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  if (customerName.trim() && customerPhone.trim()) {
-                                    setActiveStep(3);
+                          <div className="relative">
+                            <div className="flex rounded-lg overflow-hidden border border-[#b2c0cc] focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600 bg-white shadow-sm">
+                              <div className="bg-zinc-100 px-3 py-2 flex items-center justify-center border-r border-[#b2c0cc] text-zinc-500 shrink-0">
+                                <User className="w-4 h-4 text-zinc-500" />
+                              </div>
+                              <input
+                                id="new-customer-name-input"
+                                type="text"
+                                required
+                                placeholder="Escribe apellido(s) y nombre..."
+                                value={customerName}
+                                onFocus={() => setShowNameSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowNameSuggestions(false), 200)}
+                                onChange={(e) => handleCaretPreservingChange(e, setCustomerName, val => val.toUpperCase())}
+                                onKeyDown={(e) => {
+                                  if (showNameSuggestions && matchedClients.length > 0) {
+                                    if (e.key === 'ArrowDown') {
+                                      e.preventDefault();
+                                      setClientNameSuggestionIndex(prev => (prev + 1) % matchedClients.length);
+                                    } else if (e.key === 'ArrowUp') {
+                                      e.preventDefault();
+                                      setClientNameSuggestionIndex(prev => (prev - 1 + matchedClients.length) % matchedClients.length);
+                                    } else if (e.key === 'Enter') {
+                                      if (clientNameSuggestionIndex >= 0 && clientNameSuggestionIndex < matchedClients.length) {
+                                        e.preventDefault();
+                                        handleSelectClient(matchedClients[clientNameSuggestionIndex]);
+                                        setShowNameSuggestions(false);
+                                      } else {
+                                        setShowNameSuggestions(false);
+                                      }
+                                    } else if (e.key === 'Escape') {
+                                      e.preventDefault();
+                                      setShowNameSuggestions(false);
+                                    }
                                   } else {
-                                    const nextInput = document.getElementById('new-customer-phone-input') as HTMLInputElement | null;
-                                    if (nextInput) {
-                                      nextInput.focus();
-                                      nextInput.select();
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      if (customerName.trim() && customerPhone.trim()) {
+                                        setActiveStep(3);
+                                      } else {
+                                        const nextInput = document.getElementById('new-customer-phone-input') as HTMLInputElement | null;
+                                        if (nextInput) {
+                                          nextInput.focus();
+                                          nextInput.select();
+                                        }
+                                      }
                                     }
                                   }
-                                }
-                              }}
-                              className="w-full bg-white text-zinc-900 border-none focus:outline-none focus:ring-0 px-3 py-1.5 text-sm font-bold tracking-wider uppercase"
-                            />
+                                }}
+                                className="w-full bg-white text-zinc-900 border-none focus:outline-none focus:ring-0 px-3 py-1.5 text-sm font-bold tracking-wider uppercase"
+                              />
+                            </div>
+                            {showNameSuggestions && matchedClients.length > 0 && (
+                              <div className={`${getSuggestionDropdownClasses()} absolute w-full left-0 right-0 z-50 rounded-lg p-1.5 mt-1 max-h-48 overflow-y-auto space-y-0.5 divide-y divide-zinc-700/10 shadow-lg border border-zinc-200/50`}>
+                                {matchedClients.map((client, idx) => (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      handleSelectClient(client);
+                                      setShowNameSuggestions(false);
+                                    }}
+                                    className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between text-xs font-bold cursor-pointer ${getSuggestionItemClasses(idx === clientNameSuggestionIndex)}`}
+                                  >
+                                    <div className="flex flex-col text-left">
+                                      <span className="uppercase">{client.name}</span>
+                                      <span className="text-[10px] opacity-75 font-mono font-medium">{fmtPhone10(client.phone.replace(/\D/g, ''))}</span>
+                                    </div>
+                                    <span className={`text-[8.5px] uppercase font-mono px-1.5 py-0.5 rounded ${getBadgeClasses(idx === clientNameSuggestionIndex)}`}>
+                                      {idx === clientNameSuggestionIndex ? 'Seleccionar ➙' : 'Historial'}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -5743,52 +5935,101 @@ export default function NuevaView({
                           <label className={`block text-[9.5px] font-extrabold ${isRetro ? 'text-[#000080]' : 'text-zinc-400'} tracking-widest uppercase`}>
                             Teléfono de Contacto *
                           </label>
-                          <div className="flex rounded-lg overflow-hidden border border-[#b2c0cc] focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600 bg-white shadow-sm">
-                            <div className="bg-zinc-100 border-r border-[#b2c0cc] text-zinc-500 shrink-0 flex items-center relative select-none">
-                              <select
-                                id="country-code-selector"
-                                value={customerCountryCode}
-                                onChange={(e) => setCustomerCountryCode(e.target.value)}
-                                className="bg-[#f4f4f5] pl-2.5 pr-6 py-2 text-xs font-bold font-mono text-zinc-800 border-none focus:outline-none focus:ring-0 cursor-pointer appearance-none h-full"
-                                style={{
-                                  backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23555'><path fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /></svg>")`,
-                                  backgroundPosition: 'right 0.35rem center',
-                                  backgroundRepeat: 'no-repeat',
-                                  backgroundSize: '0.8rem'
+                          <div className="relative">
+                            <div className="flex rounded-lg overflow-hidden border border-[#b2c0cc] focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600 bg-white shadow-sm">
+                              <div className="bg-zinc-100 border-r border-[#b2c0cc] text-zinc-500 shrink-0 flex items-center relative select-none">
+                                <select
+                                  id="country-code-selector"
+                                  value={customerCountryCode}
+                                  onChange={(e) => setCustomerCountryCode(e.target.value)}
+                                  className="bg-[#f4f4f5] pl-2.5 pr-6 py-2 text-xs font-bold font-mono text-zinc-800 border-none focus:outline-none focus:ring-0 cursor-pointer appearance-none h-full"
+                                  style={{
+                                    backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23555'><path fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /></svg>")`,
+                                    backgroundPosition: 'right 0.35rem center',
+                                    backgroundRepeat: 'no-repeat',
+                                    backgroundSize: '0.8rem'
+                                  }}
+                                >
+                                  <option value="+52">🇲🇽 +52</option>
+                                  <option value="+1">🇺🇸 +1</option>
+                                </select>
+                              </div>
+                              <input
+                                id="new-customer-phone-input"
+                                type="text"
+                                required
+                                placeholder="(351) 157-4876"
+                                maxLength={14}
+                                inputMode="numeric"
+                                value={customerPhone}
+                                onFocus={() => setShowPhoneSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowPhoneSuggestions(false), 200)}
+                                onChange={(e) => {
+                                  const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                  setCustomerPhone(fmtPhone10(digits));
                                 }}
-                              >
-                                <option value="+52">🇲🇽 +52</option>
-                                <option value="+1">🇺🇸 +1</option>
-                              </select>
-                            </div>
-                            <input
-                              id="new-customer-phone-input"
-                              type="text"
-                              required
-                              placeholder="(351) 157-4876"
-                              maxLength={14}
-                              inputMode="numeric"
-                              value={customerPhone}
-                              onChange={(e) => {
-                                const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                setCustomerPhone(fmtPhone10(digits));
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const phoneOk = customerPhone.replace(/\D/g, '').length === 10;
-                                  if (customerName.trim() && phoneOk) {
-                                    setActiveStep(3);
-                                  } else if (!customerName.trim()) {
-                                    const nameInput = document.getElementById('new-customer-name-input') as HTMLInputElement | null;
-                                    if (nameInput) { nameInput.focus(); nameInput.select(); }
-                                  } else if (!phoneOk) {
-                                    setErrorMsg('El número de teléfono debe tener exactamente 10 dígitos.');
+                                onKeyDown={(e) => {
+                                  if (showPhoneSuggestions && matchedClients.length > 0) {
+                                    if (e.key === 'ArrowDown') {
+                                      e.preventDefault();
+                                      setClientPhoneSuggestionIndex(prev => (prev + 1) % matchedClients.length);
+                                    } else if (e.key === 'ArrowUp') {
+                                      e.preventDefault();
+                                      setClientPhoneSuggestionIndex(prev => (prev - 1 + matchedClients.length) % matchedClients.length);
+                                    } else if (e.key === 'Enter') {
+                                      if (clientPhoneSuggestionIndex >= 0 && clientPhoneSuggestionIndex < matchedClients.length) {
+                                        e.preventDefault();
+                                        handleSelectClient(matchedClients[clientPhoneSuggestionIndex]);
+                                        setShowPhoneSuggestions(false);
+                                      } else {
+                                        setShowPhoneSuggestions(false);
+                                      }
+                                    } else if (e.key === 'Escape') {
+                                      e.preventDefault();
+                                      setShowPhoneSuggestions(false);
+                                    }
+                                  } else {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      const phoneOk = customerPhone.replace(/\D/g, '').length === 10;
+                                      if (customerName.trim() && phoneOk) {
+                                        setActiveStep(3);
+                                      } else if (!customerName.trim()) {
+                                        const nameInput = document.getElementById('new-customer-name-input') as HTMLInputElement | null;
+                                        if (nameInput) { nameInput.focus(); nameInput.select(); }
+                                      } else if (!phoneOk) {
+                                        setErrorMsg('El número de teléfono debe tener exactamente 10 dígitos.');
+                                      }
+                                    }
                                   }
-                                }
-                              }}
-                              className={`w-full bg-white text-zinc-900 border-none focus:outline-none focus:ring-0 px-3 py-1.5 text-sm font-bold tracking-wider font-mono ${customerPhone.length > 0 && customerPhone.replace(/\D/g,'').length !== 10 ? 'text-red-600' : ''}`}
-                            />
+                                }}
+                                className={`w-full bg-white text-zinc-900 border-none focus:outline-none focus:ring-0 px-3 py-1.5 text-sm font-bold tracking-wider font-mono ${customerPhone.length > 0 && customerPhone.replace(/\D/g,'').length !== 10 ? 'text-red-600' : ''}`}
+                              />
+                            </div>
+                            {showPhoneSuggestions && matchedClients.length > 0 && (
+                              <div className={`${getSuggestionDropdownClasses()} absolute w-full left-0 right-0 z-50 rounded-lg p-1.5 mt-1 max-h-48 overflow-y-auto space-y-0.5 divide-y divide-zinc-700/10 shadow-lg border border-zinc-200/50`}>
+                                {matchedClients.map((client, idx) => (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      handleSelectClient(client);
+                                      setShowPhoneSuggestions(false);
+                                    }}
+                                    className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between text-xs font-bold cursor-pointer ${getSuggestionItemClasses(idx === clientPhoneSuggestionIndex)}`}
+                                  >
+                                    <div className="flex flex-col text-left">
+                                      <span className="uppercase">{client.name}</span>
+                                      <span className="text-[10px] opacity-75 font-mono font-medium">{fmtPhone10(client.phone.replace(/\D/g, ''))}</span>
+                                    </div>
+                                    <span className={`text-[8.5px] uppercase font-mono px-1.5 py-0.5 rounded ${getBadgeClasses(idx === clientPhoneSuggestionIndex)}`}>
+                                      {idx === clientPhoneSuggestionIndex ? 'Seleccionar ➙' : 'Historial'}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -5941,33 +6182,83 @@ export default function NuevaView({
 
                     {/* Right: notas — textarea crece */}
                     <div className="flex flex-col gap-1.5 text-left min-h-0">
-                      <label className={`text-[9px] font-black uppercase shrink-0 ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'} tracking-widest flex items-center gap-1`}>
-                        <Palette className="w-3 h-3 text-amber-500 shrink-0" /> Notas Internas del Taller
-                      </label>
-                      <textarea
-                        placeholder="Observaciones técnicas, accesorios recibidos, condición del equipo... (no aparece en el ticket del cliente)"
-                        value={proposedSolution}
-                        onChange={(e) => handleCaretPreservingChange(e, setProposedSolution)}
-                        className={`w-full flex-1 min-h-[120px] border ${isRetro ? 'bg-white text-zinc-900 border-[#b2c0cc] focus:border-[#113a7c]' : 'bg-zinc-950 text-white border-zinc-600/80 focus:border-amber-500'} focus:outline-none rounded-xl px-3 py-2.5 text-[11.5px] font-bold leading-relaxed shadow-inner resize-none`}
-                      />
-                      <label className={`flex items-center gap-1.5 mt-1 cursor-pointer select-none text-[9.5px] font-extrabold uppercase ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'}`}>
-                        <input
-                          type="checkbox"
-                          checked={showNotesOnLabel}
-                          onChange={(e) => setShowNotesOnLabel(e.target.checked)}
-                          className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                      {/* Upper notes block */}
+                      <div className="flex flex-col gap-1.5 min-h-0">
+                        <label className={`text-[9px] font-black uppercase shrink-0 ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'} tracking-widest flex items-center gap-1`}>
+                          <Palette className="w-3 h-3 text-amber-500 shrink-0" />
+                          <span>
+                            {showNotesOnLabel
+                              ? config.hybridPrintMode
+                                ? "Notas a imprimir en etiqueta"
+                                : "Notas que se imprimirán en el ticket"
+                              : "Notas Internas del Taller"}
+                          </span>
+                        </label>
+                        <textarea
+                          placeholder={
+                            showNotesOnLabel
+                              ? config.hybridPrintMode
+                                ? "Observaciones técnicas, accesorios recibidos, condición del equipo... (se imprime en la etiqueta de equipo porque marcaste imprimir notas)"
+                                : "Observaciones técnicas, accesorios recibidos, condición del equipo... (se imprime en el ticket de cliente porque marcaste imprimir notas)"
+                              : config.hybridPrintMode
+                                ? "Observaciones técnicas, accesorios recibidos, condición del equipo... (no aparece en la etiqueta de equipo)"
+                                : "Observaciones técnicas, accesorios recibidos, condición del equipo... (no aparece en el ticket del cliente)"
+                          }
+                          value={proposedSolution}
+                          onChange={(e) => handleCaretPreservingChange(e, setProposedSolution)}
+                          className={`w-full h-[85px] border ${isRetro ? 'bg-white text-zinc-900 border-[#b2c0cc] focus:border-[#113a7c]' : 'bg-zinc-950 text-white border-zinc-600/80 focus:border-amber-500'} focus:outline-none rounded-xl px-3 py-2 text-[11.5px] font-bold leading-relaxed shadow-inner resize-none`}
                         />
-                        <span>{config.hybridPrintMode ? "Imprimir notas en etiqueta de equipo" : "Imprimir notas en el ticket de servicio"}</span>
-                      </label>
-                      <label className={`flex items-center gap-1.5 mt-1 cursor-pointer select-none text-[9.5px] font-extrabold uppercase ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'}`}>
-                        <input
-                          type="checkbox"
-                          checked={hidePriceOnLabel}
-                          onChange={(e) => setHidePriceOnLabel(e.target.checked)}
-                          className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                        
+                        <label className={`flex items-center gap-1.5 mt-0.5 cursor-pointer select-none text-[9.5px] font-extrabold uppercase ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'}`}>
+                          <input
+                            type="checkbox"
+                            checked={showNotesOnLabel}
+                            onChange={(e) => setShowNotesOnLabel(e.target.checked)}
+                            className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                          />
+                          <span>{config.hybridPrintMode ? "Imprimir notas en etiqueta de equipo" : "Imprimir notas en el ticket de servicio"}</span>
+                        </label>
+                      </div>
+
+                      {/* Lower label notes block */}
+                      <div className="flex flex-col gap-1.5 mt-2 min-h-0 shrink-0">
+                        <label className={`text-[9px] font-black uppercase shrink-0 ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'} tracking-widest flex items-center justify-between`}>
+                          <span className="flex items-center gap-1">
+                            <Tag className="w-3 h-3 text-emerald-500 shrink-0" /> Notas de la etiqueta de servicio
+                          </span>
+                          {labelMaxLength > 0 && (
+                            <span className={`text-[8.5px] font-bold ${labelTextNote.length >= labelMaxLength ? 'text-rose-500 animate-pulse' : labelTextNote.length >= labelMaxLength * 0.85 ? 'text-amber-500' : 'text-zinc-500'}`}>
+                              {labelTextNote.length} / {labelMaxLength}
+                            </span>
+                          )}
+                        </label>
+                        <textarea
+                          placeholder={
+                            labelMaxLength === 0
+                              ? `El tamaño de la etiqueta (${config.labelPaperSize || '30x15mm'}) es muy pequeño para imprimir notas.`
+                              : "Escribe las notas cortas que se imprimirán directamente en la etiqueta adhesiva (ej: fallas visuales, detalles estéticos, etc.). Si no escribes nada, se dejará un espacio en blanco para notas a mano alzada."
+                          }
+                          value={labelTextNote}
+                          disabled={labelMaxLength === 0}
+                          maxLength={labelMaxLength > 0 ? labelMaxLength : undefined}
+                          onChange={handleLabelNoteChange}
+                          className={`w-full h-[65px] border ${
+                            labelMaxLength === 0
+                              ? (isRetro ? 'bg-zinc-100 text-zinc-400 border-zinc-300' : 'bg-zinc-900/60 text-zinc-600 border-zinc-800')
+                              : (isRetro ? 'bg-white text-zinc-900 border-[#b2c0cc] focus:border-[#113a7c]' : 'bg-zinc-950 text-white border-zinc-600/80 focus:border-amber-500')
+                          } focus:outline-none rounded-xl px-3 py-2 text-[11.5px] font-bold leading-relaxed shadow-inner resize-none`}
                         />
-                        <span>Ocultar precio en etiqueta (maquila / técnico externo)</span>
-                      </label>
+                        
+                        <label className={`flex items-center gap-1.5 mt-0.5 cursor-pointer select-none text-[9.5px] font-extrabold uppercase ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'}`}>
+                          <input
+                            type="checkbox"
+                            checked={hidePriceOnLabel}
+                            onChange={(e) => setHidePriceOnLabel(e.target.checked)}
+                            className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                          />
+                          <span>Ocultar precio y teléfono en etiqueta (maquila / técnico externo)</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
 
@@ -6177,31 +6468,44 @@ export default function NuevaView({
 
                   {/* Fecha + Opciones impresión en una fila */}
                   <div className={`grid grid-cols-2 gap-2 border-t pt-2 ${isRetro ? 'border-zinc-300' : 'border-zinc-800/40'}`}>
-                    {/* Fecha y Botón Preview */}
+                    {/* Fecha y Botones Preview */}
                     <div className="flex flex-col gap-2">
                       {/* Fecha */}
                       <div className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl ${isRetro ? 'bg-amber-50 border border-amber-200' : 'bg-amber-950/10 border border-zinc-800/40'}`}>
                         <div>
                           <p className={`text-[9px] font-black uppercase tracking-widest ${isRetro ? 'text-amber-700' : 'text-amber-500'}`}>📅 Entrega</p>
                         </div>
-                        <input type="date" value={estimatedDelivery} min={new Date().toISOString().slice(0, 10)}
+                        <input type="date" value={estimatedDelivery} min={getLocalDateString()}
                           onChange={e => setEstimatedDelivery(e.target.value)}
                           className={`text-[11px] font-bold rounded px-2 py-1 focus:outline-none border ${isRetro ? 'bg-white border-zinc-300 text-zinc-900 focus:border-amber-500' : 'bg-zinc-900 border-zinc-700 text-white focus:border-amber-500'}`}
                         />
                       </div>
 
-                      {/* Botón Preview */}
-                      <button
-                        type="button"
-                        onClick={() => setShowTicketPreviewModal(true)}
-                        className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border-2 transition-all cursor-pointer select-none text-center font-black text-[11px] uppercase ${
-                          isRetro
-                            ? 'bg-zinc-200 border-zinc-400 text-zinc-800 hover:bg-zinc-350'
-                            : 'bg-zinc-850/60 border-zinc-750 text-zinc-300 hover:bg-zinc-750'
-                        }`}
-                      >
-                        👁️ Preview Ticket (Ver Comprobante)
-                      </button>
+                      {/* Botones Preview */}
+                      <div className="grid grid-cols-2 gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowTicketPreviewModal(true)}
+                          className={`flex items-center justify-center gap-1 py-2 px-1 rounded-xl border border-zinc-300 dark:border-zinc-700 transition-all cursor-pointer select-none text-center font-black text-[10px] uppercase ${
+                            isRetro
+                              ? 'bg-zinc-200 border-zinc-400 text-zinc-850 hover:bg-zinc-300'
+                              : 'bg-zinc-850/60 border-zinc-750 text-zinc-300 hover:bg-zinc-750'
+                          }`}
+                        >
+                          👁️ Preview Ticket
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowLabelPreviewModal(true)}
+                          className={`flex items-center justify-center gap-1 py-2 px-1 rounded-xl border border-zinc-300 dark:border-zinc-700 transition-all cursor-pointer select-none text-center font-black text-[10px] uppercase ${
+                            isRetro
+                              ? 'bg-zinc-200 border-zinc-400 text-zinc-850 hover:bg-zinc-300'
+                              : 'bg-zinc-850/60 border-zinc-750 text-zinc-300 hover:bg-zinc-750'
+                          }`}
+                        >
+                          🏷️ Preview Etiqueta
+                        </button>
+                      </div>
                     </div>
                     {/* Opciones impresión */}
                     <div className="flex gap-2">
@@ -6224,17 +6528,18 @@ export default function NuevaView({
                           ...(config.whatsappMode && config.whatsappMode !== 'disabled' ? [
                             {
                               label: 'WhatsApp',
-                              desc: 'Enviar',
-                              val: sendWhatsappTicket,
+                              desc: isWaIntegratedOffline ? 'Desvinculado' : 'Enviar',
+                              val: !isWaIntegratedOffline && sendWhatsappTicket,
                               toggle: toggleSendWhatsapp,
-                              activeClsRetro: isLight ? 'bg-[#e8f9ee] border-[#128c7e] text-[#075e54]' : 'bg-[#075e54]/30 border-[#25d366]/40 text-[#25d366]',
-                              checkRetro: 'bg-[#25d366] border-[#25d366]',
-                              activeClsDark: 'bg-[#075e54]/20 border-[#25d366]/40 text-[#25d366]',
-                              checkDark: 'bg-[#25d366] border-[#25d366]'
+                              title: isWaIntegratedOffline ? 'WhatsApp desvinculado. Escanea el código QR en el menú de chat' : 'Enviar ticket por WhatsApp',
+                              activeClsRetro: isWaIntegratedOffline ? 'bg-zinc-200 border-zinc-400 text-zinc-400 grayscale' : (isLight ? 'bg-[#e8f9ee] border-[#128c7e] text-[#075e54]' : 'bg-[#075e54]/30 border-[#25d366]/40 text-[#25d366]'),
+                              checkRetro: isWaIntegratedOffline ? 'bg-zinc-400 border-zinc-400' : 'bg-[#25d366] border-[#25d366]',
+                              activeClsDark: isWaIntegratedOffline ? 'bg-zinc-800/40 border-zinc-700 text-zinc-500 grayscale' : 'bg-[#075e54]/20 border-[#25d366]/40 text-[#25d366]',
+                              checkDark: isWaIntegratedOffline ? 'bg-zinc-600 border-zinc-600' : 'bg-[#25d366] border-[#25d366]'
                             }
                           ] : [])
-                        ].map((opt) => (
-                          <button key={opt.label} type="button" onClick={opt.toggle}
+                        ].map((opt: any) => (
+                          <button key={opt.label} type="button" onClick={opt.toggle} title={opt.title}
                             className={`flex-1 flex items-center gap-1.5 px-2 py-2 rounded-xl border-2 transition-all cursor-pointer select-none text-left ${
                               opt.val
                                 ? (isRetro ? opt.activeClsRetro : opt.activeClsDark)
@@ -6263,10 +6568,20 @@ export default function NuevaView({
                           { label: 'Ticket', desc: 'Comprobante', val: printTicket, toggle: togglePrintTicket, activeClsRetro: isLight ? 'bg-blue-50 border-[#000080] text-[#000080]' : 'bg-blue-950/80 border-blue-500 text-blue-100', checkRetro: 'bg-[#000080] border-[#000080]', activeClsDark: 'bg-blue-500/10 border-blue-500/60 text-blue-300', checkDark: 'bg-blue-500 border-blue-500' },
                           { label: 'Etiqueta', desc: 'Pegatina', val: printLabel, toggle: () => setPrintLabel(v => !v), activeClsRetro: isLight ? 'bg-amber-50 border-amber-600 text-amber-800' : 'bg-amber-950/80 border-amber-500 text-amber-100', checkRetro: 'bg-amber-600 border-amber-600', activeClsDark: 'bg-amber-550/10 border-amber-550/60 text-amber-300', checkDark: 'bg-amber-500 border-amber-500' },
                           ...(config.whatsappMode && config.whatsappMode !== 'disabled' ? [
-                            { label: 'WhatsApp', desc: 'Enviar', val: sendWhatsappTicket, toggle: toggleSendWhatsapp, activeClsRetro: isLight ? 'bg-[#e8f9ee] border-[#128c7e] text-[#075e54]' : 'bg-[#075e54]/30 border-[#25d366]/40 text-[#25d366]', checkRetro: 'bg-[#25d366] border-[#25d366]', activeClsDark: 'bg-[#075e54]/20 border-[#25d366]/40 text-[#25d366]', checkDark: 'bg-[#25d366] border-[#25d366]' }
+                            {
+                              label: 'WhatsApp',
+                              desc: isWaIntegratedOffline ? 'Desvinculado' : 'Enviar',
+                              val: !isWaIntegratedOffline && sendWhatsappTicket,
+                              toggle: toggleSendWhatsapp,
+                              title: isWaIntegratedOffline ? 'WhatsApp desvinculado. Escanea el código QR en el menú de chat' : 'Enviar ticket por WhatsApp',
+                              activeClsRetro: isWaIntegratedOffline ? 'bg-zinc-200 border-zinc-400 text-zinc-400 grayscale' : (isLight ? 'bg-[#e8f9ee] border-[#128c7e] text-[#075e54]' : 'bg-[#075e54]/30 border-[#25d366]/40 text-[#25d366]'),
+                              checkRetro: isWaIntegratedOffline ? 'bg-zinc-400 border-zinc-400' : 'bg-[#25d366] border-[#25d366]',
+                              activeClsDark: isWaIntegratedOffline ? 'bg-zinc-800/40 border-zinc-700 text-zinc-500 grayscale' : 'bg-[#075e54]/20 border-[#25d366]/40 text-[#25d366]',
+                              checkDark: isWaIntegratedOffline ? 'bg-zinc-600 border-zinc-600' : 'bg-[#25d366] border-[#25d366]'
+                            }
                           ] : [])
-                        ].map((opt) => (
-                          <button key={opt.label} type="button" onClick={opt.toggle}
+                        ].map((opt: any) => (
+                          <button key={opt.label} type="button" onClick={opt.toggle} title={opt.title}
                             className={`flex-1 flex items-center gap-1.5 px-2 py-2 rounded-xl border-2 transition-all cursor-pointer select-none text-left ${
                               opt.val
                                 ? (isRetro ? opt.activeClsRetro : opt.activeClsDark)
@@ -6299,7 +6614,13 @@ export default function NuevaView({
           </AnimatePresence>
 
           {/* Buttons container in Wizard desktop window footer */}
-          <div className={`flex items-center justify-between px-6 py-4 ${isRetro ? 'bg-[#e1e6ed] border-zinc-300' : 'bg-[#151926]/95 border-zinc-900'} border-t font-sans`}>
+          <div className={`flex items-center justify-between px-6 py-4 ${
+            isRetro 
+              ? 'bg-[#e1e6ed] border-zinc-300' 
+              : isLight 
+                ? 'bg-zinc-100 border-zinc-200' 
+                : 'bg-[#151926]/95 border-zinc-900'
+          } border-t font-sans`}>
             <button
               type="button"
               onClick={handleBackStep}
@@ -6308,7 +6629,7 @@ export default function NuevaView({
               className={`py-1.5 px-4 rounded-sm text-xs uppercase font-extrabold tracking-wider transition-all flex items-center gap-1 border ${
                 activeStep === 0
                   ? (isRetro ? 'text-zinc-400 bg-transparent border-transparent cursor-not-allowed opacity-40' : 'text-zinc-500 bg-transparent border-transparent cursor-not-allowed opacity-30')
-                  : (isRetro ? 'text-zinc-700 bg-[#cbd6e2] hover:bg-[#b9c6d5] border-[#b0bfc9] cursor-pointer' : 'text-zinc-300 bg-zinc-900 hover:bg-zinc-700 border-zinc-800 cursor-pointer')
+                  : (isRetro ? 'text-zinc-700 bg-[#cbd6e2] hover:bg-[#b9c6d5] border-[#b0bfc9] cursor-pointer' : isLight ? 'text-zinc-700 bg-zinc-200 hover:bg-zinc-300 border-zinc-300 cursor-pointer' : 'text-zinc-300 bg-zinc-900 hover:bg-zinc-700 border-zinc-800 cursor-pointer')
               }`}
             >
               <ChevronLeft className="w-4 h-4" /> Anterior
@@ -6326,7 +6647,9 @@ export default function NuevaView({
                     className={`py-1.5 px-5 font-bold text-xs rounded-sm transition-all cursor-pointer shadow-md uppercase tracking-wider flex items-center gap-1 border ${
                       isRetro
                         ? 'bg-[#003c94] hover:bg-[#002f74] border-[#00255a] text-white'
-                        : `${themeColors.buttonClass} border-transparent text-white`
+                        : isLight 
+                          ? 'bg-blue-600 hover:bg-blue-700 border-blue-700 text-white-important'
+                          : `${themeColors.buttonClass} border-transparent text-white`
                     }`}
                     ref={el => { if (el && isRetro) el.style.setProperty('color','white','important'); }}
                   >
@@ -6334,55 +6657,7 @@ export default function NuevaView({
                   </button>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {extraEquipos.length > 0 && (
-                      <button
-                        type="button"
-                        title="Vista previa del ticket"
-                        onClick={() => {
-                          const baseNextId = generateNextOrderId(orders || []);
-                          const matchNum = baseNextId.match(/(\d+)/);
-                          const startNum = matchNum ? parseInt(matchNum[1], 10) : 1;
-                          const previewOrders = [
-                            {
-                              id: baseNextId, customerName: customerName || 'CLIENTE', customerPhone, customerCountryCode,
-                              deviceType: deviceType as RepairOrder['deviceType'], deviceBrand, deviceModel, deviceModelNumber, devicePin,
-                              faultDescription, serviceType: (parts.some(p => p.refaccionId) ? faultDescription : (services.find(s => s.id === selectedServiceId)?.name || 'SERVICIO')).toUpperCase(),
-                              cost: Number(repairCost) || 0, advancePayment: Number(advancePayment) || 0,
-                              advancePaymentBreakdown: Number(advancePayment) > 0
-                                ? selectedMethods.length === 1
-                                  ? [{ method: selectedMethods[0], amount: Number(advancePayment) || 0 }]
-                                  : selectedMethods.map(m => ({ method: m, amount: Number(methodAmounts[m]) || 0 })).filter(x => x.amount > 0)
-                                : undefined,
-                              estimatedDeliveryDate: new Date(estimatedDelivery).toISOString(),
-                              assignedTechnician, status: 'Pendiente' as const, createdAt: new Date().toISOString(), isPaid: false,
-                              diagnosticsNote: proposedSolution.trim() ? (proposedSolution.trim().toLowerCase().startsWith('solución propuesta') ? proposedSolution.trim().replace(/^soluci[oó]n propuesta:?\s*/i, 'Solución propuesta:\n') : `Solución propuesta:\n${proposedSolution.trim()}`) : 'Diagnóstico de ingreso inicial registrado.',
-                              showNotesOnLabel: showNotesOnLabel,
-                            },
-                            ...extraEquipos.map((eq, i) => ({
-                              id: `TKT-${String(startNum + i + 1).padStart(4, '0')}`, customerName: customerName || 'CLIENTE', customerPhone, customerCountryCode,
-                              deviceType: eq.deviceType, deviceBrand: eq.deviceBrand, deviceModel: eq.deviceModel,
-                              deviceModelNumber: eq.deviceModelNumber, devicePin: eq.devicePin,
-                              faultDescription: eq.faultDescription, serviceType: eq.serviceType || eq.faultDescription,
-                              cost: eq.cost, advancePayment: 0,
-                              estimatedDeliveryDate: new Date(estimatedDelivery).toISOString(),
-                              assignedTechnician, status: 'Pendiente' as const, createdAt: new Date().toISOString(), isPaid: false,
-                              diagnosticsNote: 'Diagnóstico de ingreso inicial registrado.',
-                              showNotesOnLabel: showNotesOnLabel,
-                            })),
-                          ];
-                          const html = previewOrders.length === 1
-                            ? buildTicketHtml(previewOrders[0], config)
-                            : buildConsolidatedTicketHtml(previewOrders, config);
-                          // Solo previsualización — nunca imprime
-                          const blob = new Blob([html], { type: 'text/html' });
-                          const url = URL.createObjectURL(blob);
-                          window.open(url, '_blank', 'width=500,height=700,scrollbars=yes');
-                        }}
-                        className={`py-1.5 px-3 font-bold text-xs rounded-sm border transition-all cursor-pointer flex items-center gap-1 ${isRetro ? 'bg-zinc-200 border-zinc-400 text-zinc-700 hover:bg-zinc-300' : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'}`}
-                      >
-                        👁 Preview
-                      </button>
-                    )}
+
                     <button
                       type="button"
                       onClick={handleSubmit}
@@ -6459,7 +6734,9 @@ export default function NuevaView({
                         status: 'Pendiente' as const,
                         createdAt: new Date().toISOString(),
                         isPaid: false,
-                        diagnosticsNote: proposedSolution.trim() ? (proposedSolution.trim().toLowerCase().startsWith('solución propuesta') ? proposedSolution.trim().replace(/^soluci[oó]n propuesta:?\s*/i, 'Solución propuesta:\n') : `Solución propuesta:\n${proposedSolution.trim()}`) : 'Diagnóstico de ingreso inicial registrado.',
+                        diagnosticsNote: 'Diagnóstico de ingreso inicial registrado.',
+                        ticketNote: proposedSolution.trim(),
+                        labelNote: labelTextNote.trim(),
                         showNotesOnLabel: showNotesOnLabel,
                       },
                       ...extraEquipos.map((eq, i) => ({
@@ -6482,6 +6759,8 @@ export default function NuevaView({
                         createdAt: new Date().toISOString(),
                         isPaid: false,
                         diagnosticsNote: 'Diagnóstico de ingreso inicial registrado.',
+                        ticketNote: '',
+                        labelNote: '',
                         showNotesOnLabel: showNotesOnLabel,
                       })),
                     ];
@@ -6498,6 +6777,94 @@ export default function NuevaView({
                 <button
                   type="button"
                   onClick={() => setShowTicketPreviewModal(false)}
+                  className={`py-1.5 px-4 text-xs font-black uppercase rounded-sm border cursor-pointer ${
+                    isRetro
+                      ? 'bg-zinc-200 border-zinc-400 hover:bg-zinc-300 text-black'
+                      : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-white'
+                  }`}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal de Previsualización de la Etiqueta */}
+      {showLabelPreviewModal && (() => {
+        const labelPaperSize = config.labelPaperSize || '51x25mm';
+        const serviceLabelTemplateStyle = config.serviceLabelTemplateStyle || 'standard';
+        const mmToPx = 3.78;
+        const [mmW, mmH] = labelPaperSize.replace('mm','').split('x').map(Number);
+        const scale = 2.5;
+        const realW = Math.round(mmW * mmToPx);
+        const realH = Math.round(mmH * mmToPx);
+
+        return (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in font-sans">
+            <div className={`w-full max-w-md rounded-xl border p-4 shadow-2xl relative ${
+              isRetro ? 'bg-[#e1e6ed] border-zinc-400 text-black'
+              : 'bg-zinc-950 border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 text-white'
+            }`}>
+              <div className="flex items-center justify-between border-b pb-2 mb-3">
+                <h3 className="text-xs uppercase font-black tracking-widest flex items-center gap-1.5">
+                  <span>🏷️</span> Vista Previa de la Etiqueta ({labelPaperSize})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowLabelPreviewModal(false)}
+                  className={`p-1 rounded hover:bg-zinc-500/20 text-xs font-bold cursor-pointer`}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Contenedor de la etiqueta */}
+              <div className="bg-zinc-100 rounded-lg p-6 overflow-auto max-h-[70vh] flex flex-col items-center justify-center border border-zinc-300 dark:border-zinc-800">
+                <div style={{ width: `${realW * scale}px`, height: `${realH * scale}px`, overflow: 'hidden', borderRadius: '4px', border: '1px solid #444', flexShrink: 0 }}>
+                  <iframe
+                    title="Label Preview"
+                    srcDoc={(() => {
+                      const baseNextId = generateNextOrderId(orders || []);
+                      const mockOrder: RepairOrder = {
+                        id: baseNextId,
+                        customerName: customerName || 'CLIENTE',
+                        customerPhone,
+                        customerCountryCode,
+                        deviceType: deviceType as RepairOrder['deviceType'],
+                        deviceBrand: deviceBrand || 'MARCA',
+                        deviceModel: deviceModel || 'MODELO',
+                        deviceModelNumber: deviceModelNumber || '',
+                        devicePin: devicePin || 'SIN CLAVE',
+                        faultDescription: faultDescription || '',
+                        serviceType: (parts.some(p => p.refaccionId) ? faultDescription : (services.find(s => s.id === selectedServiceId)?.name || 'SERVICIO')).toUpperCase(),
+                        cost: Number(repairCost) || 0,
+                        advancePayment: Number(advancePayment) || 0,
+                        createdAt: new Date().toISOString(),
+                        estimatedDeliveryDate: estimatedDelivery ? new Date(estimatedDelivery).toISOString() : new Date().toISOString(),
+                        status: 'Pendiente',
+                        isPaid: false,
+                        diagnosticsNote: 'Diagnóstico de ingreso inicial registrado.',
+                        ticketNote: proposedSolution.trim(),
+                        labelNote: labelTextNote.trim(),
+                        showNotesOnLabel: showNotesOnLabel,
+                        hidePriceOnLabel: hidePriceOnLabel,
+                        assignedTechnician: assignedTechnician || 'TECNICO',
+                      };
+                      return buildServiceLabelHtml(mockOrder, config, undefined, undefined, serviceLabelTemplateStyle);
+                    })()}
+                    scrolling="no"
+                    style={{ width: `${realW}px`, height: `${realH}px`, border: 'none', background: 'white', display: 'block', transform: `scale(${scale})`, transformOrigin: 'top left' }}
+                  />
+                </div>
+                <div className="text-[10px] text-zinc-500 font-bold mt-3">Tamaño físico: {mmW}mm x {mmH}mm</div>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowLabelPreviewModal(false)}
                   className={`py-1.5 px-4 text-xs font-black uppercase rounded-sm border cursor-pointer ${
                     isRetro
                       ? 'bg-zinc-200 border-zinc-400 hover:bg-zinc-300 text-black'
@@ -6548,7 +6915,7 @@ export default function NuevaView({
                   <input
                     type="date"
                     value={estimatedDelivery}
-                    min={new Date().toISOString().slice(0, 10)}
+                    min={getLocalDateString()}
                     onChange={e => setEstimatedDelivery(e.target.value)}
                     className={`text-[11px] font-bold font-mono rounded px-2 py-0.5 border focus:outline-none focus:border-blue-500 ${isRetro ? 'bg-white border-zinc-300 text-zinc-900' : 'bg-zinc-800 border-zinc-600 text-zinc-200'}`}
                   />
@@ -6850,9 +7217,15 @@ export default function NuevaView({
                     <p className="text-sm font-black text-white truncate">{c.name}</p>
                     <p className="text-[11px] font-mono text-zinc-400 mt-0.5">
                       {fmtPhone10(c.phone.replace(/\D/g,''))}
-                      {c.totalOrders > 0 && (
-                        <span className="text-amber-400/80 ml-2">· {c.totalOrders} orden{c.totalOrders !== 1 ? 'es' : ''}</span>
-                      )}
+                      {(() => {
+                        const count = (orders || []).filter(o => 
+                          (c.phone && o.customerPhone === c.phone) || 
+                          o.customerName.toLowerCase().trim() === c.name.toLowerCase().trim()
+                        ).length;
+                        return count > 0 ? (
+                          <span className="text-amber-400/80 ml-2">· {count} orden{count !== 1 ? 'es' : ''}</span>
+                        ) : null;
+                      })()}
                     </p>
                   </div>
                   <span className={`shrink-0 text-[9px] font-black uppercase px-2.5 py-1 rounded-lg ${

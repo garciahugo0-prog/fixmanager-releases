@@ -80,6 +80,9 @@ interface TopbarProps {
   terminalName?: string;
   licenseInfo?: LicenseInfo | null;
   licenseStatus?: 'checking' | 'active' | 'none' | 'invalid' | 'expired';
+  isSendingPromos?: boolean;
+  sendingCurrentIndex?: number;
+  sendingTotal?: number;
 }
 
 const Cube3D = () => (
@@ -126,6 +129,9 @@ export default function Topbar({
   lanSyncBlocked = false,
   terminalName = 'Caja Principal',
   licenseInfo: licenseInfoProp = null,
+  isSendingPromos = false,
+  sendingCurrentIndex = 0,
+  sendingTotal = 0,
 }: TopbarProps) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [systemTime, setSystemTime] = useState<string>('');
@@ -199,17 +205,30 @@ export default function Topbar({
         if (res) {
           if (res.status) setWaStatus(res.status);
           setWaUnreadCount(res.unreadCount || 0);
+          const isConnected = res.status === 'CONNECTED';
+          (window as any).whatsappConnected = isConnected;
+          (window as any).whatsappStatus = res.status || 'DISCONNECTED';
+          window.dispatchEvent(new CustomEvent('whatsapp-status-update', { detail: isConnected }));
         }
       });
-      api.onWhatsappStatusChange((res: any) => {
+      const unsub = api.onWhatsappStatusChange((res: any) => {
         const status = typeof res === 'string' ? res : (res?.status || 'DISCONNECTED');
         setWaStatus(status);
+        const isConnected = status === 'CONNECTED';
+        (window as any).whatsappConnected = isConnected;
+        (window as any).whatsappStatus = status;
+        window.dispatchEvent(new CustomEvent('whatsapp-status-update', { detail: isConnected }));
       });
+      let unsubCount: any;
       if (api.onWhatsappUnreadCount) {
-        api.onWhatsappUnreadCount((count: number) => {
+        unsubCount = api.onWhatsappUnreadCount((count: number) => {
           setWaUnreadCount(count);
         });
       }
+      return () => {
+        if (typeof unsub === 'function') unsub();
+        if (typeof unsubCount === 'function') unsubCount();
+      };
     }
   }, []);
 
@@ -702,15 +721,21 @@ export default function Topbar({
               <button
                 type="button"
                 onClick={() => setActiveTab('Clientes')}
-                className={`px-2.5 py-1 border rounded text-[10.5px] font-black flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shrink-0 shadow-sm ${
+                className={`px-2.5 py-1 border rounded text-[10.5px] font-black flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shrink-0 shadow-sm relative overflow-hidden ${
                   activeTab === 'Clientes'
                     ? (isLight ? 'bg-purple-600 border-purple-700 text-white shadow-inner' : 'bg-purple-900 border-purple-800 text-white shadow-inner')
                     : 'bg-purple-500/20 hover:bg-purple-500/35 border border-purple-400/40 text-purple-200'
                 }`}
-                title="Directorio de Clientes y Envíos Masivos"
+                title={isSendingPromos ? `Campaña en curso: ${sendingCurrentIndex} de ${sendingTotal}` : "Directorio de Clientes y Envíos Masivos"}
               >
                 <Users className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                <span>CLIENTES</span>
+                <span>CLIENTES{isSendingPromos && sendingTotal > 0 && ` (${Math.round((sendingCurrentIndex / sendingTotal) * 100)}%)`}</span>
+                {isSendingPromos && sendingTotal > 0 && (
+                  <div 
+                    className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500 transition-all duration-300"
+                    style={{ width: `${(sendingCurrentIndex / sendingTotal) * 100}%` }}
+                  />
+                )}
               </button>
               {config.taecelEnabled === true && (
                 <button
@@ -962,18 +987,31 @@ export default function Topbar({
 
             {/* Date & Time right section */}
             <div className="flex items-center gap-2.5 flex-wrap justify-center font-sans">
-              <button
-                type="button"
-                onClick={() => setShowLicenseModal(true)}
-                title="Ver detalles de tu licencia y sincronización"
-                className="text-[10px] font-mono text-zinc-600 hover:text-zinc-800 transition-colors hidden md:flex items-center gap-2 cursor-pointer outline-none bg-transparent border-none p-0"
-              >
+              <div className="text-[10px] font-mono text-zinc-600 hidden md:flex items-center gap-2 select-none">
                 {licenseInfo?.status === 'active' ? (
                   <>
-                    <span>Licencia:</span>
-                    <span className="text-emerald-600 font-bold">{licenseInfo.type}{licenseInfo.ownerName ? ` — ${licenseInfo.ownerName}` : ''}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowLicenseModal(true)}
+                      title="Ver detalles de tu licencia"
+                      className="hover:text-zinc-800 transition-colors cursor-pointer outline-none bg-transparent border-none p-0 font-mono text-[10px] flex items-center gap-1 text-zinc-600"
+                    >
+                      <span>Licencia:</span>
+                      <span className="text-emerald-600 font-bold">{licenseInfo.type}{licenseInfo.ownerName ? ` — ${licenseInfo.ownerName}` : ''}</span>
+                    </button>
                     <span className="text-zinc-400 font-mono select-none">|</span>
-                    <span className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true') {
+                          (window as any).triggerCloudSync?.();
+                        } else {
+                          setShowLicenseModal(true);
+                        }
+                      }}
+                      title={localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true' ? "Sincronizar ahora con la nube" : "Ver detalles de la sincronización"}
+                      className="flex items-center gap-1.5 hover:text-zinc-800 transition-colors cursor-pointer outline-none bg-transparent border-none p-0 font-mono text-[10px]"
+                    >
                       <span className={`w-2 h-2 rounded-full shrink-0 ${
                         isSyncing
                           ? 'bg-emerald-400 animate-spin border border-emerald-500 border-t-transparent'
@@ -992,14 +1030,19 @@ export default function Topbar({
                       }`}>
                         Sync {isSyncing ? 'Sincronizando...' : localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true' ? (isOnline ? 'Activa' : 'Sin Internet') : 'Inactiva'}
                       </span>
-                    </span>
+                    </button>
                   </>
                 ) : (
-                  <span className="text-amber-600 font-bold flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowLicenseModal(true)}
+                    title="Ver detalles de tu licencia"
+                    className="text-amber-600 font-bold flex items-center gap-1 cursor-pointer outline-none bg-transparent border-none p-0 font-mono text-[10px]"
+                  >
                     <AlertTriangle className="w-2.5 h-2.5" /> Sin licencia activa
-                  </span>
+                  </button>
                 )}
-              </button>
+              </div>
               <span className="text-zinc-400 font-mono text-[11px] hidden md:inline">|</span>
               <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 bg-zinc-100 border border-zinc-300 text-zinc-600 rounded text-[10px] font-mono font-bold select-none leading-none">
                 <Calendar className="w-3 h-3 text-zinc-500" />
@@ -1088,15 +1131,21 @@ export default function Topbar({
               <button
                 type="button"
                 onClick={() => setActiveTab('Clientes')}
-                className={`px-2.5 py-1 rounded-md text-[10.5px] font-black flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shrink-0 ${
+                className={`px-2.5 py-1 rounded-md text-[10.5px] font-black flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shrink-0 relative overflow-hidden ${
                   activeTab === 'Clientes'
                     ? (isLight ? 'bg-purple-600 border-purple-700 text-white shadow-inner' : 'bg-purple-950 border-purple-900 text-white shadow-inner')
                     : (isFluent ? 'bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/25 text-purple-300' : 'bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300')
                 }`}
-                title="Directorio de Clientes y Envíos Masivos"
+                title={isSendingPromos ? `Campaña en curso: ${sendingCurrentIndex} de ${sendingTotal}` : "Directorio de Clientes y Envíos Masivos"}
               >
                 <Users className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                <span>CLIENTES</span>
+                <span>CLIENTES{isSendingPromos && sendingTotal > 0 && ` (${Math.round((sendingCurrentIndex / sendingTotal) * 100)}%)`}</span>
+                {isSendingPromos && sendingTotal > 0 && (
+                  <div 
+                    className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500 transition-all duration-300"
+                    style={{ width: `${(sendingCurrentIndex / sendingTotal) * 100}%` }}
+                  />
+                )}
               </button>
               {config.taecelEnabled === true && (
                 <button
@@ -1345,18 +1394,31 @@ export default function Topbar({
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowLicenseModal(true)}
-                title="Ver detalles de tu licencia y sincronización"
-                className="text-[10px] font-mono text-gray-500 hover:text-zinc-300 transition-colors hidden md:flex items-center gap-2 cursor-pointer outline-none bg-transparent border-none p-0"
-              >
+              <div className="text-[10px] font-mono text-gray-500 hidden md:flex items-center gap-2 select-none">
                 {licenseInfo?.status === 'active' ? (
                   <>
-                    <span>Licencia:</span>
-                    <span className="text-emerald-400 font-bold">{licenseInfo.type}{licenseInfo.ownerName ? ` — ${licenseInfo.ownerName}` : ''}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowLicenseModal(true)}
+                      title="Ver detalles de tu licencia"
+                      className="hover:text-zinc-300 transition-colors cursor-pointer outline-none bg-transparent border-none p-0 font-mono text-[10px] flex items-center gap-1 text-gray-500"
+                    >
+                      <span>Licencia:</span>
+                      <span className="text-emerald-400 font-bold">{licenseInfo.type}{licenseInfo.ownerName ? ` — ${licenseInfo.ownerName}` : ''}</span>
+                    </button>
                     <span className="text-[#3b3d4a] font-mono select-none">|</span>
-                    <span className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true') {
+                          (window as any).triggerCloudSync?.();
+                        } else {
+                          setShowLicenseModal(true);
+                        }
+                      }}
+                      title={localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true' ? "Sincronizar ahora con la nube" : "Ver detalles de la sincronización"}
+                      className="flex items-center gap-1.5 hover:text-zinc-300 transition-colors cursor-pointer outline-none bg-transparent border-none p-0 font-mono text-[10px]"
+                    >
                       <span className={`w-2 h-2 rounded-full shrink-0 ${
                         isSyncing
                           ? 'bg-emerald-400 animate-spin border border-emerald-500 border-t-transparent'
@@ -1369,26 +1431,43 @@ export default function Topbar({
                       <span className={`text-[10px] font-mono ${
                         isSyncing || localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true'
                           ? isOnline
-                            ? 'text-emerald-400 font-bold'
-                            : 'text-rose-450 font-bold'
-                          : 'text-zinc-500'
+                            ? (isLight ? 'text-emerald-700 font-extrabold' : 'text-emerald-400 font-bold')
+                            : (isLight ? 'text-rose-700 font-extrabold' : 'text-rose-450 font-bold')
+                          : (isLight ? 'text-zinc-600 font-bold' : 'text-zinc-500')
                       }`}>
                         Sync {isSyncing ? 'Sincronizando...' : localStorage.getItem('fixmanager_cloud_sync_enabled') === 'true' ? (isOnline ? 'Activa' : 'Sin Internet') : 'Inactiva'}
                       </span>
-                    </span>
+                    </button>
                   </>
                 ) : (
-                  <span className="text-amber-400 font-bold flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowLicenseModal(true)}
+                    title="Ver detalles de tu licencia"
+                    className="text-amber-400 font-bold flex items-center gap-1 cursor-pointer outline-none bg-transparent border-none p-0 font-mono text-[10px]"
+                  >
                     <AlertTriangle className="w-2.5 h-2.5" /> Sin licencia activa
-                  </span>
+                  </button>
                 )}
-              </button>
+              </div>
               <span className="text-[#3b3d4a] font-mono text-[11px] hidden md:inline">|</span>
-              <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[10px] font-bold border shrink-0 ${isFluent ? 'bg-white/[0.05] border-white/[0.08] text-zinc-400' : 'bg-[#0e1014] border-[#1b1d24] text-zinc-300'}`}>
+              <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[10px] font-bold border shrink-0 ${
+                isFluent 
+                  ? (isLight ? 'bg-zinc-200/60 border-zinc-300 text-zinc-700' : 'bg-white/[0.05] border-white/[0.08] text-zinc-400') 
+                  : isLight 
+                    ? 'bg-zinc-100 border-zinc-250 text-zinc-700' 
+                    : 'bg-[#0e1014] border-[#1b1d24] text-zinc-300'
+              }`}>
                 <Calendar className="w-3 h-3 shrink-0 text-zinc-500" />
                 <span className="capitalize">{systemDate}</span>
               </div>
-              <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[10.5px] font-black border shrink-0 ${isFluent ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-[#0b1511] border-[#142d22] text-emerald-400'}`}>
+              <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[10.5px] font-black border shrink-0 ${
+                isFluent 
+                  ? (isLight ? 'bg-emerald-50 border-emerald-250 text-emerald-800' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400') 
+                  : isLight 
+                    ? 'bg-emerald-50 border-emerald-250 text-emerald-800' 
+                    : 'bg-[#0b1511] border-[#142d22] text-emerald-400'
+              }`}>
                 <Clock className="w-3 h-3 animate-pulse shrink-0 text-emerald-500" />
                 <span>{systemTime}</span>
               </div>
@@ -1407,7 +1486,19 @@ export default function Topbar({
 
     {/* Banner de Aviso Previo de Vencimiento de Licencia (5 días de anticipación) */}
     {licenseInfo && getDaysLeft() !== null && (getDaysLeft() ?? 999) <= 5 && (getDaysLeft() ?? -1) >= 0 && (
-      <div className="bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 text-amber-950 px-4 py-1.5 text-xs font-black flex items-center justify-between shadow-md border-b border-amber-400/40 select-none z-20 shrink-0">
+      <div className={`px-4 py-1.5 text-xs font-black flex items-center justify-between shadow-md border-b select-none z-20 shrink-0 ${
+        isRetro
+          ? (isLight 
+              ? 'bg-[#fef3c7] border-[#d97706] text-[#451a03] font-mono' 
+              : 'bg-[#261702] border-[#b45309] text-[#fef08a] font-mono')
+          : isFluent
+            ? (isLight
+                ? 'bg-amber-500/15 border-amber-400/30 text-amber-950 backdrop-blur-md'
+                : 'bg-amber-950/80 border-amber-500/30 text-amber-100 backdrop-blur-md')
+            : (isLight
+                ? 'bg-amber-100 border-amber-300 text-amber-950'
+                : 'bg-gradient-to-r from-amber-950/95 via-amber-900/90 to-amber-950/95 border-amber-600/40 text-amber-100')
+      }`}>
         <div className="flex items-center gap-2">
           <span className="text-sm animate-pulse">⏳</span>
           <span>
@@ -1419,9 +1510,21 @@ export default function Topbar({
         </div>
         <button 
           onClick={handleOpenRenewPanel}
-          className="px-2.5 py-0.5 rounded bg-amber-950 hover:bg-black text-amber-300 hover:text-white text-[11px] font-bold tracking-wide uppercase transition-colors cursor-pointer shadow-sm"
+          className={`px-3 py-1 text-[11px] font-black tracking-wider uppercase transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1.5 ${
+            isRetro
+              ? (isLight
+                  ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-800 border-r-zinc-800 text-[#000080] hover:bg-white hover:text-blue-900'
+                  : 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-900 border-r-zinc-900 text-black hover:bg-white')
+              : isFluent
+                ? (isLight
+                    ? 'rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
+                    : 'rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow-md hover:shadow-amber-500/20')
+                : (isLight
+                    ? 'rounded-lg bg-amber-700 hover:bg-amber-800 text-white shadow-sm'
+                    : 'rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 shadow-md hover:shadow-amber-500/20')
+          }`}
         >
-          Renovar Licencia
+          <RotateCcw className="w-3.5 h-3.5" /> Renovar Licencia
         </button>
       </div>
     )}

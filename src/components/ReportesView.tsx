@@ -10,7 +10,7 @@ import {
   Scissors, Tags, Smartphone, X, Printer, Calendar,
   ChevronDown, AlertCircle, Truck, Package, TrendingUp, CreditCard, Search, Bookmark, CheckCircle
 } from 'lucide-react';
-import { Sale, RepairOrder, Expense, WorkshopConfig, ServicePrice, AppUser, Quote, CreditAccount, ApartadoEntry, InventoryItem, RefaccionItem } from '../types';
+import { Sale, RepairOrder, Expense, WorkshopConfig, ServicePrice, AppUser, Quote, CreditAccount, ApartadoEntry, InventoryItem, RefaccionItem, Warehouse } from '../types';
 import { showUiToast } from '../utils/whatsapp';
 
 export const getOrderPaymentMethod = (o: RepairOrder): string => {
@@ -84,6 +84,7 @@ interface ReportesViewProps {
   apartados?: ApartadoEntry[];
   inventory?: InventoryItem[];
   refacciones?: RefaccionItem[];
+  warehouses?: Warehouse[];
 }
 
 // ─── categorías del menú superior ─────────────────────────────────────────
@@ -122,13 +123,13 @@ function buildA4Html(title: string, subtitle: string, store: string, thead: stri
   .hdr-r{text-align:right;font-size:9px;color:#777;padding-top:4px}
   .hdr-r strong{display:block;font-size:11px;color:#111;font-weight:800;margin-bottom:2px}
   .sub{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;border-left:4px solid #111;padding-left:8px;margin-bottom:12px;color:#444}
-  table{width:100%;border-collapse:collapse;font-size:10px}
-  thead tr{background:#111;color:#fff}
-  thead th{padding:5px 8px;text-align:left;font-size:9.5px;text-transform:uppercase}
-  thead th:last-child{text-align:right}
-  tbody tr:nth-child(even){background:#f5f5f5}
-  tbody td{padding:5px 8px;border-bottom:1px solid #e0e0e0;vertical-align:top}
-  tbody td:last-child{text-align:right;font-weight:700}
+  .main-table{width:100%;border-collapse:collapse;font-size:10px}
+  .main-table thead tr{background:#111;color:#fff}
+  .main-table thead th{padding:5px 8px;text-align:left;font-size:9.5px;text-transform:uppercase}
+  .main-table thead th:last-child{text-align:right}
+  .main-table tbody tr:nth-child(even){background:#f5f5f5}
+  .main-table tbody td{padding:5px 8px;border-bottom:1px solid #e0e0e0;vertical-align:top}
+  .main-table tbody td:last-child{text-align:right;font-weight:700}
   .summary{margin-top:16px;border-top:2px solid #111;padding-top:10px;display:flex;flex-wrap:wrap;gap:12px}
   .si{background:#f0f0f0;border:1px solid #ddd;padding:8px 14px;border-radius:4px;min-width:120px}
   .si label{display:block;font-size:8.5px;text-transform:uppercase;color:#666;font-weight:700}
@@ -145,7 +146,7 @@ function buildA4Html(title: string, subtitle: string, store: string, thead: stri
   <div class="hdr-r"><strong>${now}</strong>Generado automáticamente</div>
 </div>
 <div class="sub">${subtitle}</div>
-<table>${thead}${tbody}</table>
+<table class="main-table">${thead}${tbody}</table>
 <div class="summary">${summary}</div>
 <div class="footer">${store} — FixManager — ${now}</div>
 </body></html>`;
@@ -155,7 +156,7 @@ async function printReport(html: string, printerName?: string) {
   window.dispatchEvent(new CustomEvent('fm-silent-print', { detail: { html, deviceName: printerName || '', paperWidthMicrons: 210000, paperHeightMicrons: 297000, isReport: true } }));
 }
 
-export default function ReportesView({ sales, orders, expenses, cortesHistorial, services, config, currentUser, onUpdateOrder, quotes = [], creditAccounts = [], apartados = [], inventory = [], refacciones = [] }: ReportesViewProps) {
+export default function ReportesView({ sales, orders, expenses, cortesHistorial, services, config, currentUser, onUpdateOrder, quotes = [], creditAccounts = [], apartados = [], inventory = [], refacciones = [], warehouses = [] }: ReportesViewProps) {
   const isRetro = config.theme === 'retro-window';
   const isLight = config.themeMode === 'light';
   const sym = config.currencySymbol || '$';
@@ -197,7 +198,76 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
   const [payFilter, setPayFilter] = useState('Todos');
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [showHidden, setShowHidden] = useState(false);
+  const [stockCategoryFilter, setStockCategoryFilter] = useState('Todas');
+  const [stockBrandFilter, setStockBrandFilter] = useState('Todas');
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [expandedRebastoIds, setExpandedRebastoIds] = useState<Record<string, boolean>>({});
   const [printPreview, setPrintPreview] = useState<{ html: string; open: boolean } | null>(null);
+
+  // ─── Artículos Críticos Base (sin subfiltros) ───────────────────────────
+  const criticalInventoryItems = useMemo(() => {
+    return inventory.filter(item => {
+      if (!showHidden && item.active === false) return false;
+      const totalStock = (item.stock || 0) + Object.values(item.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+      return item.manageStock !== false && ((item.minStock > 0 && totalStock <= item.minStock) || totalStock === 0);
+    });
+  }, [inventory, showHidden]);
+
+  const criticalRefaccionesItems = useMemo(() => {
+    return refacciones.filter(item => {
+      if (!showHidden && item.active === false) return false;
+      const totalStock = (item.stock || 0) + Object.values(item.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+      return item.manageStock !== false && ((item.minStock > 0 && totalStock <= item.minStock) || totalStock === 0);
+    });
+  }, [refacciones, showHidden]);
+
+  const availableInventoryCategories = useMemo(() => {
+    const map = new Map<string, number>();
+    criticalInventoryItems.forEach(i => {
+      const cat = (i.category && i.category.trim()) ? i.category.trim() : 'Accesorios';
+      map.set(cat, (map.get(cat) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count }));
+  }, [criticalInventoryItems]);
+
+  const availableInventoryBrands = useMemo(() => {
+    const map = new Map<string, number>();
+    criticalInventoryItems.forEach(i => {
+      if (i.brand && i.brand.trim()) {
+        const b = i.brand.trim();
+        map.set(b, (map.get(b) || 0) + 1);
+      }
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count }));
+  }, [criticalInventoryItems]);
+
+  const availableRefaccionesCategories = useMemo(() => {
+    const map = new Map<string, number>();
+    criticalRefaccionesItems.forEach(r => {
+      const cat = (r.category && r.category.trim()) ? r.category.trim() : 'General';
+      map.set(cat, (map.get(cat) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count }));
+  }, [criticalRefaccionesItems]);
+
+  const availableRefaccionesBrands = useMemo(() => {
+    const map = new Map<string, number>();
+    criticalRefaccionesItems.forEach(r => {
+      if (r.deviceBrand && r.deviceBrand.trim()) {
+        const b = r.deviceBrand.trim();
+        map.set(b, (map.get(b) || 0) + 1);
+      }
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count }));
+  }, [criticalRefaccionesItems]);
 
   // Modal de detalle/edición de orden
   const [orderModal, setOrderModal] = useState<RepairOrder | null>(null);
@@ -316,19 +386,63 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
       });
     }
     if (category === 'stock-critico-tienda') {
-      return inventory.filter(item => {
-        if (!showHidden && item.active === false) return false;
-        return item.manageStock !== false && ((item.minStock > 0 && item.stock <= item.minStock) || item.stock === 0);
+      return criticalInventoryItems.filter(item => {
+        // Subfiltro por categoría
+        if (stockCategoryFilter !== 'Todas') {
+          const itemCat = (item.category || 'Accesorios').trim().toLowerCase();
+          if (itemCat !== stockCategoryFilter.trim().toLowerCase()) return false;
+        }
+
+        // Subfiltro por marca
+        if (stockBrandFilter !== 'Todas') {
+          const itemBrand = (item.brand || '').trim().toLowerCase();
+          if (itemBrand !== stockBrandFilter.trim().toLowerCase()) return false;
+        }
+
+        // Búsqueda por texto (nombre, código, marca)
+        if (stockSearchQuery.trim()) {
+          const q = stockSearchQuery.toLowerCase().trim();
+          const matches =
+            (item.name || '').toLowerCase().includes(q) ||
+            (item.code || '').toLowerCase().includes(q) ||
+            (item.category || '').toLowerCase().includes(q) ||
+            (item.brand || '').toLowerCase().includes(q);
+          if (!matches) return false;
+        }
+
+        return true;
       });
     }
     if (category === 'refacciones-criticas') {
-      return refacciones.filter(item => {
-        if (!showHidden && item.active === false) return false;
-        return item.manageStock !== false && ((item.minStock > 0 && item.stock <= item.minStock) || item.stock === 0);
+      return criticalRefaccionesItems.filter(item => {
+        // Subfiltro por categoría
+        if (stockCategoryFilter !== 'Todas') {
+          const itemCat = (item.category || 'General').trim().toLowerCase();
+          if (itemCat !== stockCategoryFilter.trim().toLowerCase()) return false;
+        }
+
+        // Subfiltro por marca
+        if (stockBrandFilter !== 'Todas') {
+          const itemBrand = (item.deviceBrand || item.brand || '').trim().toLowerCase();
+          if (itemBrand !== stockBrandFilter.trim().toLowerCase()) return false;
+        }
+
+        // Búsqueda por texto
+        if (stockSearchQuery.trim()) {
+          const q = stockSearchQuery.toLowerCase().trim();
+          const matches =
+            (item.name || '').toLowerCase().includes(q) ||
+            (item.code || '').toLowerCase().includes(q) ||
+            (item.deviceBrand || '').toLowerCase().includes(q) ||
+            (item.deviceModel || '').toLowerCase().includes(q);
+          if (!matches) return false;
+        }
+
+        return true;
       });
     }
     return [];
-  }, [category, sales, orders, expenses, cortesHistorial, services, config, dateFrom, dateTo, payFilter, statusFilter, rebastoLogs, creditAccounts, priceCheckLogs, apartados, inventory, refacciones, showHidden]);
+  }, [category, sales, orders, expenses, cortesHistorial, services, config, dateFrom, dateTo, payFilter, statusFilter, rebastoLogs, creditAccounts, priceCheckLogs, apartados, criticalInventoryItems, criticalRefaccionesItems, stockCategoryFilter, stockBrandFilter, stockSearchQuery]);
 
   // ─── Totales / sumario ─────────────────────────────────────────────────
   const summary = useMemo(() => {
@@ -813,17 +927,64 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
             <th className={thCls}>Nota</th>
           </tr></thead>
           <tbody>
-            {rows.map((l, i) => (
-              <tr key={l.id} className={i % 2 === 1 ? trEven : ''}>
-                <td className={`${tdCls} font-mono text-[10px]`}>{l.id}</td>
-                <td className={`${tdCls} font-bold`}>{l.provider}</td>
-                <td className={`${tdCls} font-mono text-[10px]`}>{new Date(l.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                <td className={tdCls}>{l.itemsCount}</td>
-                <td className={tdCls}>{(l.items as any[]).reduce((a: number, b: any) => a + b.addedQty, 0)} pz</td>
-                <td className={`${tdCls} text-right font-black ${isLight ? 'text-rose-700' : 'text-rose-400'}`}>{sym}{Number(l.totalCost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                <td className={`${tdCls} text-zinc-500 italic text-[10px]`}>{l.note || '—'}</td>
-              </tr>
-            ))}
+            {rows.map((l, i) => {
+              const isExpanded = !!expandedRebastoIds[l.id];
+              return (
+                <React.Fragment key={l.id}>
+                  <tr 
+                    className={`cursor-pointer transition-all hover:bg-zinc-500/10 ${i % 2 === 1 ? trEven : ''} ${isExpanded ? (isLight ? 'bg-amber-500/5 font-semibold' : 'bg-amber-500/10 font-semibold') : ''}`}
+                    onClick={() => setExpandedRebastoIds(prev => ({ ...prev, [l.id]: !prev[l.id] }))}
+                  >
+                    <td className={`${tdCls} font-mono text-[10px]`}>
+                      <span className="inline-flex items-center gap-1.5 select-none">
+                        <span className="text-[8px] opacity-75">{isExpanded ? '▼' : '▶'}</span>
+                        {l.id}
+                      </span>
+                    </td>
+                    <td className={`${tdCls} font-bold`}>{l.provider}</td>
+                    <td className={`${tdCls} font-mono text-[10px]`}>{new Date(l.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td className={tdCls}>
+                      <span className="font-bold">{l.itemsCount}</span>
+                      <div className="text-[9px] text-zinc-500 font-medium mt-0.5 max-w-[180px] truncate" title={(l.items || []).map((it: any) => `${it.name} (x${it.addedQty})`).join(', ')}>
+                        {(l.items || []).map((it: any) => `${it.name} (x${it.addedQty})`).join(', ')}
+                      </div>
+                    </td>
+                    <td className={tdCls}>{(l.items as any[]).reduce((a: number, b: any) => a + b.addedQty, 0)} pz</td>
+                    <td className={`${tdCls} text-right font-black ${isLight ? 'text-rose-700' : 'text-rose-400'}`}>{sym}{Number(l.totalCost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className={`${tdCls} text-zinc-500 italic text-[10px]`}>{l.note || '—'}</td>
+                  </tr>
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-3 bg-zinc-500/5 border-b border-zinc-800/10">
+                        <div className={`rounded-xl p-3 border ${isLight ? 'bg-white border-zinc-200' : 'bg-zinc-950 border-zinc-800'} space-y-2`}>
+                          <p className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>📋 Detalle de Artículos Reabastecidos</p>
+                          <table className="w-full text-left text-[11px]">
+                            <thead>
+                              <tr className={`border-b ${isLight ? 'border-zinc-200 text-zinc-600' : 'border-zinc-800 text-zinc-400'}`}>
+                                <th className="py-1.5 font-black">Artículo / Repuesto</th>
+                                <th className="py-1.5 font-black text-center">Cantidad</th>
+                                <th className="py-1.5 font-black text-right">Costo Unitario</th>
+                                <th className="py-1.5 font-black text-right">Costo Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(l.items || []).map((item: any, idx: number) => (
+                                <tr key={idx} className={`border-b ${isLight ? 'border-zinc-100 last:border-0' : 'border-zinc-900 last:border-0'}`}>
+                                  <td className="py-1.5 font-medium">{item.name}</td>
+                                  <td className="py-1.5 text-center font-bold">{item.addedQty} pz</td>
+                                  <td className="py-1.5 text-right font-mono text-zinc-500">{sym}{Number(item.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-1.5 text-right font-black">{sym}{(item.addedQty * item.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       );
@@ -1138,7 +1299,21 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
                 <td className={tdCls}>{x.category || 'Accesorios'}</td>
                 <td className={tdCls}>{x.brand || '—'}</td>
                 <td className={`${tdCls} text-right font-bold text-zinc-400`}>{x.minStock}</td>
-                <td className={`${tdCls} text-right font-black text-rose-500`}>{x.stock}</td>
+                 <td className={`${tdCls} text-right`}>
+                   <div className="font-black text-rose-500 font-mono">
+                     {(x.stock || 0) + Object.values(x.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)}
+                   </div>
+                   {x.warehouseStock && Object.entries(x.warehouseStock).some(([_, qty]) => Number(qty) > 0) && (
+                     <div className="text-[9.5px] text-zinc-400 font-medium leading-tight">
+                       Tienda: {x.stock}
+                       {Object.entries(x.warehouseStock).map(([whId, qty]) => {
+                         if (Number(qty) <= 0) return null;
+                         const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                         return ` • ${whName}: ${qty}`;
+                       })}
+                     </div>
+                   )}
+                 </td>
                 <td className={`${tdCls} text-right font-mono text-zinc-400`}>{sym}{x.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td className={`${tdCls} text-right font-mono text-emerald-600`}>{sym}{x.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
@@ -1172,7 +1347,21 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
                 <td className={`${tdCls} font-mono text-indigo-500`}>{x.deviceBrand} {x.deviceModel}</td>
                 <td className={tdCls}>{x.brand || 'GENERICO'}</td>
                 <td className={`${tdCls} text-right font-bold text-zinc-400`}>{x.minStock}</td>
-                <td className={`${tdCls} text-right font-black text-rose-500`}>{x.stock}</td>
+                 <td className={`${tdCls} text-right`}>
+                   <div className="font-black text-rose-500 font-mono">
+                     {(x.stock || 0) + Object.values(x.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)}
+                   </div>
+                   {x.warehouseStock && Object.entries(x.warehouseStock).some(([_, qty]) => Number(qty) > 0) && (
+                     <div className="text-[9.5px] text-zinc-400 font-medium leading-tight">
+                       Tienda: {x.stock}
+                       {Object.entries(x.warehouseStock).map(([whId, qty]) => {
+                         if (Number(qty) <= 0) return null;
+                         const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                         return ` • ${whName}: ${qty}`;
+                       })}
+                     </div>
+                   )}
+                 </td>
                 <td className={`${tdCls} text-right font-mono text-zinc-400`}>{sym}{x.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td className={`${tdCls} text-right font-mono text-emerald-600`}>{sym}{x.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               </tr>
@@ -1287,7 +1476,11 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
       const totalInv = rows.reduce((s: number, l: any) => s + Number(l.totalCost), 0);
       const totalPz  = rows.reduce((s: number, l: any) => s + (l.items as any[]).reduce((a: number, b: any) => a + b.addedQty, 0), 0);
       thead = `<thead><tr><th>ID</th><th>Proveedor</th><th>Fecha</th><th>Artículos</th><th>Piezas</th><th>Nota</th><th style="text-align:right">Inversión</th></tr></thead>`;
-      tbody = `<tbody>${rows.map((l: any) => `<tr><td>${l.id}</td><td>${l.provider}</td><td>${new Date(l.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</td><td>${l.itemsCount}</td><td>${(l.items as any[]).reduce((a: number, b: any) => a + b.addedQty, 0)} pz</td><td>${l.note || '—'}</td><td style="text-align:right">${sym}${Number(l.totalCost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}</tbody>`;
+      tbody = `<tbody>${rows.map((l: any) => {
+        const mainRow = `<tr><td style="font-weight:bold;font-family:monospace;">${l.id}</td><td style="font-weight:bold;">${l.provider}</td><td>${new Date(l.date).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</td><td>${l.itemsCount}</td><td>${(l.items as any[]).reduce((a: number, b: any) => a + b.addedQty, 0)} pz</td><td style="color:#666;font-style:italic;">${l.note || '—'}</td><td style="text-align:right">${sym}${Number(l.totalCost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`;
+        const detailsRow = `<tr><td colspan="7" style="padding:4px 10px 10px 10px;background:#fdfdfd;border-bottom:1px solid #ddd;"><div style="font-size:9px;border:1px solid #eee;border-radius:4px;padding:6px;background:#fff;margin-top:2px;"><table style="width:100%;border-collapse:collapse;font-size:9px;text-align:left;"><thead><tr style="border-bottom:1px solid #eee;color:#555;"><th style="padding:2px;font-weight:bold;">Artículo / Repuesto</th><th style="padding:2px;font-weight:bold;text-align:center;width:60px;">Cantidad</th><th style="padding:2px;font-weight:bold;text-align:right;width:90px;">Costo Unitario</th><th style="padding:2px;font-weight:bold;text-align:right;width:90px;">Costo Total</th></tr></thead><tbody>${(l.items || []).map((item: any) => `<tr style="border-bottom:1px dashed #f5f5f5;"><td style="padding:3px 2px;">${item.name}</td><td style="padding:3px 2px;text-align:center;font-weight:bold;">${item.addedQty} pz</td><td style="padding:3px 2px;text-align:right;color:#555;">${sym}${Number(item.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td style="padding:3px 2px;text-align:right;font-weight:bold;">${sym}${(item.addedQty * item.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}</tbody></table></div></td></tr>`;
+        return mainRow + detailsRow;
+      }).join('')}</tbody>`;
       summaryHtml = `<div class="si"><label>Rebastos</label><span>${rows.length}</span></div><div class="si"><label>Piezas totales</label><span>${totalPz} pz</span></div><div class="si"><label>Inversión total</label><span>${sym}${totalInv.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>`;
     } else if (category === 'apartados') {
       const rows = filteredData as ApartadoEntry[];
@@ -1340,8 +1533,17 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
       'refacciones-criticas':  'Reporte de Refacciones Críticas (Taller)',
     };
     const isLiveInventory = category === 'stock-critico-tienda' || category === 'refacciones-criticas';
+    let filterDetails = '';
+    if (isLiveInventory) {
+      const parts: string[] = [];
+      if (stockCategoryFilter !== 'Todas') parts.push(`Categoría: ${stockCategoryFilter}`);
+      if (stockBrandFilter !== 'Todas') parts.push(`Marca: ${stockBrandFilter}`);
+      if (stockSearchQuery.trim()) parts.push(`Búsqueda: "${stockSearchQuery}"`);
+      filterDetails = parts.length > 0 ? ` · [${parts.join(' | ')}]` : '';
+    }
+
     const reportSubtitle = isLiveInventory 
-      ? `${filteredData.length} registro(s) crítico(s) en total (Al corte)`
+      ? `${filteredData.length} registro(s) crítico(s)${filterDetails} · (Al corte)`
       : `${filteredData.length} registro(s) · ${dateFrom || 'inicio'} → ${dateTo || 'hoy'}`;
     return buildA4Html(reportTitles[category], reportSubtitle, config.storeName || 'TALLER', thead, tbody, summaryHtml);
   };
@@ -1439,24 +1641,78 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
             )}
 
             {(category === 'stock-critico-tienda' || category === 'refacciones-criticas') && (
-              <div className="mb-4">
-                <label className="flex items-center gap-2 text-[10.5px] font-bold select-none cursor-pointer">
+              <>
+                {/* Búsqueda rápida */}
+                <div className="mb-3">
+                  <label className={labelCls}>Buscar</label>
                   <input
-                    type="checkbox"
-                    checked={showHidden}
-                    onChange={e => setShowHidden(e.target.checked)}
-                    className="rounded text-violet-600 focus:ring-violet-500 border-zinc-300 dark:border-zinc-700 w-3.5 h-3.5"
+                    type="text"
+                    value={stockSearchQuery}
+                    onChange={e => setStockSearchQuery(e.target.value)}
+                    placeholder={category === 'stock-critico-tienda' ? "Ej: cargador, mica, samsung..." : "Ej: pantalla, centro de carga..."}
+                    className={inputCls}
                   />
-                  <span className={isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-700' : 'text-zinc-300'}>
-                    Incluir ocultos
-                  </span>
-                </label>
-              </div>
+                </div>
+
+                {/* Subfiltro Categoría */}
+                <div className="mb-3">
+                  <label className={labelCls}>Categoría</label>
+                  <select
+                    value={stockCategoryFilter}
+                    onChange={e => setStockCategoryFilter(e.target.value)}
+                    className={selectCls}
+                  >
+                    <option value="Todas">Todas ({category === 'stock-critico-tienda' ? criticalInventoryItems.length : criticalRefaccionesItems.length})</option>
+                    {(category === 'stock-critico-tienda' ? availableInventoryCategories : availableRefaccionesCategories).map(c => (
+                      <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Subfiltro Marca / Modelo */}
+                <div className="mb-3">
+                  <label className={labelCls}>{category === 'stock-critico-tienda' ? 'Marca Producto' : 'Marca Celular'}</label>
+                  <select
+                    value={stockBrandFilter}
+                    onChange={e => setStockBrandFilter(e.target.value)}
+                    className={selectCls}
+                  >
+                    <option value="Todas">Todas las marcas</option>
+                    {(category === 'stock-critico-tienda' ? availableInventoryBrands : availableRefaccionesBrands).map(b => (
+                      <option key={b.name} value={b.name}>{b.name} ({b.count})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Incluir ocultos */}
+                <div className="mb-4">
+                  <label className="flex items-center gap-2 text-[10.5px] font-bold select-none cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showHidden}
+                      onChange={e => setShowHidden(e.target.checked)}
+                      className="rounded text-violet-600 focus:ring-violet-500 border-zinc-300 dark:border-zinc-700 w-3.5 h-3.5"
+                    />
+                    <span className={isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-700' : 'text-zinc-300'}>
+                      Incluir ocultos
+                    </span>
+                  </label>
+                </div>
+              </>
             )}
 
             {/* Limpiar */}
             <button
-              onClick={() => { setDateFrom(today); setDateTo(today); setPayFilter('Todos'); setStatusFilter('Todos'); setShowHidden(false); }}
+              onClick={() => {
+                setDateFrom(today);
+                setDateTo(today);
+                setPayFilter('Todos');
+                setStatusFilter('Todos');
+                setShowHidden(false);
+                setStockCategoryFilter('Todas');
+                setStockBrandFilter('Todas');
+                setStockSearchQuery('');
+              }}
               className={`w-full py-1.5 text-[10px] font-bold uppercase rounded cursor-pointer transition-all ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-500 border-r-zinc-500 text-zinc-700' : isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg'}`}
             >
               ✕ Limpiar filtros
@@ -1585,14 +1841,85 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
         {/* ÁREA DE TABLA */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Header de tabla */}
-          <div className={`shrink-0 flex items-center gap-2 px-5 py-3 border-b ${isRetro ? 'border-zinc-400 bg-[#eaeef3]' : isLight ? 'border-zinc-200 bg-white' : 'border-zinc-800 bg-[#0e0f13]'}`}>
-            <activeCat.icon className={`w-4 h-4 ${activeCat.color.split(' ')[0]}`} />
-            <span className={`text-xs font-black uppercase tracking-wide ${isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-700' : 'text-zinc-200'}`}>
-              {activeCat.label}
-            </span>
-            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${isRetro ? 'bg-zinc-300 text-zinc-600' : isLight ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-800 text-zinc-400'}`}>
-              {filteredData.length} reg.
-            </span>
+          <div className={`shrink-0 flex items-center justify-between gap-3 px-5 py-2.5 border-b flex-wrap ${isRetro ? 'border-zinc-400 bg-[#eaeef3]' : isLight ? 'border-zinc-200 bg-white' : 'border-zinc-800 bg-[#0e0f13]'}`}>
+            <div className="flex items-center gap-2">
+              <activeCat.icon className={`w-4 h-4 ${activeCat.color.split(' ')[0]}`} />
+              <span className={`text-xs font-black uppercase tracking-wide ${isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-700' : 'text-zinc-200'}`}>
+                {activeCat.label}
+              </span>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${isRetro ? 'bg-zinc-300 text-zinc-600' : isLight ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-800 text-zinc-400'}`}>
+                {filteredData.length} reg.
+              </span>
+            </div>
+
+            {/* Quick Filter Bar for Stock Crítico */}
+            {(category === 'stock-critico-tienda' || category === 'refacciones-criticas') && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Search */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={stockSearchQuery}
+                    onChange={e => setStockSearchQuery(e.target.value)}
+                    placeholder="Buscar producto / código..."
+                    className={`text-xs px-2.5 py-1 pr-6 border rounded-lg focus:outline-none w-36 sm:w-48 ${
+                      isRetro ? 'bg-white border-zinc-400 text-black' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                    }`}
+                  />
+                  {stockSearchQuery && (
+                    <button
+                      onClick={() => setStockSearchQuery('')}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Dropdown */}
+                <select
+                  value={stockCategoryFilter}
+                  onChange={e => setStockCategoryFilter(e.target.value)}
+                  className={`text-xs px-2.5 py-1 border rounded-lg font-bold focus:outline-none cursor-pointer ${
+                    isRetro ? 'bg-white border-zinc-400 text-black' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                  }`}
+                >
+                  <option value="Todas">🏷️ Todas ({category === 'stock-critico-tienda' ? criticalInventoryItems.length : criticalRefaccionesItems.length})</option>
+                  {(category === 'stock-critico-tienda' ? availableInventoryCategories : availableRefaccionesCategories).map(c => (
+                    <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+                  ))}
+                </select>
+
+                {/* Brand Dropdown */}
+                <select
+                  value={stockBrandFilter}
+                  onChange={e => setStockBrandFilter(e.target.value)}
+                  className={`text-xs px-2.5 py-1 border rounded-lg font-bold focus:outline-none cursor-pointer ${
+                    isRetro ? 'bg-white border-zinc-400 text-black' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                  }`}
+                >
+                  <option value="Todas">🏢 Todas las marcas</option>
+                  {(category === 'stock-critico-tienda' ? availableInventoryBrands : availableRefaccionesBrands).map(b => (
+                    <option key={b.name} value={b.name}>{b.name} ({b.count})</option>
+                  ))}
+                </select>
+
+                {/* Reset button if active */}
+                {(stockCategoryFilter !== 'Todas' || stockBrandFilter !== 'Todas' || stockSearchQuery) && (
+                  <button
+                    onClick={() => {
+                      setStockCategoryFilter('Todas');
+                      setStockBrandFilter('Todas');
+                      setStockSearchQuery('');
+                    }}
+                    title="Restablecer filtros"
+                    className="text-[10px] font-bold text-rose-500 hover:underline px-1 py-0.5 cursor-pointer"
+                  >
+                    Restablecer
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Tabla scrolleable */}

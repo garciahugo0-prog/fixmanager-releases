@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { Calculator, ShoppingCart, Trash2, Coins, CreditCard, Sparkles, CheckCircle, Search, X, CornerDownLeft, FolderHeart, Archive, Info, XCircle, Users, Edit, Lock, Unlock, ShieldCheck, Wrench, Printer, MessageSquare, Smartphone, Star } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Calculator, ShoppingCart, Trash2, Coins, CreditCard, Sparkles, CheckCircle, Search, X, CornerDownLeft, FolderHeart, Archive, Info, XCircle, Users, Edit, Tag, Lock, Unlock, ShieldCheck, Wrench, Printer, MessageSquare, Smartphone, Star } from 'lucide-react';
 import { PosLogic, normalizeSearchText } from '../../hooks/usePosLogic';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
 import { logPriceCheck, markAddedToCart } from '../../utils/priceCheckLog';
@@ -13,9 +14,12 @@ import { getIndividualAdvance } from '../../utils/orderHelpers';
 import { handleCaretPreservingChange } from '../../utils/domHelpers';
 import { PosItemThumbnail } from './PosItemThumbnail';
 
-interface Props { logic: PosLogic; }
+interface Props {
+  logic: PosLogic;
+  warehouses?: any[];
+}
 
-export default function PosRetro({ logic }: Props) {
+export default function PosRetro({ logic, warehouses = [] }: Props) {
   const {
     config, sales, users, setActiveTab, onCancelSale,
     basket, setBasket, isAdminMode, setIsAdminMode,
@@ -27,11 +31,12 @@ export default function PosRetro({ logic }: Props) {
     showClearConfirm, setShowClearConfirm, confirmationCode, setConfirmationCode,
     showSaleConfirm, setShowSaleConfirm, changeAmount, setChangeAmount,
     discountType, setDiscountType, discountValue, setDiscountValue, discountEnabled, setDiscountEnabled, discountAmount,
-    showFiarModal, setShowFiarModal, fiarClientName, setFiarClientName, fiarClientPhone, setFiarClientPhone, fiarCountryCode, setFiarCountryCode, fiarExistingAccount, setFiarExistingAccount, fiarCreditLimit, setFiarCreditLimit, executeFiar,
+    showFiarModal, setShowFiarModal, fiarClientName, setFiarClientName, fiarClientPhone, setFiarClientPhone, fiarCountryCode, setFiarCountryCode, fiarExistingAccount, setFiarExistingAccount, fiarCreditLimit, setFiarCreditLimit, executeFiar, fiarNameSuggestions, fiarPhoneSuggestions, selectExistingCreditAccount, fiarInitialPayment, setFiarInitialPayment, fiarInitialMethod, setFiarInitialMethod, openFiarModal, fiarHasLimit, setFiarHasLimit,
     countdown, fastSaleName, setFastSaleName, fastSalePrice, setFastSalePrice,
     saveToInventory, setSaveToInventory,
     isSearchModalOpen, setIsSearchModalOpen,
     modalCurrentPage, setModalCurrentPage,
+    modalCategoryFilter, setModalCategoryFilter,
     isFastSaleModalOpen, setIsFastSaleModalOpen,
     showQuickHistory, setShowQuickHistory, quickHistoryConfirm, setQuickHistoryConfirm,
     quickHistoryDetail, setQuickHistoryDetail, modalSelectedIndex, setModalSelectedIndex,
@@ -59,16 +64,17 @@ export default function PosRetro({ logic }: Props) {
     showAdminAuthModal, setShowAdminAuthModal, adminAuthPin, setAdminAuthPin,
     adminAuthError, setAdminAuthError, pendingEditItemId, setPendingEditItemId,
     savedSales, setSavedSales,
+    selectedSaleWarehouseId, setSelectedSaleWarehouseId,
     lastSelectedQueryRef, fastSaleNameInputRef, searchInputRef, lastClickTimeRef,
     modalFastSaleNameInputRef, modalFastSalePriceInputRef,
     fastSaleModalNameInputRef, fastSaleModalPriceInputRef,
     softCoinsTotal, matchedProductsForModal, exactMatch,
     paginatedModalItems, modalTotalPages,
-    availableItems, inventory,
+    availableItems, inventory, getItemStock,
     basketTotal, basketTotalItems, saleType, setSaleType,
     triggerToast, handleCalcBtn, cancelAndCleanupFastSale, cancelAndCleanupSearchModal,
     addFastSaleItem, handleModalAddFastSaleItem,
-    addToBasket, updateQuantity, removeFromBasket, toggleBasketItemPriceType,
+    addToBasket, updateQuantity, removeFromBasket, toggleBasketItemPriceType, updateLineDiscount,
     handleSavePrice, handleRequestEditPrice,
     handleConfirmAddChip, handleConfirmEditChip,
     handleAdminAuthSubmit, handleLockAdminMode,
@@ -91,7 +97,12 @@ export default function PosRetro({ logic }: Props) {
     addRepairOrderToBasket,
   } = logic;
 
-  const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+  const [editingDiscountItemId, setEditingDiscountItemId] = React.useState<string | null>(null);
+  const [editingDiscountValue, setEditingDiscountValue] = React.useState<string>('');
+  const [editingDiscountType, setEditingDiscountType] = React.useState<'percentage' | 'fixed'>('percentage');
+  const [activeSearchField, setActiveSearchField] = React.useState<'name' | 'phone' | null>(null);
+
+  const isWaIntegratedOffline = !waConnected;
 
   const [chipClientName, setChipClientName] = React.useState('');
   const [chipPhone, setChipPhone] = React.useState('');
@@ -121,6 +132,23 @@ export default function PosRetro({ logic }: Props) {
   }, [editingChipBasketItem]);
 
   const isLight = config.themeMode === 'light';
+
+  const modalActiveInventory = React.useMemo(() => {
+    if (selectedSaleWarehouseId === 'local') {
+      return inventory.filter(item => item.manageStock === false || item.stock > 0);
+    } else if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all') {
+      return inventory.filter(item => {
+        const isAssigned = item.warehouseStock && (selectedSaleWarehouseId in item.warehouseStock);
+        if (!isAssigned) return false;
+        return item.manageStock === false || (item.warehouseStock?.[selectedSaleWarehouseId] || 0) > 0;
+      });
+    }
+    return inventory;
+  }, [inventory, selectedSaleWarehouseId]);
+
+  const modalCategoriesList = React.useMemo(() => {
+    return Array.from(new Set(modalActiveInventory.map(p => (p.category || '').trim().toUpperCase()).filter(Boolean))).sort();
+  }, [modalActiveInventory]);
 
   const [fiarPrint, setFiarPrint] = React.useState(true);
   const [fiarWhatsapp, setFiarWhatsapp] = React.useState(false);
@@ -196,6 +224,14 @@ export default function PosRetro({ logic }: Props) {
   const filteredFavoriteItems = React.useMemo(() => {
     return allFavoriteItems.filter(item => {
       if (favSelectedCategory !== 'TODAS' && (item.category || '').trim().toUpperCase() !== favSelectedCategory) return false;
+      
+      // Filtrar por bodega seleccionada
+      if (selectedSaleWarehouseId === 'local') {
+        if (item.manageStock !== false && item.stock <= 0) return false;
+      } else if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all') {
+        if (item.manageStock !== false && (item.warehouseStock?.[selectedSaleWarehouseId] || 0) <= 0) return false;
+      }
+
       if (favSearchQuery.trim()) {
         const q = favSearchQuery.toLowerCase();
         const matchName = (item.name || '').toLowerCase().includes(q);
@@ -205,7 +241,7 @@ export default function PosRetro({ logic }: Props) {
       }
       return true;
     });
-  }, [allFavoriteItems, favSelectedCategory, favSearchQuery]);
+  }, [allFavoriteItems, favSelectedCategory, favSearchQuery, selectedSaleWarehouseId]);
 
   const [favSelectedIndex, setFavSelectedIndex] = React.useState(0);
 
@@ -342,7 +378,8 @@ export default function PosRetro({ logic }: Props) {
     if (priceCheckerSelected) {
       const item = priceCheckerSelected;
       const isStockControlled = item.manageStock !== false;
-      const stockColor = !isStockControlled ? (isLight ? 'text-indigo-650' : 'text-indigo-400') : item.stock <= 0 ? 'text-rose-500' : item.stock <= item.minStock ? 'text-amber-500' : isLight ? 'text-emerald-600' : 'text-emerald-400';
+      const currentStock = getItemStock(item);
+      const stockColor = !isStockControlled ? (isLight ? 'text-indigo-650' : 'text-indigo-400') : currentStock <= 0 ? 'text-rose-500' : currentStock <= (item.minStock || 0) ? 'text-amber-500' : isLight ? 'text-emerald-600' : 'text-emerald-400';
       const addBtnCls = isRetro
         ? 'bg-[#000080] hover:bg-[#0000aa] text-white border-2 border-t-[#8080ff] border-l-[#8080ff] border-b-[#000040] border-r-[#000040]'
         : isLight ? 'bg-[#1a3a6b] hover:bg-[#14306b] text-white'
@@ -367,7 +404,15 @@ export default function PosRetro({ logic }: Props) {
               <div className={`w-full rounded-xl px-4 py-3 flex flex-col gap-1.5 ${isRetro ? 'bg-zinc-200' : isLight ? 'bg-zinc-50 border border-zinc-200' : 'bg-zinc-900/60 border border-zinc-800'}`}>
                 {item.code && <div className="flex justify-between text-xs"><span className={textSub}>Código</span><span className={`font-mono font-bold ${textMain}`}>{item.code}</span></div>}
                 {item.category && <div className="flex justify-between text-xs"><span className={textSub}>Categoría</span><span className={`font-bold ${textMain}`}>{item.category}</span></div>}
-                <div className="flex justify-between text-xs"><span className={textSub}>Stock</span><span className={`font-black ${stockColor}`}>{!isStockControlled ? 'Ilimitado' : item.stock <= 0 ? 'Sin stock' : `${item.stock} uds.`}</span></div>
+                <div className="flex justify-between text-xs"><span className={textSub}>Stock</span><span className={`font-black ${stockColor}`}>{!isStockControlled ? 'Ilimitado' : currentStock <= 0 ? 'Sin stock' : `${currentStock} uds.`}</span></div>
+                {item.wholesalePrice !== undefined && item.wholesalePrice > 0 && (
+                  <div className="flex justify-between text-xs">
+                    <span className={textSub}>P. Mayoreo</span>
+                    <span className={`font-mono font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                      {sym}{item.wholesalePrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
               </div>
               <button onClick={() => !priceCheckerAdded && doAddToCart(item)} className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-widest cursor-pointer transition-all ${priceCheckerAdded ? 'bg-emerald-500 text-white' : addBtnCls}`} ref={el => { if (el) el.style.setProperty('color','white','important'); }}>
                 {priceCheckerAdded ? '✓ Agregado al carrito' : '+ Agregar al carrito  [Enter]'}
@@ -635,8 +680,12 @@ export default function PosRetro({ logic }: Props) {
                           id: sale.id,
                           items: (sale.items || []).map((i: any) => ({
                             description: i.description || i.name || '',
+                            name: i.name || i.description || '',
                             quantity: i.quantity,
-                            price: i.price
+                            price: i.price,
+                            originalPrice: i.originalPrice,
+                            discountValue: i.discountValue,
+                            discountType: i.discountType
                           })),
                           total: sale.total,
                           createdAt: sale.createdAt || new Date().toISOString(),
@@ -690,8 +739,8 @@ export default function PosRetro({ logic }: Props) {
     return (
       <>
         {/* Real-time Integrated OS Notification Toast */}
-        {posToast && (
-          <div className={`fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4.5 py-3 rounded-xl border shadow-xl animate-fadeIn select-none max-w-sm ${
+        {posToast && createPortal(
+          <div className={`fixed top-4 right-4 z-[100000] flex items-center gap-2.5 px-4.5 py-3 rounded-xl border shadow-xl animate-fadeIn select-none max-w-sm ${
             posToast.type === 'success' 
               ? 'bg-[#121316] border-emerald-500/30 text-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.15)]' 
               : posToast.type === 'error'
@@ -705,7 +754,8 @@ export default function PosRetro({ logic }: Props) {
             {posToast.type === 'warning' && <Info className="w-5 h-5 text-amber-400 shrink-0" />}
             {posToast.type === 'info' && <Info className="w-5 h-5 text-blue-400 shrink-0" />}
             <span className="text-xs font-bold leading-snug">{posToast.message}</span>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Modal 1: F2 (Clientes / Referencia) */}
@@ -1319,7 +1369,7 @@ export default function PosRetro({ logic }: Props) {
             </div>
 
             {/* Categorías Dinámicas (Pills) */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            <div className="flex flex-wrap items-center gap-1.5 pb-1 select-none max-h-[85px] overflow-y-auto border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white bg-zinc-100 p-1.5">
               <button
                 onClick={() => setFavSelectedCategory('TODAS')}
                 className={`px-3 py-1.5 text-[10px] font-black tracking-wide uppercase transition-all shrink-0 cursor-pointer border-2 ${
@@ -1383,7 +1433,8 @@ export default function PosRetro({ logic }: Props) {
                   <tbody className="divide-y divide-zinc-200 font-mono text-[11px]">
                     {filteredFavoriteItems.map((item, idx) => {
                       const isStockControlled = item.manageStock !== false;
-                      const isAgotado = isStockControlled && item.stock === 0;
+                      const currentStock = getItemStock(item);
+                      const isAgotado = isStockControlled && currentStock === 0;
                       const isSelected = idx === favSelectedIndex;
 
                       return (
@@ -1411,7 +1462,7 @@ export default function PosRetro({ logic }: Props) {
                               <div className="flex-1 min-w-0 break-words whitespace-normal">
                                 <span className={`block font-black uppercase text-[11.5px] font-sans break-words whitespace-normal ${
                                   isSelected ? 'text-white font-extrabold' : 'text-black'
-                                }`}>{item.name}</span>
+                               }`}>{item.name}</span>
                                 <span className={`inline-block text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded border ${
                                   isSelected ? 'bg-white/20 text-white border-white/40' : 'bg-zinc-150 text-zinc-600 border-zinc-300'
                                 }`}>{item.category || 'GENERAL'}</span>
@@ -1429,9 +1480,9 @@ export default function PosRetro({ logic }: Props) {
                             <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
                               isSelected
                                 ? 'bg-white/20 text-white border border-white/40'
-                                : !isStockControlled ? 'bg-indigo-50 border border-indigo-200 text-indigo-800' : item.stock > 5 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                : !isStockControlled ? 'bg-indigo-50 border border-indigo-200 text-indigo-800' : currentStock > 5 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
                             }`}>
-                              {!isStockControlled ? '∞' : `${item.stock} disp`}
+                              {!isStockControlled ? '∞' : `${currentStock} disp`}
                             </span>
                           </td>
                         </tr>
@@ -1538,6 +1589,23 @@ export default function PosRetro({ logic }: Props) {
               </button>
             )}
           </div>
+          {/* Selector de origen de venta */}
+          {config.enableWarehouses === true && (
+            <div className="ml-2 flex items-center gap-1.5 shrink-0 select-none">
+              <span className="text-[10px] uppercase font-bold text-zinc-700 font-mono">Vender desde:</span>
+              <select
+                value={selectedSaleWarehouseId}
+                onChange={(e) => setSelectedSaleWarehouseId(e.target.value)}
+                className="bg-white border-2 border-b-white border-r-white border-t-[#808080] border-l-[#808080] focus:outline-none rounded-none px-1.5 py-0.5 text-xs font-bold font-mono text-zinc-800"
+              >
+                <option value="all">🌐 Todas las Bodegas</option>
+                <option value="local">🏠 Tienda Local</option>
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>🏢 {w.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {savedSales.length > 0 && (
             <button
               type="button"
@@ -1554,6 +1622,14 @@ export default function PosRetro({ logic }: Props) {
             className="ml-2 px-3 py-1.5 bg-[#dfdfdf] hover:bg-[#cbd6e2] border-2 border-t-white border-l-white border-b-zinc-500 border-r-zinc-500 text-[10px] font-black text-[#000080] uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 select-none"
           >
             ⭐ Favoritos
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSearchQuery(''); setModalCurrentPage(1); setModalSelectedIndex(0); setIsSearchModalOpen(true); }}
+            title="Ver catálogo completo de productos y refacciones"
+            className="ml-2 px-3 py-1.5 bg-[#dfdfdf] hover:bg-[#cbd6e2] border-2 border-t-white border-l-white border-b-zinc-500 border-r-zinc-500 text-[10px] font-black text-zinc-700 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 select-none"
+          >
+            📂 Catálogo
           </button>
           <button
             type="button"
@@ -1692,9 +1768,12 @@ export default function PosRetro({ logic }: Props) {
                 </thead>
                 <tbody className="divide-y divide-zinc-100 animate-fadeIn">
                   {basket.map((item) => {
-                    const currentPrice = item.customPrice !== undefined ? item.customPrice : item.item.price;
+                    const currentPrice = item.basePrice !== undefined ? item.basePrice : (item.customPrice !== undefined ? item.customPrice : item.item.price);
+                    const discountAmount = item.discountAmount !== undefined ? item.discountAmount : 0;
                     const isStockControlled = item.item.manageStock !== false;
-                    const availableStock = item.item.stock - (item.item.reservedQty || 0);
+                    const availableStock = (item.fromWarehouseId && item.item.warehouseStock)
+                      ? (item.item.warehouseStock[item.fromWarehouseId] || 0)
+                      : item.item.stock - (item.item.reservedQty || 0);
                     const isOutOfStock = isStockControlled && availableStock <= 0;
                     const isInsufficient = isStockControlled && availableStock > 0 && item.quantity > availableStock;
                     const rowId = item.uniqueId || item.item.id;
@@ -1714,7 +1793,7 @@ export default function PosRetro({ logic }: Props) {
                             <div className="flex-1 min-w-0">
                               <div className="flex justify-between items-center gap-2 w-full">
                                 <div className="flex flex-col">
-                                  <span className="truncate">{item.item.name}</span>
+                                  <span className="block whitespace-normal break-words leading-tight">{item.item.name}</span>
                                   {item.chipActivation && (
                                     <div className="text-[10px] font-mono font-bold text-green-700 flex items-center gap-1.5 mt-0.5 bg-green-50 border border-green-300 px-2 py-0.5 rounded w-fit select-none">
                                       <span>📞 {item.chipActivation.chipNumber}</span>
@@ -1765,8 +1844,34 @@ export default function PosRetro({ logic }: Props) {
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[9px] text-zinc-400 font-normal capitalize flex items-center gap-2 mt-0.5 select-none">
+                              <div className="text-[9px] text-zinc-400 font-normal capitalize flex items-center gap-2 mt-0.5 select-none flex-wrap">
                                 <span>{item.item.brand} · {item.item.category}</span>
+                                {item.fromWarehouseId ? (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 select-none">
+                                    🏢 {warehouses.find(w => w.id === item.fromWarehouseId)?.name || 'Bodega'}
+                                  </span>
+                                ) : (
+                                  config.enableWarehouses === true && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-300 select-none">
+                                      🏠 Tienda Local
+                                    </span>
+                                  )
+                                )}
+                                {isStockControlled ? (
+                                  availableStock > 0 ? (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 select-none">
+                                      Stock: {availableStock} {availableStock === 1 ? 'pza' : 'pzas'}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200 select-none">
+                                      Sin Stock
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 select-none">
+                                    Ilimitado
+                                  </span>
+                                )}
                                 {item.item.wholesalePrice !== undefined && item.item.wholesalePrice > 0 && (
                                   <button
                                     type="button"
@@ -1811,7 +1916,49 @@ export default function PosRetro({ logic }: Props) {
                           </div>
                         </td>
                         <td className="px-3 py-1.5 text-right font-mono font-bold text-zinc-700">
-                          {editingItemId === rowId ? (
+                          {editingDiscountItemId === rowId ? (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className="text-[9px] text-zinc-500 font-bold select-none">
+                                Base: {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                              <div 
+                                className="flex items-center justify-end gap-1"
+                                onBlur={(e) => {
+                                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                    const val = parseFloat(editingDiscountValue);
+                                    updateLineDiscount(rowId, isNaN(val) ? 0 : val, editingDiscountType);
+                                    setEditingDiscountItemId(null);
+                                  }
+                                }}
+                              >
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editingDiscountValue}
+                                  onChange={(e) => setEditingDiscountValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const val = parseFloat(editingDiscountValue);
+                                      updateLineDiscount(rowId, isNaN(val) ? 0 : val, editingDiscountType);
+                                      setEditingDiscountItemId(null);
+                                    }
+                                    if (e.key === 'Escape') setEditingDiscountItemId(null);
+                                  }}
+                                  className="w-12 text-right bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white px-1 py-0.5 text-xs font-mono font-bold text-black focus:outline-none"
+                                  autoFocus
+                                  onFocus={(e) => e.target.select()}
+                                />
+                                <select
+                                  value={editingDiscountType}
+                                  onChange={(e) => setEditingDiscountType(e.target.value as 'percentage' | 'fixed')}
+                                  className="border-2 border-t-white border-l-white border-b-[#808080] border-r-[#808080] bg-[#dfdfdf] text-xs py-0.5 font-bold focus:outline-none text-black cursor-pointer"
+                                >
+                                  <option value="percentage">%</option>
+                                  <option value="fixed">{config.currencySymbol}</option>
+                                </select>
+                              </div>
+                            </div>
+                          ) : editingItemId === rowId ? (
                             <div className="flex items-center justify-end gap-1">
                               <span className="text-zinc-500">{config.currencySymbol}</span>
                               <input
@@ -1831,26 +1978,65 @@ export default function PosRetro({ logic }: Props) {
                               />
                             </div>
                           ) : (
-                            <div className="flex items-center justify-end gap-1 group">
-                              <span className={item.customPrice !== undefined ? 'text-amber-700 font-black' : ''}>
-                                {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                              {item.customPrice !== undefined && (
-                                <span className="text-[9px] text-amber-600 font-bold bg-amber-50 border border-amber-200 px-0.5 rounded">MOD</span>
+                            <div className="flex flex-col items-end">
+                              <div className="flex items-center justify-end gap-1.5 group whitespace-nowrap">
+                                <div className="hidden group-hover:flex items-center gap-1 mr-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRequestEditPrice(rowId, currentPrice)}
+                                    className="text-zinc-400 hover:text-[#000080] cursor-pointer"
+                                    title={isAdminMode ? 'Editar precio' : 'Editar precio (requiere PIN de administrador)'}
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingDiscountItemId(rowId);
+                                      setEditingDiscountValue(item.lineDiscountValue ? item.lineDiscountValue.toString() : '');
+                                      setEditingDiscountType(item.lineDiscountType || 'percentage');
+                                    }}
+                                    className="text-zinc-400 hover:text-red-700 cursor-pointer"
+                                    title="Descuento (Se refleja en el ticket)"
+                                  >
+                                    <Tag className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {item.customPrice !== undefined && (
+                                    <span className="text-[9px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-0.5 rounded">MOD</span>
+                                  )}
+                                  {item.lineDiscountValue !== undefined && item.lineDiscountValue > 0 ? (
+                                    <>
+                                      <span className="line-through text-zinc-400 text-xs">
+                                        {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                      <span className="text-zinc-500 text-xs mx-0.5">-</span>
+                                      <span className="text-red-600 font-semibold text-xs">
+                                        {item.lineDiscountType === 'percentage' ? `${item.lineDiscountValue}%` : `${config.currencySymbol}${item.lineDiscountValue}`}
+                                      </span>
+                                      <span className="text-zinc-500 text-xs mx-0.5">=</span>
+                                      <span className="text-zinc-800 font-bold">
+                                        {config.currencySymbol}{(currentPrice - discountAmount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className={item.customPrice !== undefined ? 'text-amber-700 font-black' : ''}>
+                                      {config.currencySymbol}{currentPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              {item.quantity > 1 && item.lineDiscountValue !== undefined && item.lineDiscountValue > 0 && (
+                                <span className="text-[9px] text-zinc-500 font-medium select-none mt-0.5">
+                                  (Desc. total: -{config.currencySymbol}{(discountAmount * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                </span>
                               )}
-                              <button
-                                type="button"
-                                onClick={() => handleRequestEditPrice(rowId, currentPrice)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-[#000080] cursor-pointer ml-0.5"
-                                title={isAdminMode ? 'Editar precio' : 'Editar precio (requiere PIN de administrador)'}
-                              >
-                                <Edit className="w-3 h-3" />
-                              </button>
                             </div>
                           )}
                         </td>
                         <td className="px-3 py-1.5 text-right font-mono font-extrabold text-emerald-600 text-xs text-nowrap">
-                          {config.currencySymbol}{(currentPrice * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {config.currencySymbol}{((currentPrice - discountAmount) * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-3 py-1.5 text-center">
                           <button
@@ -2266,7 +2452,7 @@ export default function PosRetro({ logic }: Props) {
                     <div className="p-2.5 bg-[#eaeef3] border-t-2 border-[#808080] flex flex-col sm:flex-row gap-2.5">
                       <button
                         type="button"
-                        onClick={() => { setShowSpecialOptions(false); setShowSaleConfirm(false); setShowFiarModal(true); }}
+                        onClick={() => { setShowSpecialOptions(false); openFiarModal(); }}
                         title="Registrar esta venta como cuenta por cobrar / fiado [F6]"
                         className="flex-1 uppercase px-2 sm:px-4 py-2 bg-orange-500 hover:bg-orange-600 retro-white-text font-black text-[10px] sm:text-xs tracking-wider cursor-pointer border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 active:scale-95 transition-all shadow-sm flex items-center justify-center gap-1.5 text-center"
                       >
@@ -2356,24 +2542,58 @@ export default function PosRetro({ logic }: Props) {
         )}
 
         {/* Modal Fiar */}
-        {showFiarModal && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60" onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); }}>
-            <div className="w-full max-w-sm mx-4 bg-white border-2 border-zinc-400 shadow-2xl" onClick={e => e.stopPropagation()}>
+        {showFiarModal && createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60" onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); setActiveSearchField(null); }}>
+            <div className="w-full max-w-sm mx-4 bg-white border-2 border-zinc-400 shadow-2xl" onClick={e => { e.stopPropagation(); setActiveSearchField(null); }}>
               <div className="bg-[#000080] px-4 py-2.5 flex items-center justify-between"
                 ref={el => { if (el) { el.style.setProperty('color','white','important'); Array.from(el.querySelectorAll('*')).forEach((c:Element) => (c as HTMLElement).style?.setProperty('color','white','important')); } }}>
                 <span className="font-black text-sm uppercase tracking-widest text-white">💳 Registrar Fiado</span>
-                <button onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); }} className="text-white font-black text-lg cursor-pointer">✕</button>
+                <button onClick={() => { setShowFiarModal(false); setShowSaleConfirm(true); setActiveSearchField(null); }} className="text-white font-black text-lg cursor-pointer">✕</button>
               </div>
               <div className="p-4 space-y-3">
-                <div className={`text-xs font-bold text-zinc-600 mb-1`}>Total a fiar: <span className="font-black text-zinc-900">{config.currencySymbol || '$'}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                <div>
+                <div className={`text-xs font-bold text-zinc-600 mb-1`}>
+                  Total a fiar: <span className="font-black text-zinc-900">{config.currencySymbol || '$'}{(basketTotal - (Number(fiarInitialPayment) || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  {fiarInitialPayment && Number(fiarInitialPayment) > 0 && (
+                    <span className="text-[10px] text-emerald-700 ml-1.5 font-bold">
+                      (Con anticipo de {config.currencySymbol || '$'}{Number(fiarInitialPayment).toLocaleString('es-MX', { minimumFractionDigits: 2 })})
+                    </span>
+                  )}
+                </div>
+                <div className="relative" onClick={e => e.stopPropagation()}>
                   <label className="text-[10px] font-black uppercase text-zinc-500">Nombre del cliente *</label>
                   <input id="fiar-nombre" autoFocus value={fiarClientName} onChange={e => handleCaretPreservingChange(e, setFiarClientName, val => val.toUpperCase())}
+                    onFocus={() => setActiveSearchField('name')}
+                    onClick={e => { e.stopPropagation(); setActiveSearchField('name'); }}
                     placeholder="NOMBRE COMPLETO..."
                     className="w-full mt-1 bg-white border-2 border-zinc-400 text-zinc-900 px-3 py-1.5 text-sm font-bold uppercase outline-none focus:border-[#000080] placeholder:font-normal placeholder:normal-case placeholder:text-zinc-400"
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-telefono')?.focus(); } }} />
+
+                  {/* Suggestions Dropdown */}
+                  {activeSearchField === 'name' && fiarClientName.trim() && !fiarExistingAccount && fiarNameSuggestions.length > 0 && (
+                    <div className="absolute top-[62px] left-0 right-0 z-[10000] bg-white border-2 border-zinc-400 shadow-xl max-h-40 overflow-y-auto">
+                      {fiarNameSuggestions.map(acc => {
+                        const debt = acc.entries.reduce((s, e) => s + e.subtotal, 0);
+                        const paid = acc.payments.reduce((s, p) => s + p.amount, 0);
+                        const balance = Math.max(0, debt - paid);
+                        return (
+                          <div key={acc.id}
+                            onClick={() => selectExistingCreditAccount(acc)}
+                            className="px-3 py-2 hover:bg-zinc-200 cursor-pointer border-b last:border-0 border-zinc-300 flex justify-between items-center text-black"
+                          >
+                            <div>
+                              <div className="text-xs font-bold font-mono">{acc.clientName}</div>
+                              <div className="text-[9px] text-zinc-500 font-mono">{acc.clientPhone}</div>
+                            </div>
+                            <div className="text-[10px] font-black text-blue-900 font-mono">
+                              Saldo: {config.currencySymbol || '$'}{balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
                   <div className="flex mt-1 border-2 border-zinc-400 bg-white focus-within:border-[#000080]">
                     <select
@@ -2386,42 +2606,117 @@ export default function PosRetro({ logic }: Props) {
                     </select>
                     <input id="fiar-telefono" value={fiarClientPhone}
                       onChange={e => setFiarClientPhone(formatPhoneNumber(e.target.value))}
+                      onFocus={() => setActiveSearchField('phone')}
+                      onClick={e => { e.stopPropagation(); setActiveSearchField('phone'); }}
                       placeholder="(351) 000-0000"
                       className="w-full bg-white border-none text-zinc-900 px-3 py-1.5 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-400"
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fiar-limit-retro')?.focus(); } }} />
                   </div>
+
+                  {/* Suggestions Dropdown for Phone */}
+                  {activeSearchField === 'phone' && fiarClientPhone.trim() && !fiarExistingAccount && fiarPhoneSuggestions.length > 0 && (
+                    <div className="absolute top-[62px] left-0 right-0 z-[10000] bg-white border-2 border-zinc-400 shadow-xl max-h-40 overflow-y-auto">
+                      {fiarPhoneSuggestions.map(acc => {
+                        const debt = acc.entries.reduce((s, e) => s + e.subtotal, 0);
+                        const paid = acc.payments.reduce((s, p) => s + p.amount, 0);
+                        const balance = Math.max(0, debt - paid);
+                        return (
+                          <div key={acc.id}
+                            onClick={() => selectExistingCreditAccount(acc)}
+                            className="px-3 py-2 hover:bg-zinc-200 cursor-pointer border-b last:border-0 border-zinc-300 flex justify-between items-center text-black"
+                          >
+                            <div>
+                              <div className="text-xs font-bold font-mono">{acc.clientName}</div>
+                              <div className="text-[9px] text-zinc-500 font-mono">{acc.clientPhone}</div>
+                            </div>
+                            <div className="text-[10px] font-black text-blue-900 font-mono">
+                              Saldo: {config.currencySymbol || '$'}{balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase text-zinc-500">Límite de Crédito ($)</label>
-                  <input id="fiar-limit-retro" value={fiarCreditLimit} onChange={e => setFiarCreditLimit(e.target.value)}
-                    placeholder={`Ej: ${config.defaultCreditLimit ?? 1000}`}
-                    type="number"
-                    min="0"
-                    className="w-full mt-1 bg-white border-2 border-zinc-400 text-zinc-900 px-3 py-1.5 text-sm font-bold outline-none focus:border-[#000080] placeholder:font-normal placeholder:text-zinc-400"
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); } }} />
+
+                {/* Anticipo / Abono Inicial */}
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-zinc-500">Anticipo / Pago Inicial ($)</label>
+                    <input
+                      value={fiarInitialPayment}
+                      onChange={e => setFiarInitialPayment(e.target.value)}
+                      placeholder="0.00"
+                      type="number"
+                      min="0"
+                      className="w-full mt-1 bg-white border-2 border-zinc-400 text-zinc-900 px-3 py-1.5 text-sm font-bold outline-none focus:border-[#000080] placeholder:font-normal placeholder:text-zinc-450"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-zinc-500">Método de Anticipo</label>
+                    <select
+                      value={fiarInitialMethod}
+                      onChange={e => setFiarInitialMethod(e.target.value as 'Efectivo' | 'Tarjeta')}
+                      className="w-full mt-1 bg-white border-2 border-b-white border-r-white border-t-[#808080] border-l-[#808080] focus:outline-none px-1.5 py-[6px] text-xs font-bold"
+                    >
+                      <option value="Efectivo">💵 Efectivo</option>
+                      <option value="Tarjeta">💳 Tarjeta</option>
+                    </select>
+                  </div>
                 </div>
+
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <label className="flex items-center gap-2 text-[10px] font-black uppercase text-zinc-500 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={fiarHasLimit}
+                      onChange={(e) => {
+                        setFiarHasLimit(e.target.checked);
+                        if (!e.target.checked) setFiarCreditLimit('');
+                      }}
+                      className="w-4 h-4 cursor-pointer"
+                    />
+                    <span>Establecer límite de crédito</span>
+                  </label>
+                </div>
+
+                {fiarHasLimit && (
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-zinc-500">Límite de Crédito ($) *</label>
+                    <input id="fiar-limit-retro" value={fiarCreditLimit} onChange={e => setFiarCreditLimit(e.target.value)}
+                      placeholder={`Ej: ${config.defaultCreditLimit ?? 1000}`}
+                      type="number"
+                      min="0"
+                      className="w-full mt-1 bg-white border-2 border-zinc-400 text-zinc-900 px-3 py-1.5 text-sm font-bold outline-none focus:border-[#000080] placeholder:font-normal placeholder:text-zinc-400"
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); } }} />
+                  </div>
+                )}
+
                 <div className="flex flex-col gap-2 pt-1.5 border-t border-dashed border-zinc-300">
-                  <div className="flex items-center gap-2 select-none hover:opacity-90 active:scale-98 transition-all">
+                  <div 
+                    onClick={toggleFiarPrint}
+                    className="flex items-center gap-2 select-none hover:opacity-90 active:scale-98 transition-all cursor-pointer"
+                  >
                     <input 
                       type="checkbox" 
                       id="fiar-check-print-retro"
                       checked={fiarPrint}
                       onChange={toggleFiarPrint}
-                      className="w-4 h-4 accent-green-700 bg-white border-2 border-zinc-500 rounded cursor-pointer shrink-0"
+                      className="w-4 h-4 accent-green-700 bg-white border-2 border-zinc-500 rounded shrink-0 pointer-events-none"
                     />
-                    <label htmlFor="fiar-check-print-retro" className="text-[10px] font-black text-black cursor-pointer uppercase tracking-normal select-none flex items-center gap-1">
+                    <label htmlFor="fiar-check-print-retro" className="text-[10px] font-black text-black uppercase tracking-normal select-none flex items-center gap-1 pointer-events-none">
                       <Printer className="w-3.5 h-3.5 text-zinc-650" /> Imprimir ticket
                     </label>
                   </div>
-
+ 
                   {config.whatsappMode && config.whatsappMode !== 'disabled' && (
                     <div 
                       title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
-                      onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : undefined}
-                      className={`flex items-center gap-2 select-none transition-all ${
+                      onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : toggleFiarWhatsapp}
+                      className={`flex items-center gap-2 select-none transition-all cursor-pointer ${
                         isWaIntegratedOffline 
-                          ? 'opacity-35 grayscale cursor-pointer' 
-                          : 'hover:opacity-90 active:scale-98 cursor-pointer'
+                          ? 'opacity-35 grayscale' 
+                          : 'hover:opacity-90 active:scale-98'
                       }`}
                     >
                       <input 
@@ -2440,46 +2735,63 @@ export default function PosRetro({ logic }: Props) {
                 </div>
                 {fiarExistingAccount && (
                   <div className="bg-amber-50 border-2 border-amber-400 p-3 space-y-2">
-                    <p className="text-xs font-black text-amber-800">⚠️ {fiarExistingAccount.matchType === 'phone' ? 'Teléfono ya registrado' : 'Nombre similar detectado'}</p>
-                    {fiarExistingAccount.matchType === 'phone' ? (
-                      <p className="text-[10px] text-amber-700">Ya existe una cuenta con ese teléfono a nombre de <strong>{fiarExistingAccount.clientName}</strong> (saldo: <strong>{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>). ¿Agregar a esa cuenta?</p>
-                    ) : (
-                      <p className="text-[10px] text-amber-700">Se encontró una cuenta llamada <strong>{fiarExistingAccount.clientName}</strong> ({fiarExistingAccount.clientPhone}) con saldo <strong>{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. ¿Es la misma persona o alguien diferente?</p>
-                    )}
-                    <div className="flex flex-col gap-1.5">
-                      <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} className="w-full py-1.5 bg-orange-500 text-white font-black text-[10px] uppercase cursor-pointer border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700">
-                        Agregar a cuenta de {fiarExistingAccount.clientName} ({fiarExistingAccount.clientPhone})
-                      </button>
-                      {fiarExistingAccount.matchType === 'name-only' && (
-                        <button onClick={() => { executeFiar(true, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp }); }} className="w-full py-1.5 bg-blue-700 text-white font-black text-[10px] uppercase cursor-pointer border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700">
-                          Crear nueva cuenta para {fiarClientName.trim().toUpperCase()} ({fiarClientPhone.trim()})
-                        </button>
-                      )}
-                      <button onClick={() => setFiarExistingAccount(null)} className="w-full py-1.5 bg-zinc-200 text-zinc-700 font-black text-[10px] uppercase cursor-pointer border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400">
-                        Cancelar
-                      </button>
+                    <p className="text-xs font-black text-amber-800">⚠️ {fiarExistingAccount.matchType === 'phone' ? 'Teléfono ya registrado' : 'Cuenta existente detectada'}</p>
+                    <p className="text-[11px] text-amber-900 leading-tight">
+                      Ya existe una cuenta activa con ese teléfono a nombre de <strong>{fiarExistingAccount.clientName}</strong>. El nuevo cargo se agregará a esta cuenta.
+                    </p>
+                    <div className="bg-white/80 border border-amber-300 p-2 text-[10px] space-y-1 font-mono">
+                      <div className="flex justify-between text-zinc-600">
+                        <span>Saldo anterior:</span>
+                        <span>{config.currencySymbol || '$'}{fiarExistingAccount.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between text-orange-700 font-bold">
+                        <span>Nuevo cargo:</span>
+                        <span>+{config.currencySymbol || '$'}{(basketTotal - (Number(fiarInitialPayment) || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between text-black font-black border-t border-amber-300 pt-1">
+                        <span>Nuevo saldo total:</span>
+                        <span>{config.currencySymbol || '$'}{(fiarExistingAccount.balance + basketTotal - (Number(fiarInitialPayment) || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
                     </div>
                   </div>
                 )}
-              <div className="flex gap-2 pt-1">
-                  <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} disabled={!fiarClientName.trim() || !fiarClientPhone.trim() || !fiarCreditLimit.trim()}
-                    title="Confirmar y registrar el fiado para el cliente"
-                    className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700">
-                    Confirmar fiado
-                  </button>
-                  <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); setShowSaleConfirm(true); }}
-                    title="Cancelar y volver a la pantalla de cobro"
-                    className="px-4 py-2 bg-zinc-200 text-zinc-700 font-black text-xs uppercase cursor-pointer border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400">
-                    Cancelar
-                  </button>
+                <div className="flex gap-2 pt-1">
+                  {fiarExistingAccount ? (
+                    <>
+                      <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })}
+                        title="Agregar este cargo a la cuenta existente del cliente"
+                        className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase cursor-pointer border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700">
+                        Agregar a cuenta ({fiarExistingAccount.clientName})
+                      </button>
+                      <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); setShowSaleConfirm(true); }}
+                        title="Cancelar y volver a la pantalla de cobro"
+                        className="px-4 py-2 bg-zinc-200 text-zinc-700 font-black text-xs uppercase cursor-pointer border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400">
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => executeFiar(false, { printTicket: fiarPrint, sendWhatsApp: fiarWhatsapp })} disabled={!fiarClientName.trim() || !fiarClientPhone.trim() || (fiarHasLimit && !fiarCreditLimit.trim())}
+                        title="Confirmar y registrar el fiado para el cliente"
+                        className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700">
+                        Confirmar fiado
+                      </button>
+                      <button onClick={() => { setShowFiarModal(false); setFiarExistingAccount(null); setShowSaleConfirm(true); }}
+                        title="Cancelar y volver a la pantalla de cobro"
+                        className="px-4 py-2 bg-zinc-200 text-zinc-700 font-black text-xs uppercase cursor-pointer border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400">
+                        Cancelar
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Modal Apartar */}
-        {showApartarModal && (
+        {showApartarModal && createPortal(
           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60" onClick={() => { setShowApartarModal(false); setShowSaleConfirm(true); }}>
             <div className="w-full max-w-sm mx-4 bg-white border-2 border-zinc-400 shadow-2xl" onClick={e => e.stopPropagation()}>
               <div className="bg-[#000080] px-4 py-2.5 flex items-center justify-between"
@@ -2534,15 +2846,18 @@ export default function PosRetro({ logic }: Props) {
                     className="w-full mt-1 bg-white border-2 border-zinc-400 text-zinc-900 px-3 py-1.5 text-sm font-bold outline-none focus:border-[#000080]" />
                 </div>
                 <div className="flex flex-col gap-2 pt-1.5 border-t border-dashed border-zinc-350">
-                  <div className="flex items-center gap-2 select-none hover:opacity-90 active:scale-98 transition-all">
+                  <div 
+                    onClick={toggleApartarPrint}
+                    className="flex items-center gap-2 select-none hover:opacity-90 active:scale-98 transition-all cursor-pointer"
+                  >
                     <input 
                       type="checkbox" 
                       id="apartar-check-print-retro"
                       checked={apartarPrint}
                       onChange={toggleApartarPrint}
-                      className="w-4 h-4 accent-green-700 bg-white border-2 border-zinc-500 rounded cursor-pointer shrink-0"
+                      className="w-4 h-4 accent-green-700 bg-white border-2 border-zinc-500 rounded shrink-0 pointer-events-none"
                     />
-                    <label htmlFor="apartar-check-print-retro" className="text-[10px] font-black text-black cursor-pointer uppercase tracking-normal select-none flex items-center gap-1">
+                    <label htmlFor="apartar-check-print-retro" className="text-[10px] font-black text-black uppercase tracking-normal select-none flex items-center gap-1 pointer-events-none">
                       <Printer className="w-3.5 h-3.5 text-zinc-650" /> Imprimir ticket
                     </label>
                   </div>
@@ -2550,11 +2865,11 @@ export default function PosRetro({ logic }: Props) {
                   {config.whatsappMode && config.whatsappMode !== 'disabled' && (
                     <div 
                       title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
-                      onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : undefined}
-                      className={`flex items-center gap-2 select-none transition-all ${
+                      onClick={isWaIntegratedOffline ? () => triggerToast?.('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.', 'warning') : toggleApartarWhatsapp}
+                      className={`flex items-center gap-2 select-none transition-all cursor-pointer ${
                         isWaIntegratedOffline 
-                          ? 'opacity-35 grayscale cursor-pointer' 
-                          : 'hover:opacity-90 active:scale-98 cursor-pointer'
+                          ? 'opacity-35 grayscale' 
+                          : 'hover:opacity-90 active:scale-98'
                       }`}
                     >
                       <input 
@@ -2583,7 +2898,8 @@ export default function PosRetro({ logic }: Props) {
                 </div>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Change Due Modal */}
@@ -2995,6 +3311,71 @@ export default function PosRetro({ logic }: Props) {
                 </button>
               </div>
 
+              {/* Buscador y Categorías dentro del Modal (Estilo Win95) */}
+              <div className="p-3.5 bg-[#dfdfdf] border-b-2 border-zinc-400 space-y-3 shrink-0 text-black">
+                {/* Buscador */}
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-650 text-xs">🔍</span>
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Buscar por nombre, código SKU o categoría..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setModalCurrentPage(1);
+                      setModalSelectedIndex(0);
+                    }}
+                    className="w-full pl-9 pr-9 py-1.5 bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-xs font-mono font-bold text-black focus:outline-none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setModalCurrentPage(1);
+                        setModalSelectedIndex(0);
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[#808080] hover:text-black font-black text-xs cursor-pointer select-none"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Categorías (Pills Estilo Win95) */}
+                <div className="flex flex-wrap items-center gap-1.5 pb-1 select-none max-h-[85px] overflow-y-auto border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white bg-zinc-100 p-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setModalCategoryFilter('TODAS')}
+                    className={`px-2.5 py-1 text-[10px] font-black tracking-wide uppercase transition-all shrink-0 cursor-pointer border-2 ${
+                      modalCategoryFilter === 'TODAS'
+                        ? 'bg-[#000080] text-white border-zinc-700 shadow-[inset_1.5px_1.5px_2px_rgba(0,0,0,0.5)]'
+                        : 'bg-[#dfdfdf] text-zinc-950 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 hover:bg-[#cbd6e2]'
+                    }`}
+                  >
+                    🌟 TODAS ({modalActiveInventory.length})
+                  </button>
+                  {modalCategoriesList.map(cat => {
+                    const count = modalActiveInventory.filter(p => (p.category || '').trim().toUpperCase() === cat).length;
+                    return (
+                      <button
+                        type="button"
+                        key={cat}
+                        onClick={() => setModalCategoryFilter(cat)}
+                        className={`px-2.5 py-1 text-[10px] font-black tracking-wide uppercase transition-all shrink-0 cursor-pointer border-2 ${
+                          modalCategoryFilter === cat
+                            ? 'bg-[#000080] text-white border-zinc-700 shadow-[inset_1.5px_1.5px_2px_rgba(0,0,0,0.5)]'
+                            : 'bg-[#dfdfdf] text-zinc-950 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 hover:bg-[#cbd6e2]'
+                        }`}
+                      >
+                        {cat} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Body */}
               {paginatedModalItems.length > 0 ? (
                 <div className="p-4 space-y-4">
@@ -3056,13 +3437,19 @@ export default function PosRetro({ logic }: Props) {
                               <td className={`px-4 py-1.5 text-center ${
                                 isSelected ? 'bg-[#000080]' : ''
                               }`}>
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
-                                  isSelected 
-                                    ? 'bg-white/25 text-white' 
-                                    : product.manageStock === false ? 'bg-indigo-50 border border-indigo-200 text-indigo-800' : product.stock > 5 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
-                                }`}>
-                                  {product.manageStock === false ? '∞' : `${product.stock} disp`}
-                                </span>
+                                {(() => {
+                                  const isStockControlled = product.manageStock !== false;
+                                  const currentStock = getItemStock(product);
+                                  return (
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                                      isSelected 
+                                        ? 'bg-white/25 text-white' 
+                                        : !isStockControlled ? 'bg-indigo-50 border border-indigo-200 text-indigo-800' : currentStock > 5 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                    }`}>
+                                      {!isStockControlled ? '∞' : `${currentStock} disp`}
+                                    </span>
+                                  );
+                                })()}
                               </td>
                             </tr>
                           );

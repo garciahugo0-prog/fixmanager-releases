@@ -1,0 +1,55 @@
+diff --git a/src/components/OrdenesView.tsx b/src/components/OrdenesView.tsx
+index e5e1890..7a9dd70 100755
+--- a/src/components/OrdenesView.tsx
++++ b/src/components/OrdenesView.tsx
+@@ -3787,7 +3787,7 @@ ${isMediaCartaDuplicado ? `
+                   }>
+                     <th className="p-3 pl-4">Ticket</th>
+                     <th className="p-3">Cliente / Cel</th>
+-                    <th className="p-3">Dispositivo / Falla</th>
++                    <th className="p-3">Dispositivo / Servicio</th>
+                     {!selectedOrderIdLocal && (
+                       <>
+                         <th className="p-3 text-center">Acceso</th>
+@@ -3947,7 +3947,7 @@ ${isMediaCartaDuplicado ? `
+                             );
+                           })()}
+                         </td>
+-                        {/* Columna DISPOSITIVO / FALLA — lista comprimida */}
++                        {/* Columna DISPOSITIVO / SERVICIO — lista comprimida */}
+                         <td className={`px-3 py-2.5 ${allDelivered ? 'opacity-40' : ''}`}>
+                           <div className="flex flex-col gap-1">
+                             {batchOrders.slice(0, 3).map(o => (
+@@ -3958,8 +3958,8 @@ ${isMediaCartaDuplicado ? `
+                                     {o.deviceBrand} {o.deviceModel}
+                                   </span>
+                                 </div>
+-                                <p className={`text-[8.5px] pl-3 truncate max-w-[165px] ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`} title={cleanFault(o.faultDescription || '')}>
+-                                  {cleanFault(o.faultDescription || 'Sin reporte de falla')}
++                                <p className={`text-[8.5px] pl-3 truncate max-w-[165px] ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`} title={o.serviceType || 'Sin servicio'}>
++                                  {o.serviceType || 'Sin servicio'}
+                                 </p>
+                               </div>
+                             ))}
+@@ -4221,8 +4221,8 @@ ${isMediaCartaDuplicado ? `
+                           isCancelledOrFailed
+                             ? 'text-zinc-500 line-through'
+                             : (isLight) ? 'text-zinc-800' : 'text-gray-400'
+-                        }`} title={cleanFault(order.faultDescription)}>
+-                          {cleanFault(order.faultDescription)}
++                        }`} title={order.serviceType || 'Sin servicio asignado'}>
++                          {order.serviceType || 'Sin servicio asignado'}
+                         </p>
+                       </td>
+ 
+@@ -4990,8 +4990,8 @@ ${isMediaCartaDuplicado ? `
+                               <p className={`text-xs font-black truncate leading-snug ${isOrderDelivered ? 'line-through text-zinc-400' : isLight ? 'text-zinc-800' : 'text-zinc-200'}`}>
+                                 {order.deviceBrand} {order.deviceModel}
+                               </p>
+-                              <p className={`text-[10.5px] truncate mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
+-                                {order.faultDescription || 'Sin falla reportada'}
++                              <p className={`text-[10.5px] truncate mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`} title={order.serviceType || 'Sin servicio asignado'}>
++                                {order.serviceType || 'Sin servicio asignado'}
+                               </p>
+                             </div>
+                             

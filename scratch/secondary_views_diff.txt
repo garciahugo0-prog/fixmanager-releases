@@ -1,0 +1,807 @@
+diff --git a/src/components/SecondaryViews.tsx b/src/components/SecondaryViews.tsx
+index eff6a46..54856e7 100755
+--- a/src/components/SecondaryViews.tsx
++++ b/src/components/SecondaryViews.tsx
+@@ -25,6 +25,7 @@ import { handleCaretPreservingChange } from '../utils/domHelpers';
+ import { supabase } from '../supabase';
+ import * as XLSX from 'xlsx';
+ import { runSyncAudit, repairSyncIssues } from '../utils/syncAudit';
++import { taecelGetBalance } from '../utils/taecel';
+ 
+ const formatDateToDMY = (dateStr: string | undefined | null): string => {
+   if (!dateStr) return '';
+@@ -1473,10 +1474,12 @@ interface VentasViewProps {
+   setSelectedOrderId?: (id: string) => void;
+   setActiveTab?: (tab: ActiveTab) => void;
+   onCancelSale?: (saleId: string) => void;
++  onPartialRefundSale?: (saleId: string, refunds: { itemIndex: number; quantity: number }[]) => void;
+   currentUser?: AppUser | null;
+   chipActivations?: ChipActivation[];
+   onUpdateChipActivation?: (updated: ChipActivation) => void;
+   onDeleteChipActivation?: (activationId: string) => void;
++  users?: AppUser[];
+ }
+ export function VentasView({
+   sales,
+@@ -1484,10 +1487,12 @@ export function VentasView({
+   setSelectedOrderId,
+   setActiveTab,
+   onCancelSale,
++  onPartialRefundSale,
+   currentUser,
+   chipActivations = [],
+   onUpdateChipActivation,
+-  onDeleteChipActivation
++  onDeleteChipActivation,
++  users = []
+ }: VentasViewProps) {
+   const [searchTerm, setSearchTerm] = useState('');
+ 
+@@ -1519,6 +1524,12 @@ export function VentasView({
+   const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
++  const [cancelSalePin, setCancelSalePin] = useState('');
++  const [cancelSalePinError, setCancelSalePinError] = useState('');
++  const [refundingItemIndex, setRefundingItemIndex] = useState<number | null>(null);
++  const [refundQty, setRefundQty] = useState<number>(1);
++  const [refundPin, setRefundPin] = useState<string>('');
++  const [refundPinError, setRefundPinError] = useState<string>('');
+   const [showPrintConfirm, setShowPrintConfirm] = useState(false);
+   const [saleToReprint, setSaleToReprint] = useState<Sale | null>(null);
+   const [previewSaleForModal, setPreviewSaleForModal] = useState<Sale | null>(null);
+@@ -2144,9 +2155,12 @@ export function VentasView({
+                   </tr>
+                 ) : (
+                   filteredSales.map((sale) => (
+-                    <tr key={sale.id} className={`${
+-                      sale.isCancelled ? 'opacity-55' : (isLight ? 'hover:bg-zinc-50' : 'hover:bg-[#121316]/50')
+-                    } transition-all`}>
++                    <tr key={sale.id}
++                      onClick={() => setSelectedSale(sale)}
++                      className={`cursor-pointer transition-all ${
++                        sale.isCancelled ? 'opacity-55' : (isLight ? 'hover:bg-zinc-50' : 'hover:bg-[#121316]/50')
++                      }`}
++                    >
+                       <td className="p-3 pl-4 font-mono font-bold">
+                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black border ${
+                           isLight 
+@@ -2785,6 +2799,9 @@ export function VentasView({
+                         <th className="p-3 text-center" style={isRetro ? (isLight ? { color: '#031124', backgroundColor: '#cbd6e2' } : { color: '#ffffff', backgroundColor: '#1a1c23' }) : undefined}>Cant.</th>
+                         <th className="p-3 text-right" style={isRetro ? (isLight ? { color: '#031124', backgroundColor: '#cbd6e2' } : { color: '#ffffff', backgroundColor: '#1a1c23' }) : undefined}>Unitario</th>
+                         <th className="p-3 text-right" style={isRetro ? (isLight ? { color: '#031124', backgroundColor: '#cbd6e2' } : { color: '#ffffff', backgroundColor: '#1a1c23' }) : undefined}>Subtotal</th>
++                        {onPartialRefundSale && !currentSaleState.isCancelled && (
++                          <th className="p-3 text-center" style={isRetro ? (isLight ? { color: '#031124', backgroundColor: '#cbd6e2' } : { color: '#ffffff', backgroundColor: '#1a1c23' }) : undefined}>Acción</th>
++                        )}
+                       </tr>
+                     </thead>
+                     <tbody className={`divide-y ${
+@@ -2822,6 +2839,26 @@ export function VentasView({
+                                   ? 'text-emerald-700 font-extrabold' 
+                                   : 'text-emerald-400'
+                           }`} style={isRetro && !currentSaleState.isCancelled ? { color: '#000080' } : undefined}>{config.currencySymbol}{(it.price * it.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
++                          {onPartialRefundSale && !currentSaleState.isCancelled && (
++                            <td className="p-3 text-center">
++                              <button
++                                type="button"
++                                onClick={() => {
++                                  setRefundingItemIndex(idx);
++                                  setRefundQty(1);
++                                  setRefundPin('');
++                                  setRefundPinError('');
++                                }}
++                                className={`px-2 py-1 text-[9px] font-black uppercase rounded transition-all active:scale-95 cursor-pointer border ${
++                                  isRetro
++                                    ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-red-700 font-bold'
++                                    : 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500 hover:text-white'
++                                }`}
++                              >
++                                Devolver
++                              </button>
++                            </td>
++                          )}
+                         </tr>
+                       ))}
+                     </tbody>
+@@ -2926,44 +2963,79 @@ export function VentasView({
+                       ? 'bg-red-50/70 border-red-200 text-zinc-900 shadow-sm'
+                       : 'bg-red-950/25 border-red-900/40 text-red-200'
+                 }`}>
+-                  <div className="space-y-1">
+-                    <span className={`text-[10px] font-black uppercase block tracking-wide ${
+-                      isLight ? 'text-red-700' : 'text-red-450'
+-                    }`}>¿Confirmar Cancelación?</span>
+-                    <span className={`text-[9.5px] block font-sans leading-tight ${
+-                      isLight ? 'text-zinc-500 font-medium' : 'text-red-200/90'
+-                    }`}>Los artículos se reintegrarán instantáneamente al stock del taller en tiempo real.</span>
+-                  </div>
+-                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
+-                    <button
+-                      type="button"
+-                      onClick={() => setShowCancelConfirm(false)}
+-                      className={
+-                        isRetro
+-                          ? 'px-3 py-1.5 text-xs font-bold uppercase border-2 border-t-white border-l-white border-b-zinc-700 border-[#808080] bg-[#dfdfdf] hover:bg-zinc-200 text-zinc-900 cursor-pointer select-none active:scale-95'
+-                          : isLight
+-                            ? 'px-4 py-2 text-xs font-semibold rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700 cursor-pointer select-none active:scale-95'
+-                            : 'px-4 py-2 text-[10.5px] font-bold rounded-lg transition-all cursor-pointer select-none bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 active:scale-95'
+-                      }
+-                    >
+-                      Regresar
+-                    </button>
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        if (onCancelSale) {
+-                          onCancelSale(currentSaleState.id);
++                  <div className="flex flex-col gap-2 w-full">
++                    <div className="space-y-1">
++                      <span className={`text-[10px] font-black uppercase block tracking-wide ${
++                        isLight ? 'text-red-700' : 'text-red-450'
++                      }`}>¿Confirmar Cancelación con PIN?</span>
++                      <span className={`text-[9.5px] block font-sans leading-tight ${
++                        isLight ? 'text-zinc-500 font-medium' : 'text-red-200/90'
++                      }`}>Se reintegrarán los artículos al stock. Requiere PIN de Administrador obligatorio:</span>
++                    </div>
++                    <div className="flex items-center gap-2 flex-wrap">
++                      <input
++                        type="password"
++                        placeholder="PIN Administrador"
++                        maxLength={6}
++                        value={cancelSalePin}
++                        onChange={e => {
++                          setCancelSalePin(e.target.value);
++                          setCancelSalePinError('');
++                        }}
++                        className={`w-36 text-xs px-2 py-1 border rounded ${
++                          isRetro
++                            ? 'border-zinc-400 bg-white text-zinc-900'
++                            : isLight
++                              ? 'border-zinc-200 bg-zinc-50 text-zinc-800'
++                              : 'border-zinc-700 bg-zinc-800 text-zinc-150'
++                        }`}
++                      />
++                      <button
++                        type="button"
++                        onClick={() => {
++                          setShowCancelConfirm(false);
++                          setCancelSalePin('');
++                          setCancelSalePinError('');
++                        }}
++                        className={
++                          isRetro
++                            ? 'px-3 py-1 text-xs font-bold uppercase border-2 border-t-white border-l-white border-b-zinc-700 border-[#808080] bg-[#dfdfdf] hover:bg-zinc-200 text-zinc-900 cursor-pointer select-none active:scale-95'
++                            : isLight
++                              ? 'px-3 py-1 text-xs font-semibold rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700 cursor-pointer select-none active:scale-95'
++                              : 'px-3 py-1 text-[10.5px] font-bold rounded-lg transition-all cursor-pointer select-none bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 active:scale-95'
+                         }
+-                        setShowCancelConfirm(false);
+-                      }}
+-                      className={
+-                        isRetro
+-                          ? 'px-3 py-1.5 text-xs font-bold uppercase border-2 border-t-white border-l-white border-b-red-900 border-[#808080] bg-red-600 hover:bg-red-700 text-white cursor-pointer select-none active:scale-95'
+-                          : 'px-4 py-2 text-[10.5px] font-black uppercase text-white bg-red-650 hover:bg-red-600 border border-red-500/30 rounded-lg transition-all cursor-pointer select-none active:scale-95 shadow-md shadow-red-950/50'
+-                      }
+-                    >
+-                      Sí, Cancelar Venta
+-                    </button>
++                      >
++                        Regresar
++                      </button>
++                      <button
++                        type="button"
++                        disabled={!cancelSalePin}
++                        onClick={() => {
++                          const admins = users.filter(u => u.role === 'admin');
++                          const ok = admins.some(u => u.pin === cancelSalePin);
++                          if (!ok) {
++                            setCancelSalePinError('PIN de Administrador incorrecto.');
++                            return;
++                          }
++                          if (onCancelSale) {
++                            onCancelSale(currentSaleState.id);
++                          }
++                          setShowCancelConfirm(false);
++                          setCancelSalePin('');
++                          setCancelSalePinError('');
++                        }}
++                        className={
++                          isRetro
++                            ? 'px-3 py-1 text-xs font-bold uppercase border-2 border-t-white border-l-white border-b-red-900 border-[#808080] bg-red-600 hover:bg-red-700 text-white cursor-pointer select-none active:scale-95 disabled:opacity-50'
++                            : 'px-3 py-1 text-[10.5px] font-black uppercase text-white bg-red-650 hover:bg-red-600 border border-red-500/30 rounded-lg transition-all cursor-pointer select-none active:scale-95 shadow-md shadow-red-950/50 disabled:opacity-50'
++                        }
++                      >
++                        Sí, Cancelar Venta
++                      </button>
++                    </div>
++                    {cancelSalePinError && (
++                      <p className="text-[10px] text-rose-500 font-bold mt-1">{cancelSalePinError}</p>
++                    )}
+                   </div>
+                 </div>
+               ) : (
+@@ -3070,6 +3142,143 @@ export function VentasView({
+         </div>
+       )}
+ 
++      {/* OVERLAY: AUTORIZACIÓN PIN ADMINISTRADOR PARA DEVOLUCIÓN DE ARTÍCULO */}
++      {refundingItemIndex !== null && currentSaleState && (
++        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setRefundingItemIndex(null)}>
++          <div className={`max-w-xs w-full overflow-hidden shadow-2xl animate-scale-up ${
++              isRetro
++                ? 'bg-[#dfdfdf] border-2 border-zinc-400 text-black'
++                : isLight
++                  ? 'bg-white border border-zinc-200 rounded-xl text-zinc-900'
++                  : 'bg-zinc-900 border border-zinc-700 rounded-xl text-white'
++            }`} onClick={e => e.stopPropagation()}>
++            <div className={`px-4 py-3 flex items-center justify-between border-b ${isRetro ? 'border-zinc-400 bg-zinc-300' : isLight ? 'border-zinc-200 bg-zinc-50' : 'border-zinc-800 bg-zinc-950/60'}`}>
++              <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
++                ↩️ Devolución Parcial
++              </span>
++              <button
++                type="button"
++                onClick={() => setRefundingItemIndex(null)}
++                className="text-zinc-400 hover:text-zinc-200 text-sm font-black cursor-pointer"
++              >
++                ✕
++              </button>
++            </div>
++            <div className="p-4 space-y-3.5">
++              <div className={`rounded-lg p-2.5 border space-y-1.5 ${isRetro ? 'bg-amber-50 border-amber-300' : isLight ? 'bg-amber-50 border-amber-200' : 'bg-amber-950/20 border-amber-800/30'}`}>
++                <p className="text-[10px] font-black uppercase text-amber-500">⚠️ Devolución de Artículo</p>
++                <p className={`text-[10.5px] font-black leading-tight ${isLight ? 'text-zinc-850' : 'text-zinc-200'}`}>
++                  {currentSaleState.items[refundingItemIndex].name}
++                </p>
++                <div className="flex justify-between text-[10px] text-zinc-500">
++                  <span>Precio unitario:</span>
++                  <span className="font-bold">{config.currencySymbol}{currentSaleState.items[refundingItemIndex].price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
++                </div>
++              </div>
++
++              {/* Selector de cantidad (si la cantidad original es > 1) */}
++              {currentSaleState.items[refundingItemIndex].quantity > 1 && (
++                <div>
++                  <label className="text-[9px] font-black uppercase text-zinc-400 block mb-1">Cantidad a devolver</label>
++                  <div className="flex items-center gap-2">
++                    <button
++                      type="button"
++                      onClick={() => setRefundQty(prev => Math.max(1, prev - 1))}
++                      className={`w-7 h-7 flex items-center justify-center border font-bold text-xs rounded cursor-pointer ${isRetro ? 'bg-[#dfdfdf] border-zinc-400' : 'bg-zinc-800 border-zinc-700 text-white'}`}
++                    >
++                      -
++                    </button>
++                    <input
++                      type="number"
++                      min={1}
++                      max={currentSaleState.items[refundingItemIndex].quantity}
++                      value={refundQty}
++                      onChange={e => setRefundQty(Math.min(currentSaleState.items[refundingItemIndex].quantity, Math.max(1, parseInt(e.target.value) || 1)))}
++                      className={`w-14 text-center font-mono font-bold text-xs py-1 border rounded ${isRetro ? 'border-zinc-400 bg-white text-zinc-900' : 'border-zinc-700 bg-zinc-800 text-white'}`}
++                    />
++                    <button
++                      type="button"
++                      onClick={() => setRefundQty(prev => Math.min(currentSaleState.items[refundingItemIndex].quantity, prev + 1))}
++                      className={`w-7 h-7 flex items-center justify-center border font-bold text-xs rounded cursor-pointer ${isRetro ? 'bg-[#dfdfdf] border-zinc-400' : 'bg-zinc-800 border-zinc-700 text-white'}`}
++                    >
++                      +
++                    </button>
++                    <span className="text-[10px] text-zinc-500 font-bold ml-1">
++                      (Máx: {currentSaleState.items[refundingItemIndex].quantity} pz)
++                    </span>
++                  </div>
++                </div>
++              )}
++
++              <div>
++                <label className="text-[9px] font-black uppercase text-zinc-400 block">PIN de Autorización (Admin)</label>
++                <input
++                  autoFocus
++                  type="password"
++                  placeholder="••••"
++                  maxLength={6}
++                  value={refundPin}
++                  onChange={e => {
++                    setRefundPin(e.target.value);
++                    setRefundPinError('');
++                  }}
++                  onKeyDown={e => {
++                    if (e.key === 'Enter' && refundPin) {
++                      const admins = users.filter(u => u.role === 'admin');
++                      const ok = admins.some(u => u.pin === refundPin);
++                      if (ok) {
++                        if (onPartialRefundSale) {
++                          onPartialRefundSale(currentSaleState.id, [{ itemIndex: refundingItemIndex, quantity: refundQty }]);
++                        }
++                        setRefundingItemIndex(null);
++                        setRefundPin('');
++                        setRefundPinError('');
++                      } else {
++                        setRefundPinError('PIN incorrecto. Intente de nuevo.');
++                      }
++                    }
++                  }}
++                  className={`w-full text-center tracking-widest text-lg py-1 border rounded mt-1 ${isRetro ? 'border-zinc-400 bg-white text-zinc-900' : isLight ? 'border-zinc-200 bg-zinc-50 text-zinc-800' : 'border-zinc-700 bg-zinc-800 text-zinc-150'}`}
++                />
++                {refundPinError && (
++                  <p className="text-[10px] text-rose-500 font-bold mt-1">{refundPinError}</p>
++                )}
++              </div>
++              <div className="flex gap-2 pt-1">
++                <button
++                  type="button"
++                  disabled={!refundPin}
++                  onClick={() => {
++                    const admins = users.filter(u => u.role === 'admin');
++                    const ok = admins.some(u => u.pin === refundPin);
++                    if (ok) {
++                      if (onPartialRefundSale) {
++                        onPartialRefundSale(currentSaleState.id, [{ itemIndex: refundingItemIndex, quantity: refundQty }]);
++                      }
++                      setRefundingItemIndex(null);
++                      setRefundPin('');
++                      setRefundPinError('');
++                    } else {
++                      setRefundPinError('PIN incorrecto. Intente de nuevo.');
++                    }
++                  }}
++                  className={`flex-1 py-2 font-black text-xs uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${isRetro ? 'bg-cyan-600 text-white border-2 border-cyan-400' : 'bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg'}`}
++                >
++                  Confirmar Devolución
++                </button>
++                <button
++                  type="button"
++                  onClick={() => setRefundingItemIndex(null)}
++                  className={`px-4 py-2 font-black text-xs uppercase cursor-pointer ${isRetro ? 'bg-zinc-200 text-zinc-700 border-2 border-zinc-400' : isLight ? 'bg-zinc-100 text-zinc-655 rounded-lg' : 'bg-zinc-800 text-zinc-300 rounded-lg'}`}
++                >
++                  Cancelar
++                </button>
++              </div>
++            </div>
++          </div>
++        </div>
++      )}
++
+       {/* MODAL: CONFIRMACIÓN DE RE-IMPRESIÓN INDUSTRIAL */}
+       {showPrintConfirm && saleToReprint && (() => {
+         const ticketPrinterBrand = config.printerInterface === 'Default' ? 'Xprinter XP-N160I (USB PNP)' : (config.printerInterface === 'Ethernet' ? `Impresora de red LAN (${config.printerIpAddress || '192.168.1.100'})` : `Impresora Térmica ${config.printerInterface || 'USB'}`);
+@@ -9072,17 +9281,28 @@ export function TaecelConfigTab({ config, onUpdateConfig, isRetro, isLight }: Ta
+   const [apiKey, setApiKey] = useState(config.taecelApiKey || '');
+   const [nip, setNip] = useState(config.taecelNip || '');
+   const [sandboxMode, setSandboxMode] = useState(config.taecelSandboxMode !== false);
+-  const [comisionRecarga, setComisionRecarga] = useState(config.taecelComisionRecarga !== undefined ? config.taecelComisionRecarga : 3.00);
++  const [cobrarComisionRecarga, setCobrarComisionRecarga] = useState(config.taecelComisionRecarga !== 0);
++  const [comisionRecarga, setComisionRecarga] = useState(() => {
++    if (config.taecelComisionRecarga === 0) return 3.00;
++    return config.taecelComisionRecarga !== undefined ? config.taecelComisionRecarga : 3.00;
++  });
+   const [comisionServicio, setComisionServicio] = useState(config.taecelComisionServicio !== undefined ? config.taecelComisionServicio : 10.00);
+   const [feedback, setFeedback] = useState<string | null>(null);
+ 
++  // Estados del asistente interactivo de registro / solicitud API
++  const [showAssistant, setShowAssistant] = useState(false);
++
++  // Estados de verificación de conexión en tiempo real
++  const [isVerifying, setIsVerifying] = useState(false);
++  const [verificationResult, setVerificationResult] = useState<{ success: boolean; message: string; balance?: number } | null>(null);
++
+   const handleSave = () => {
+     onUpdateConfig({
+       ...config,
+       taecelApiKey: apiKey.trim(),
+       taecelNip: nip.trim(),
+-      taecelSandboxMode: sandboxMode,
+-      taecelComisionRecarga: Number(comisionRecarga),
++      taecelSandboxMode: false,
++      taecelComisionRecarga: cobrarComisionRecarga ? Number(comisionRecarga) : 0,
+       taecelComisionServicio: Number(comisionServicio),
+       taecelEnabled: taecelEnabled
+     });
+@@ -9090,6 +9310,45 @@ export function TaecelConfigTab({ config, onUpdateConfig, isRetro, isLight }: Ta
+     setTimeout(() => setFeedback(null), 3000);
+   };
+ 
++
++
++  const handleVerifyConnection = async () => {
++    if (!apiKey.trim() || !nip.trim()) {
++      setVerificationResult({ success: false, message: 'Ingresa primero tu Usuario y Contraseña/NIP para verificar.' });
++      return;
++    }
++    setIsVerifying(true);
++    setVerificationResult(null);
++    try {
++      const tempConfig = {
++        ...config,
++        taecelApiKey: apiKey.trim(),
++        taecelNip: nip.trim(),
++        taecelSandboxMode: false // Forzamos conexión real para verificar credenciales de producción
++      };
++      const res = await taecelGetBalance(tempConfig);
++      if (res.success) {
++        setVerificationResult({
++          success: true,
++          message: `¡Conexión establecida con éxito en producción! Saldo disponible: ${config.currencySymbol || '$'}${res.balance?.toFixed(2)} MXN`,
++          balance: res.balance
++        });
++      } else {
++        setVerificationResult({
++          success: false,
++          message: res.message || 'Error de autenticación o conexión con Taecel.'
++        });
++      }
++    } catch (err: any) {
++      setVerificationResult({
++        success: false,
++        message: err.message || 'Error de conexión con el servidor de Taecel.'
++      });
++    } finally {
++      setIsVerifying(false);
++    }
++  };
++
+   return (
+     <div className={`p-6 rounded border space-y-6 ${
+       isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-[#808080] border-r-[#808080]'
+@@ -9112,7 +9371,7 @@ export function TaecelConfigTab({ config, onUpdateConfig, isRetro, isLight }: Ta
+           <span className={`text-[10px] font-black uppercase tracking-wider block ${isLight ? 'text-zinc-850' : 'text-zinc-300'}`}>
+             Activar Módulo de Recargas y Servicios
+           </span>
+-          <span className="text-[9.5px] text-zinc-500 font-medium leading-normal block mt-0.5">
++          <span className="text-[9.5px] text-zinc-550 font-medium leading-normal block mt-0.5">
+             Habilita la venta de saldo telefónico, paquetes de datos y cobro de servicios en FixManager.
+           </span>
+         </div>
+@@ -9127,16 +9386,83 @@ export function TaecelConfigTab({ config, onUpdateConfig, isRetro, isLight }: Ta
+         </label>
+       </div>
+ 
++      {/* ASISTENTE INTERACTIVO DE REGISTRO / ALTA DE API */}
++      {taecelEnabled && (
++        <div className={`p-5 rounded-2xl border space-y-4 ${
++          isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-900'
++        }`}>
++          <div className="flex justify-between items-center cursor-pointer select-none" onClick={() => setShowAssistant(!showAssistant)}>
++            <div className="max-w-md">
++              <span className="text-xs font-black uppercase tracking-wider block text-amber-500 flex items-center gap-1">
++                🛠️ Asistente de Registro y Solicitud de API
++              </span>
++              <span className="text-[9.5px] text-zinc-500 font-semibold leading-normal block mt-0.5">
++                ¿No tienes tus accesos de Taecel? Sigue estos 3 simples pasos para activarlo en tu negocio.
++              </span>
++            </div>
++            <button type="button" className={`text-[10px] font-black uppercase px-2.5 py-1 rounded transition-colors ${
++              isLight ? 'bg-slate-200 text-slate-700 hover:bg-slate-350' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
++            }`}>
++              {showAssistant ? 'Ocultar ▲' : 'Comenzar ▼'}
++            </button>
++          </div>
++          
++          {showAssistant && (
++            <div className="pt-4 border-t dark:border-zinc-900 space-y-4 text-xs font-semibold leading-relaxed">
++              {/* Paso 1 */}
++              <div className="space-y-1">
++                <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-wider">Paso 1: Entrar o Registrarte en Taecel</h4>
++                <p className={isLight ? 'text-zinc-650' : 'text-zinc-300'}>
++                  Entra a <a href="https://taecel.com" target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline font-bold">Taecel.com</a> y sigue uno de estos caminos:
++                </p>
++                <ul className="list-disc pl-4 space-y-1.5 text-[11px] text-zinc-400 font-semibold leading-relaxed">
++                  <li><strong>Si ya tienes cuenta:</strong> Haz clic en el botón de <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase rounded bg-slate-200 text-slate-800 border border-slate-300 select-none">Iniciar sesión</span> en la barra superior derecha de la página.</li>
++                  <li><strong>Si eres nuevo:</strong> Haz clic en el botón rojo <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase rounded bg-rose-600 text-white border border-rose-700 select-none">Regístrate gratis</span> arriba a la derecha, o llena el formulario del panel derecho con tus datos y presiona el botón azul <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase rounded bg-blue-500 text-white border border-blue-600 select-none">REGÍSTRATE GRATIS</span>.</li>
++                </ul>
++              </div>
++              
++              {/* Paso 2 */}
++              <div className="space-y-1.5 border-t pt-3 dark:border-zinc-900">
++                <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-wider">Paso 2: Generar tus Llaves de API (KEY y NIP)</h4>
++                <p className={isLight ? 'text-zinc-650' : 'text-zinc-300'}>
++                  Una vez dentro de tu portal de Taecel, sigue estos pasos:
++                </p>
++                <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-zinc-400 font-semibold leading-relaxed">
++                  <li>En el menú superior negro, haz clic en la pestaña <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase rounded bg-zinc-800 text-zinc-200 border border-zinc-700 select-none">Administración ▾</span>.</li>
++                  <li>En la lista vertical que se despliega, haz clic en la opción de <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase rounded bg-zinc-800 text-zinc-200 border border-zinc-705 select-none">Configuración</span>.</li>
++                  <li>Esto te abrirá una nueva pantalla. En sus pestañas horizontales de arriba, haz clic en la opción <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase rounded bg-white text-zinc-800 border border-zinc-300 select-none">⚙️ Eleventa</span>.</li>
++                  <li>Haz clic en el botón azul de <span className="inline-flex items-center px-2 py-0.5 text-[9px] font-black uppercase rounded bg-blue-600 text-white border border-blue-700 select-none">Generar / Regenerar</span>.</li>
++                </ol>
++              </div>
++              
++              {/* Paso 3 */}
++              <div className="space-y-1.5 border-t pt-3 dark:border-zinc-900">
++                <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-wider">Paso 3: Copiar y Conectar en FixManager</h4>
++                <p className={isLight ? 'text-zinc-650' : 'text-zinc-300'}>
++                  Copia tus accesos de inmediato y conéctalos en FixManager:
++                </p>
++                <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-zinc-400 font-semibold leading-relaxed">
++                  <li>Haz clic en el enlace azul de la derecha <span className={`inline-flex items-center px-1.5 py-0.5 text-[8.5px] font-black uppercase rounded border select-none cursor-pointer ${isLight ? 'bg-sky-100 text-sky-800 border-sky-300' : 'bg-sky-950 text-sky-400 border-sky-850'}`}>Copiar KEY</span> y pégalo abajo en el campo <span className={`${isLight ? 'text-zinc-800' : 'text-zinc-200'} font-bold`}>Usuario / API Key</span> de FixManager.</li>
++                  <li>Haz clic en el enlace azul de la derecha <span className={`inline-flex items-center px-1.5 py-0.5 text-[8.5px] font-black uppercase rounded border select-none cursor-pointer ${isLight ? 'bg-sky-100 text-sky-800 border-sky-300' : 'bg-sky-950 text-sky-400 border-sky-850'}`}>Copiar NIP</span> y pégalo abajo en el campo <span className={`${isLight ? 'text-zinc-800' : 'text-zinc-200'} font-bold`}>Contraseña / NIP de API</span> de FixManager.</li>
++                  <li>Asegúrate de que en la sección <span className={`${isLight ? 'text-zinc-800' : 'text-zinc-200'} font-bold`}>Restricción por IP</span> de Taecel esté marcada la opción <span className={`inline-flex items-center px-1.5 py-0.5 text-[8.5px] font-black uppercase rounded border select-none ${isLight ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-950 text-emerald-400 border-emerald-900'}`}>Dinámico</span>.</li>
++                  <li>En FixManager, presiona el botón <span className="inline-flex items-center px-2.5 py-1 text-[9px] font-black uppercase rounded bg-amber-600 text-white border border-amber-700 select-none cursor-pointer">Probar Conexión con Taecel</span>.</li>
++                </ol>
++              </div>
++            </div>
++          )}
++        </div>
++      )}
++
+       {taecelEnabled && (
+         <>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+             <div className="flex flex-col gap-1.5">
+               <label className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>
+-                API Key de Taecel
++                Usuario / API Key
+               </label>
+               <input
+                 type="text"
+-                placeholder="Clave de la API (Key)"
++                placeholder="Ingresa tu Usuario o API Key"
+                 value={apiKey}
+                 onChange={(e) => setApiKey(e.target.value)}
+                 className={`px-3 py-2 text-xs font-mono rounded outline-none border transition-all ${
+@@ -9145,15 +9471,16 @@ export function TaecelConfigTab({ config, onUpdateConfig, isRetro, isLight }: Ta
+                     : 'bg-zinc-950 border-zinc-800 text-white focus:border-cyan-500'
+                 }`}
+               />
++              <span className="text-[9px] text-zinc-550 font-semibold leading-normal">El Usuario o API Key que recibiste en el correo de Taecel.</span>
+             </div>
+ 
+             <div className="flex flex-col gap-1.5">
+               <label className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>
+-                NIP de la API
++                Contraseña / NIP de API
+               </label>
+               <input
+                 type="password"
+-                placeholder="NIP del integrador"
++                placeholder="Ingresa tu Contraseña o NIP de API"
+                 value={nip}
+                 onChange={(e) => setNip(e.target.value)}
+                 className={`px-3 py-2 text-xs font-mono rounded outline-none border transition-all ${
+@@ -9162,25 +9489,48 @@ export function TaecelConfigTab({ config, onUpdateConfig, isRetro, isLight }: Ta
+                     : 'bg-zinc-950 border-zinc-800 text-white focus:border-cyan-500'
+                 }`}
+               />
++              <span className="text-[9px] text-zinc-550 font-semibold leading-normal">La Contraseña o NIP de la API correspondiente.</span>
+             </div>
+ 
+-            <div className="flex flex-col gap-1.5">
+-              <label className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>
+-                Comisión por Recarga ($ MXN)
+-              </label>
+-              <input
+-                type="number"
+-                step="0.50"
+-                placeholder="3.00"
+-                value={comisionRecarga}
+-                onChange={(e) => setComisionRecarga(e.target.value === '' ? '' : parseFloat(e.target.value))}
+-                className={`px-3 py-2 text-xs font-mono rounded outline-none border transition-all ${
+-                  isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black'
+-                    : isLight ? 'bg-white border-zinc-300 text-zinc-900 focus:border-blue-500'
+-                    : 'bg-zinc-950 border-zinc-800 text-white focus:border-cyan-500'
+-                }`}
+-              />
+-              <span className="text-[9px] text-zinc-500 font-medium">Cargo extra sugerido para recargas y paquetes.</span>
++            <div className="flex flex-col gap-1.5 justify-between">
++              <div className="flex items-center justify-between">
++                <label className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>
++                  Cobrar Comisión por Recarga
++                </label>
++                <label className="relative inline-flex items-center cursor-pointer select-none">
++                  <input
++                    type="checkbox"
++                    checked={cobrarComisionRecarga}
++                    onChange={(e) => setCobrarComisionRecarga(e.target.checked)}
++                    className="sr-only peer"
++                  />
++                  <div className="w-8 h-4 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
++                </label>
++              </div>
++              {cobrarComisionRecarga ? (
++                <>
++                  <input
++                    type="number"
++                    step="0.50"
++                    placeholder="3.00"
++                    value={comisionRecarga}
++                    onChange={(e) => setComisionRecarga(e.target.value === '' ? '' : parseFloat(e.target.value))}
++                    className={`px-3 py-2 text-xs font-mono rounded outline-none border transition-all ${
++                      isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black'
++                        : isLight ? 'bg-white border-zinc-300 text-zinc-900 focus:border-blue-500'
++                        : 'bg-zinc-950 border-zinc-800 text-white focus:border-cyan-500'
++                    }`}
++                  />
++                  <span className="text-[9px] text-zinc-500 font-semibold leading-normal">Cargo extra sugerido cobrado al cliente.</span>
++                </>
++              ) : (
++                <div className="flex flex-col gap-1">
++                  <div className={`px-3 py-2 text-xs font-semibold rounded border ${isLight ? 'bg-zinc-100 border-zinc-200 text-zinc-500' : 'bg-zinc-900 border-zinc-800 text-zinc-550'}`}>
++                    Sin comisión extra al cliente ($0.00 MXN)
++                  </div>
++                  <span className="text-[9px] text-zinc-500 font-semibold leading-normal">Se venderán las recargas a precio de lista.</span>
++                </div>
++              )}
+             </div>
+ 
+             <div className="flex flex-col gap-1.5">
+@@ -9199,30 +9549,67 @@ export function TaecelConfigTab({ config, onUpdateConfig, isRetro, isLight }: Ta
+                     : 'bg-zinc-950 border-zinc-800 text-white focus:border-cyan-500'
+                 }`}
+               />
+-              <span className="text-[9px] text-zinc-500 font-medium">Cargo extra sugerido para CFE, Telmex, etc.</span>
++              <span className="text-[9px] text-zinc-500 font-semibold">Cargo extra sugerido para CFE, Telmex, etc.</span>
+             </div>
+-          </div>
+ 
+-          <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+-            isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-900'
+-          }`}>
+-            <div className="max-w-md">
+-              <span className={`text-[10px] font-black uppercase tracking-wider block ${isLight ? 'text-zinc-850' : 'text-zinc-300'}`}>
+-                Modo Sandbox / Simulador
+-              </span>
+-              <span className="text-[9.5px] text-zinc-500 font-medium leading-normal block mt-0.5">
+-                Cuando está activado, la API no se llamará con saldo real. Podrás realizar recargas de simulación con saldo de prueba aislado en local storage.
+-              </span>
++            {/* BOTÓN DE PROBAR CONEXIÓN EN TIEMPO REAL */}
++            <div className="md:col-span-2 flex flex-col md:flex-row items-center gap-4 pt-3.5 border-t dark:border-zinc-900">
++              <button
++                type="button"
++                disabled={isVerifying}
++                onClick={handleVerifyConnection}
++                className={`px-4.5 py-2 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer inline-flex items-center gap-1.5 active:scale-97 border ${
++                  isLight 
++                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-350 text-slate-800' 
++                    : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-200'
++                }`}
++              >
++                {isVerifying ? (
++                  <>
++                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
++                    Probando conexión...
++                  </>
++                ) : (
++                  <>
++                    <Globe className="w-3.5 h-3.5 text-sky-500" />
++                    Probar Conexión con Taecel
++                  </>
++                )}
++              </button>
++
++              {verificationResult && (
++                <div className={`p-3 rounded-2xl border text-xs font-semibold flex items-center justify-between flex-1 gap-4 leading-normal ${
++                  verificationResult.success
++                    ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-450 animate-fadeIn'
++                    : 'bg-rose-950/40 border-rose-500/30 text-rose-400 animate-fadeIn'
++                }`}>
++                  <span className="flex-1">{verificationResult.message}</span>
++                  {verificationResult.success && sandboxMode && (
++                    <button
++                      type="button"
++                      onClick={() => {
++                        setSandboxMode(false);
++                        onUpdateConfig({
++                          ...config,
++                          taecelApiKey: apiKey.trim(),
++                          taecelNip: nip.trim(),
++                          taecelSandboxMode: false,
++                          taecelComisionRecarga: cobrarComisionRecarga ? Number(comisionRecarga) : 0,
++                          taecelComisionServicio: Number(comisionServicio),
++                          taecelEnabled: true
++                        });
++                        setFeedback('🚀 ¡Conexión en vivo activada y guardada con éxito!');
++                        setTimeout(() => setFeedback(null), 3000);
++                      }}
++                      className="px-3 py-1.5 text-[9px] font-black uppercase bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl cursor-pointer transition-all shrink-0 active:scale-95 shadow-md animate-bounce"
++                      title="Apaga el modo simulador y guarda los cambios para vender saldo real de inmediato"
++                    >
++                      Activar en Vivo
++                    </button>
++                  )}
++                </div>
++              )}
+             </div>
+-            <label className="relative inline-flex items-center cursor-pointer select-none">
+-              <input
+-                type="checkbox"
+-                checked={sandboxMode}
+-                onChange={(e) => setSandboxMode(e.target.checked)}
+-                className="sr-only peer"
+-              />
+-              <div className="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+-            </label>
+           </div>
+         </>
+       )}
+@@ -9656,6 +10043,7 @@ export function ConfigView({
+   const [unattendedSupportEnabled, setUnattendedSupportEnabled] = useState(config.unattendedSupportEnabled ?? true);
+   const [enableTaller, setEnableTaller] = useState(config.enableTaller ?? true);
+   const [enablePOS, setEnablePOS] = useState(config.enablePOS ?? true);
++  const [allowOutOfStockSales, setAllowOutOfStockSales] = useState(config.allowOutOfStockSales ?? true);
+   const [quoteSignature, setQuoteSignature] = useState(config.quoteSignature || '');
+   const [hiddenModules, setHiddenModules] = useState<string[]>(config.hiddenModules || []);
+   const [businessHours, setBusinessHours] = useState(config.businessHours || '');
+@@ -12021,6 +12409,7 @@ export function ConfigView({
+       appZoomLevel,
+       enableTaller,
+       enablePOS,
++      allowOutOfStockSales,
+       ...cleanOverrides
+     });
+     setFeedback('💾 ¡Configuración de impresora de tickets térmicos guardada con éxito!');
+@@ -12197,6 +12586,7 @@ export function ConfigView({
+       appZoomLevel,
+       enableTaller,
+       enablePOS,
++      allowOutOfStockSales,
+       hiddenModules,
+       unattendedSupportEnabled
+     });
+@@ -12284,6 +12674,7 @@ export function ConfigView({
+       appZoomLevel,
+       enableTaller,
+       enablePOS,
++      allowOutOfStockSales,
+       hiddenModules: nextHidden,
+       unattendedSupportEnabled
+     });
+@@ -12523,6 +12914,7 @@ export function ConfigView({
+       appZoomLevel,
+       enableTaller,
+       enablePOS,
++      allowOutOfStockSales,
+       hiddenModules: nextHidden
+     });
+   };
+@@ -15820,20 +16212,39 @@ ${rowH('Anticipo pagado:', `${sym}${totalPaid.toLocaleString('es-MX', { minimumF
+                       </select>
+                     </div>
+ 
+-                    <div className="space-y-1">
+-                      <label className={configLabelCls}>Soporte Remoto</label>
+-                      <div className={`flex items-center justify-between px-2.5 py-1.5 rounded border ${
+-                        isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white' : isLight ? 'bg-white border-zinc-200' : 'bg-[#08080a] border-[#2d2f36]'
+-                      }`}>
+-                        <span className={`text-[10.5px] font-bold ${isRetro || isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
+-                          Permitir Acceso Desatendido
+-                        </span>
+-                        <input
+-                          type="checkbox"
+-                          checked={unattendedSupportEnabled}
+-                          onChange={e => setUnattendedSupportEnabled(e.target.checked)}
+-                          className="w-4 h-4 rounded border-zinc-750 bg-zinc-900 text-amber-500 focus:ring-0 cursor-pointer"
+-                        />
++                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
++                      <div className="space-y-1">
++                        <label className={configLabelCls}>Soporte Remoto</label>
++                        <div className={`flex items-center justify-between px-2.5 py-1.5 rounded border ${
++                          isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white' : isLight ? 'bg-white border-zinc-200' : 'bg-[#08080a] border-[#2d2f36]'
++                        }`}>
++                          <span className={`text-[10.5px] font-bold ${isRetro || isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
++                            Permitir Acceso Desatendido
++                          </span>
++                          <input
++                            type="checkbox"
++                            checked={unattendedSupportEnabled}
++                            onChange={e => setUnattendedSupportEnabled(e.target.checked)}
++                            className="w-4 h-4 rounded border-zinc-750 bg-zinc-900 text-amber-500 focus:ring-0 cursor-pointer"
++                          />
++                        </div>
++                      </div>
++
++                      <div className="space-y-1">
++                        <label className={configLabelCls}>Control de Inventario (POS)</label>
++                        <div className={`flex items-center justify-between px-2.5 py-1.5 rounded border ${
++                          isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white' : isLight ? 'bg-white border-zinc-200' : 'bg-[#08080a] border-[#2d2f36]'
++                        }`}>
++                          <span className={`text-[10.5px] font-bold ${isRetro || isLight ? 'text-zinc-700' : 'text-zinc-300'}`} title="Permite agregar y vender productos del catálogo aun cuando no cuenten con piezas disponibles en el inventario.">
++                            Permitir Ventas Sin Stock
++                          </span>
++                          <input
++                            type="checkbox"
++                            checked={allowOutOfStockSales}
++                            onChange={e => setAllowOutOfStockSales(e.target.checked)}
++                            className="w-4 h-4 rounded border-zinc-750 bg-zinc-900 text-amber-500 focus:ring-0 cursor-pointer"
++                          />
++                        </div>
+                       </div>
+                     </div>
+                   </div>

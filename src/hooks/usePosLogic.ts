@@ -4,9 +4,10 @@
  */
 
 import React from 'react';
-import { InventoryItem, ServicePrice, Sale, WorkshopConfig, AppUser, ApartadoEntry, RepairOrder, RefaccionItem } from '../types';
+import { InventoryItem, ServicePrice, Sale, WorkshopConfig, AppUser, ApartadoEntry, RepairOrder, RefaccionItem, CreditAccount } from '../types';
 import { getIndividualAdvance } from '../utils/orderHelpers';
 import { generateNextSaleId, extractSaleTicketNumber } from '../utils/folioUtils';
+import { formatPhoneNumber } from '../utils/phoneFormatter';
 
 export function normalizeSearchText(text: string): string {
   if (!text) return '';
@@ -18,6 +19,7 @@ interface UsePosLogicProps {
   inventory: InventoryItem[];
   services: ServicePrice[];
   refacciones?: RefaccionItem[];
+  creditAccounts?: CreditAccount[];
   onCompleteSale: (sale: Sale, options?: { printTicket?: boolean; sendWhatsApp?: boolean; whatsappPhone?: string; whatsappCountryCode?: string }) => void;
   onFiarSale?: (clientName: string, clientPhone: string, items: { itemId: string; name: string; quantity: number; price: number }[], total: number, forceNew?: boolean, payCash?: number, payCard?: number, options?: { printTicket?: boolean; sendWhatsApp?: boolean }, creditLimit?: number) => void;
   checkFiarClient?: (name: string, phone: string) => { clientName: string; clientPhone: string; balance: number; matchType: 'phone' | 'name-only'; creditLimit?: number } | null;
@@ -30,6 +32,9 @@ interface UsePosLogicProps {
   onCreateApartado?: (entry: ApartadoEntry, options?: { printTicket?: boolean; sendWhatsApp?: boolean }) => void;
   onAddItem?: (item: InventoryItem) => void;
   onRegisterChipActivation?: (activation: { clientName: string; clientPhone?: string; chipNumber: string; iccid?: string; imei?: string; carrier: string; saleId?: string; price?: number }) => void;
+  warehouses?: any[];
+  onSetInventory?: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
+  onSetRefacciones?: React.Dispatch<React.SetStateAction<RefaccionItem[]>>;
 }
 
 export default function usePosLogic({
@@ -37,6 +42,7 @@ export default function usePosLogic({
   inventory,
   services,
   refacciones = [],
+  creditAccounts = [],
   onCompleteSale,
   onFiarSale,
   checkFiarClient,
@@ -49,6 +55,9 @@ export default function usePosLogic({
   onAddItem,
   onRegisterChipActivation,
   currentUser,
+  warehouses = [],
+  onSetInventory,
+  onSetRefacciones,
 }: UsePosLogicProps) {
   const [basket, setBasketRaw] = React.useState<any[]>(() => {
     try {
@@ -104,6 +113,79 @@ export default function usePosLogic({
   const [fiarExistingAccount, setFiarExistingAccount] = React.useState<{ clientName: string; clientPhone: string; balance: number; matchType: 'phone' | 'name-only'; creditLimit?: number } | null>(null);
   const [fiarForceNew, setFiarForceNew] = React.useState(false);
   const [fiarCreditLimit, setFiarCreditLimit] = React.useState('');
+  const [fiarHasLimit, setFiarHasLimit] = React.useState(false);
+  const [fiarInitialPayment, setFiarInitialPayment] = React.useState('');
+  const [fiarInitialMethod, setFiarInitialMethod] = React.useState<'Efectivo' | 'Tarjeta'>('Efectivo');
+
+  const openFiarModal = React.useCallback(() => {
+    setShowSaleConfirm(false);
+    setShowFiarModal(true);
+    setFiarInitialPayment('');
+    setFiarInitialMethod('Efectivo');
+    setFiarCreditLimit('');
+    setFiarHasLimit(false);
+  }, [setShowSaleConfirm, setShowFiarModal]);
+
+  const fiarNameSuggestions = React.useMemo(() => {
+    if (!fiarClientName.trim()) return [];
+    const query = fiarClientName.toLowerCase().trim();
+    return creditAccounts.filter(acc => {
+      if (acc.isClosed || acc.deletedAt) return false;
+      return acc.clientName.toLowerCase().includes(query);
+    });
+  }, [fiarClientName, creditAccounts]);
+
+  const fiarPhoneSuggestions = React.useMemo(() => {
+    const queryDigits = fiarClientPhone.replace(/\D/g, '');
+    if (!queryDigits) return [];
+    return creditAccounts.filter(acc => {
+      if (acc.isClosed || acc.deletedAt) return false;
+      const accPhoneDigits = (acc.clientPhone || '').replace(/\D/g, '');
+      return accPhoneDigits.includes(queryDigits);
+    });
+  }, [fiarClientPhone, creditAccounts]);
+
+  const selectExistingCreditAccount = React.useCallback((acc: CreditAccount) => {
+    setFiarClientName(acc.clientName);
+    
+    let phone = acc.clientPhone || '';
+    let countryCode = '+52';
+    if (phone.startsWith('+')) {
+      if (phone.startsWith('+52')) {
+        countryCode = '+52';
+        phone = phone.substring(3);
+      } else if (phone.startsWith('+1')) {
+        countryCode = '+1';
+        phone = phone.substring(2);
+      } else {
+        const match = phone.match(/^\+\d+/);
+        if (match) {
+          countryCode = match[0];
+          phone = phone.substring(countryCode.length);
+        }
+      }
+    }
+    setFiarCountryCode(countryCode);
+    setFiarClientPhone(formatPhoneNumber(phone));
+    
+    if (acc.creditLimit !== undefined && acc.creditLimit > 0) {
+      setFiarCreditLimit(acc.creditLimit.toString());
+      setFiarHasLimit(true);
+    } else {
+      setFiarCreditLimit('');
+      setFiarHasLimit(false);
+    }
+
+    const debt = acc.entries.reduce((s, e) => s + e.subtotal, 0);
+    const paid = acc.payments.reduce((s, p) => s + p.amount, 0);
+    setFiarExistingAccount({
+      clientName: acc.clientName,
+      clientPhone: acc.clientPhone,
+      balance: Math.max(0, debt - paid),
+      matchType: 'phone',
+      creditLimit: acc.creditLimit,
+    });
+  }, [setFiarClientName, setFiarCountryCode, setFiarClientPhone, setFiarCreditLimit, setFiarExistingAccount]);
   const [saveToInventory, setSaveToInventory] = React.useState(false);
   const [saleNote, setSaleNote] = React.useState('');
 
@@ -238,6 +320,7 @@ export default function usePosLogic({
       dueDate: apartarDueDate || undefined,
       notes: apartarNotes.trim() || undefined,
     };
+    localStorage.removeItem('pos_active_basket_v1');
     onCreateApartado?.(entry, options);
     setBasket([]);
     setShowApartarModal(false);
@@ -254,6 +337,7 @@ export default function usePosLogic({
   const [fastSalePrice, setFastSalePrice] = React.useState('');
   const [mobileTab, setMobileTab] = React.useState<'catalog' | 'cart'>('catalog');
   const [isSearchModalOpen, setIsSearchModalOpen] = React.useState(false);
+  const [modalCategoryFilter, setModalCategoryFilter] = React.useState<string>('TODAS');
   const [modalCurrentPage, setModalCurrentPage] = React.useState(1);
   const [isFastSaleModalOpen, setIsFastSaleModalOpen] = React.useState(false);
   const [showQuickHistory, setShowQuickHistory] = React.useState(false);
@@ -279,6 +363,7 @@ export default function usePosLogic({
   const [posShouldPrintTicket, setPosShouldPrintTicket] = React.useState(config.autoPrintOnSale ?? true);
   const [posShouldSendWhatsApp, setPosShouldSendWhatsApp] = React.useState(false);
   const [showPosWhatsappModal, setShowPosWhatsappModal] = React.useState(false);
+  const [outOfStockAlertItem, setOutOfStockAlertItem] = React.useState<any>(null);
 
   const [waConnected, setWaConnected] = React.useState<boolean>(() => {
     return (window as any).whatsappConnected || false;
@@ -334,6 +419,13 @@ export default function usePosLogic({
 
   const [posWhatsappPhone, setPosWhatsappPhone] = React.useState('');
   const [posToast, setPosToast] = React.useState<{ message: string; type: 'success' | 'info' | 'error' | 'warning' } | null>(null);
+  const [warehouseSelectionItem, setWarehouseSelectionItem] = React.useState<any | null>(null);
+  const [selectedSaleWarehouseId, setSelectedSaleWarehouseId] = React.useState<string>('all');
+  React.useEffect(() => {
+    if (config?.enableWarehouses !== true) {
+      setSelectedSaleWarehouseId('local');
+    }
+  }, [config?.enableWarehouses]);
   const [showAdminAuthModal, setShowAdminAuthModal] = React.useState(false);
   const [adminAuthPin, setAdminAuthPin] = React.useState('');
   const [adminAuthError, setAdminAuthError] = React.useState('');
@@ -395,7 +487,10 @@ export default function usePosLogic({
   }, [sales]);
 
   const combinedInventory = React.useMemo(() => {
-    const surrogateRefacciones: InventoryItem[] = refacciones.map(r => ({
+    const activeInventory = inventory.filter(i => i.active !== false);
+    const activeRefacciones = refacciones.filter(r => r.active !== false);
+
+    const surrogateRefacciones: InventoryItem[] = activeRefacciones.map(r => ({
       id: r.id,
       code: r.code || '',
       name: `[REFACCIÓN] ${r.name.toUpperCase()} (${r.deviceBrand.toUpperCase()} ${r.deviceModel.toUpperCase()})`,
@@ -410,9 +505,10 @@ export default function usePosLogic({
       extraImages: r.extraImages,
       favorite: !!r.favorite,
       reservedQty: 0,
-      manageStock: r.manageStock !== false
+      manageStock: r.manageStock !== false || !!(r.warehouseStock && Object.values(r.warehouseStock).some(qty => (qty as number) > 0)),
+      warehouseStock: r.warehouseStock
     }));
-    return [...inventory, ...surrogateRefacciones];
+    return [...activeInventory, ...surrogateRefacciones];
   }, [inventory, refacciones]);
 
   const getResolvedItemPrice = React.useCallback((item: any) => {
@@ -441,31 +537,50 @@ export default function usePosLogic({
   }, [resolvedInventory]);
 
   const matchedProductsForModal = React.useMemo(() => {
-    if (!queryTrimmed) return [];
-    if (queryTrimmed === 'fav') {
-      return resolvedInventory
+    let baseList: InventoryItem[] = [];
+    if (!queryTrimmed) {
+      if (isSearchModalOpen) {
+        baseList = resolvedInventory;
+      } else {
+        return [];
+      }
+    } else if (queryTrimmed === 'fav') {
+      baseList = resolvedInventory
         .filter(p => (!!p.favorite || (salesCountMap[p.id] || 0) > 0 || normalizeSearchText(p.name).startsWith('fav')))
         .sort((a, b) => {
           if (!!a.favorite && !b.favorite) return -1;
           if (!a.favorite && !!b.favorite) return 1;
           return (salesCountMap[b.id] || 0) - (salesCountMap[a.id] || 0);
         });
+    } else {
+      const tokens = queryTrimmed.split(/\s+/).filter(Boolean);
+      const matches: InventoryItem[] = [];
+      for (let i = 0; i < normalizedInventory.length; i++) {
+        const entry = normalizedInventory[i];
+        const isMatch = tokens.every(token => 
+          entry.normalizedName.includes(token) || 
+          entry.normalizedCode.includes(token)
+        );
+        if (isMatch) {
+          matches.push(entry.item);
+        }
+      }
+      baseList = matches;
     }
 
-    const tokens = queryTrimmed.split(/\s+/).filter(Boolean);
-    const matches: InventoryItem[] = [];
-    for (let i = 0; i < normalizedInventory.length; i++) {
-      const entry = normalizedInventory[i];
-      const isMatch = tokens.every(token => 
-        entry.normalizedName.includes(token) || 
-        entry.normalizedCode.includes(token)
-      );
-      if (isMatch) {
-        matches.push(entry.item);
-      }
+    if (modalCategoryFilter && modalCategoryFilter !== 'TODAS') {
+      baseList = baseList.filter(item => (item.category || '').trim().toUpperCase() === modalCategoryFilter);
     }
-    return matches;
-  }, [resolvedInventory, normalizedInventory, queryTrimmed, salesCountMap]);
+
+    if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all' && selectedSaleWarehouseId !== 'local') {
+      baseList = baseList.filter(item => {
+        const isAssigned = item.warehouseStock && (selectedSaleWarehouseId in item.warehouseStock);
+        return !!isAssigned;
+      });
+    }
+
+    return baseList;
+  }, [resolvedInventory, normalizedInventory, queryTrimmed, salesCountMap, isSearchModalOpen, modalCategoryFilter, selectedSaleWarehouseId]);
 
   const exactMatch = React.useMemo(() => {
     if (!queryTrimmed) return null;
@@ -514,6 +629,12 @@ export default function usePosLogic({
       const entry = normalizedInventory[i];
       const item = entry.item;
       
+      // Filtrar por bodega seleccionada
+      if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all' && selectedSaleWarehouseId !== 'local') {
+        const isAssigned = item.warehouseStock && (selectedSaleWarehouseId in item.warehouseStock);
+        if (!isAssigned) continue;
+      }
+      
       if (query === 'fav') {
         if (!!item.favorite || (salesCountMap[item.id] || 0) > 0 || entry.normalizedName.startsWith('fav')) {
           filtered.push(item);
@@ -556,29 +677,60 @@ export default function usePosLogic({
     }
     
     return filtered;
-  }, [normalizedInventory, queryTrimmed, selectedCategory, salesCountMap, topSellingIds]);
+  }, [normalizedInventory, queryTrimmed, selectedCategory, salesCountMap, topSellingIds, selectedSaleWarehouseId, config.allowOutOfStockSales]);
+
+  const getItemStock = React.useCallback((item: any, overrideWhId?: string): number => {
+    if (!item || item.manageStock === false) return 999999;
+    const whId = overrideWhId || selectedSaleWarehouseId;
+    if (whId === 'local') {
+      return item.stock || 0;
+    }
+    if (whId === 'all') {
+      const whTotal = item.warehouseStock
+        ? Object.values(item.warehouseStock).reduce((acc: number, val: any) => acc + (Number(val) || 0), 0)
+        : 0;
+      return (item.stock || 0) + whTotal;
+    }
+    return (item.warehouseStock && item.warehouseStock[whId] !== undefined)
+      ? Number(item.warehouseStock[whId])
+      : 0;
+  }, [selectedSaleWarehouseId]);
 
   const derivedBasket = React.useMemo(() => {
     return basket.map(b => {
       const resolvedPriceType = b.priceType || saleType;
-      const price = b.customPrice !== undefined ? b.customPrice : (
+      const basePrice = b.customPrice !== undefined ? b.customPrice : (
         resolvedPriceType === 'mayoreo' && b.item.wholesalePrice !== undefined && b.item.wholesalePrice > 0
           ? b.item.wholesalePrice
           : b.item.price
       );
+      
+      let discountAmount = 0;
+      if (b.lineDiscountValue && b.lineDiscountValue > 0) {
+        if (b.lineDiscountType === 'percentage') {
+          discountAmount = Number((basePrice * (b.lineDiscountValue / 100)).toFixed(2));
+        } else {
+          discountAmount = Math.min(basePrice, b.lineDiscountValue);
+        }
+      }
+      
+      const finalPrice = Math.max(0, basePrice - discountAmount);
+      
       return {
         ...b,
+        basePrice,
+        discountAmount, // unit discount amount
+        finalPrice,     // unit price after discount
         item: {
           ...b.item,
-          price
+          price: finalPrice
         }
       };
     });
   }, [basket, saleType]);
 
   const basketSubtotal = derivedBasket.reduce((sum, b) => {
-    const price = b.customPrice !== undefined ? b.customPrice : b.item.price;
-    return sum + price * b.quantity;
+    return sum + b.item.price * b.quantity;
   }, 0);
   const basketTotal = React.useMemo(() => {
     if (!discountEnabled || isNaN(discountValue) || discountValue <= 0) {
@@ -607,8 +759,12 @@ export default function usePosLogic({
 
   // ─── Handlers ───────────────────────────────────────────────────────────────
 
+
   const triggerToast = (message: string, type: 'success' | 'info' | 'error' | 'warning' = 'success') => {
     setPosToast({ message, type });
+    if (type === 'error') {
+      playErrorSound();
+    }
   };
 
   const playCashRegisterSound = () => {
@@ -635,6 +791,58 @@ export default function usePosLogic({
       }, 60);
     } catch (err) {
       console.warn('AudioContext bloqueado o no soportado', err);
+    }
+  };
+
+  const playErrorSound = () => {
+    try {
+      // @ts-ignore
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(140, ctx.currentTime);
+      gain1.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      osc1.connect(gain1); gain1.connect(ctx.destination);
+      osc1.start(); osc1.stop(ctx.currentTime + 0.15);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sawtooth';
+      osc2.frequency.setValueAtTime(110, ctx.currentTime + 0.08);
+      gain2.gain.setValueAtTime(0.08, ctx.currentTime + 0.08);
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+      osc2.connect(gain2); gain2.connect(ctx.destination);
+      osc2.start(ctx.currentTime + 0.08); osc2.stop(ctx.currentTime + 0.25);
+    } catch (err) {
+      console.warn('AudioContext warning sound failed', err);
+    }
+  };
+
+  const playSuccessSound = () => {
+    try {
+      // @ts-ignore
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1000, ctx.currentTime); // Pitido clásico de escáner (1000Hz)
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08); // Muy corto, 80ms
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.09);
+    } catch (err) {
+      console.warn('AudioContext success sound failed', err);
     }
   };
 
@@ -672,6 +880,7 @@ export default function usePosLogic({
   const cancelAndCleanupSearchModal = () => {
     setIsSearchModalOpen(false);
     setSearchQuery('');
+    setModalCategoryFilter('TODAS');
     setTimeout(() => {
       if (searchInputRef.current) { searchInputRef.current.focus(); searchInputRef.current.value = ''; }
     }, 50);
@@ -703,6 +912,7 @@ export default function usePosLogic({
     }
     
     setBasket([...basket, { item: tempItem, quantity: 1 }]);
+    playSuccessSound();
     setFastSalePrice(''); setFastSaleName(''); setSearchQuery(''); setIsFastSaleModalOpen(false); setSaveToInventory(false);
     setTimeout(() => searchInputRef.current?.focus(), 100);
   };
@@ -733,22 +943,76 @@ export default function usePosLogic({
     }
     
     setBasket([...basket, { item: tempItem, quantity: 1, uniqueId: tempItem.id }]);
+    playSuccessSound();
     setFastSalePrice(''); setFastSaleName(''); setSearchQuery(''); setIsSearchModalOpen(false); setSaveToInventory(false);
     setTimeout(() => searchInputRef.current?.focus(), 50);
   };
 
-  const addToBasket = (item: InventoryItem) => {
+  const addToBasket = (item: any) => {
     if (item.isChip === true) {
       setPendingChipToAdd(item);
       return;
     }
-    const existing = basket.find((b) => b.item.id === item.id && !b.chipActivation);
+
+    if (selectedSaleWarehouseId && selectedSaleWarehouseId !== 'all' && selectedSaleWarehouseId !== 'local') {
+      confirmWarehouseSale(item, selectedSaleWarehouseId);
+      return;
+    }
+
+    const hasWarehouseStock = item.warehouseStock && Object.values(item.warehouseStock).some(q => (q as number) > 0);
+    if (selectedSaleWarehouseId === 'all' && item.manageStock !== false && item.stock <= 0 && hasWarehouseStock) {
+      setWarehouseSelectionItem(item);
+      return;
+    }
+
+    const existing = basket.find((b) => b.item.id === item.id && !b.fromWarehouseId && !b.chipActivation);
     if (existing) {
+      if (config.allowOutOfStockSales === false && item.manageStock !== false && existing.quantity >= item.stock) {
+        setOutOfStockAlertItem({ item, maxStock: item.stock, reason: 'insufficient' });
+        playErrorSound();
+        triggerToast(`⚠️ No hay suficiente stock disponible (Máximo: ${item.stock}).`, 'warning');
+        return;
+      }
       setBasket(basket.map((b) => (b.uniqueId === existing.uniqueId ? { ...b, quantity: b.quantity + 1 } : b)));
+      playSuccessSound();
     } else {
+      if (config.allowOutOfStockSales === false && item.manageStock !== false && item.stock <= 0) {
+        setOutOfStockAlertItem({ item, maxStock: 0, reason: 'outofstock' });
+        playErrorSound();
+        triggerToast(`⚠️ Este artículo no tiene existencias disponibles.`, 'warning');
+        return;
+      }
       setBasket([...basket, { item, quantity: 1, uniqueId: item.id }]);
+      playSuccessSound();
     }
   };
+
+  const confirmWarehouseSale = React.useCallback((item: any, whId: string) => {
+    const existing = basket.find((b) => b.item.id === item.id && b.fromWarehouseId === whId && !b.chipActivation);
+    const maxStock = item.warehouseStock?.[whId] || 0;
+    const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+    if (existing) {
+      if (config.allowOutOfStockSales === false && existing.quantity >= maxStock) {
+        setOutOfStockAlertItem({ item, maxStock, reason: 'insufficient', warehouseName: whName });
+        playErrorSound();
+        triggerToast(`⚠️ No hay suficiente stock disponible en esa bodega (Máximo: ${maxStock}).`, 'warning');
+        return;
+      }
+      setBasket(basket.map((b) => (b.uniqueId === existing.uniqueId ? { ...b, quantity: b.quantity + 1 } : b)));
+      playSuccessSound();
+    } else {
+      if (config.allowOutOfStockSales === false && maxStock <= 0) {
+        setOutOfStockAlertItem({ item, maxStock: 0, reason: 'outofstock', warehouseName: whName });
+        playErrorSound();
+        triggerToast(`⚠️ No hay suficiente stock disponible en esa bodega.`, 'warning');
+        return;
+      }
+      setBasket([...basket, { item, quantity: 1, uniqueId: `${item.id}-${whId}`, fromWarehouseId: whId }]);
+      playSuccessSound();
+    }
+    setWarehouseSelectionItem(null);
+    triggerToast(`Artículo agregado desde la bodega.`, 'success');
+  }, [basket, setBasket, config.allowOutOfStockSales, warehouses]);
 
   const updateQuantity = (uniqueId: string, diff: number) => {
     const term = basket.find((b) => b.uniqueId === uniqueId);
@@ -756,6 +1020,7 @@ export default function usePosLogic({
     if (uniqueId.startsWith('repair-')) {
       if (term.quantity + diff <= 0) {
         setBasket(basket.filter((b) => b.uniqueId !== uniqueId));
+        playSuccessSound();
       } else {
         triggerToast('⚠️ Las órdenes de servicio solo pueden tener cantidad de 1 en el carrito.', 'info');
       }
@@ -765,14 +1030,34 @@ export default function usePosLogic({
       const nextQt = term.quantity + diff;
       if (nextQt <= 0) {
         setBasket(basket.filter((b) => b.uniqueId !== uniqueId));
+        playSuccessSound();
       } else {
         triggerToast('⚠️ Los chips SIM se registran individualmente con cantidad 1.', 'info');
       }
       return;
     }
     const nextQt = term.quantity + diff;
-    if (nextQt <= 0) { setBasket(basket.filter((b) => b.uniqueId !== uniqueId)); return; }
+    if (nextQt <= 0) { 
+      setBasket(basket.filter((b) => b.uniqueId !== uniqueId)); 
+      playSuccessSound();
+      return; 
+    }
+
+    // Validate max stock
+    if (config.allowOutOfStockSales === false && term.item.manageStock !== false) {
+      const maxStock = term.fromWarehouseId 
+        ? (term.item.warehouseStock?.[term.fromWarehouseId] || 0)
+        : term.item.stock;
+      if (nextQt > maxStock) {
+        const whName = term.fromWarehouseId ? (warehouses.find(w => w.id === term.fromWarehouseId)?.name || 'Bodega') : undefined;
+        setOutOfStockAlertItem({ item: term.item, maxStock, reason: 'insufficient', warehouseName: whName });
+        playErrorSound();
+        triggerToast(`⚠️ No hay suficiente stock disponible (Máximo: ${maxStock}).`, 'warning');
+        return;
+      }
+    }
     setBasket(basket.map((b) => (b.uniqueId === uniqueId ? { ...b, quantity: nextQt } : b)));
+    playSuccessSound();
   };
 
   const removeFromBasket = (uniqueId: string) => {
@@ -793,6 +1078,19 @@ export default function usePosLogic({
         const currentType = b.priceType || saleType;
         const nextType = currentType === 'publico' ? 'mayoreo' : 'publico';
         return { ...b, priceType: nextType, customPrice: undefined };
+      }
+      return b;
+    }));
+  };
+
+  const updateLineDiscount = (uniqueId: string, value: number, type: 'percentage' | 'fixed') => {
+    setBasket(basket.map((b) => {
+      if (b.uniqueId === uniqueId) {
+        return {
+          ...b,
+          lineDiscountValue: value > 0 ? value : undefined,
+          lineDiscountType: value > 0 ? type : undefined
+        };
       }
       return b;
     }));
@@ -868,7 +1166,12 @@ export default function usePosLogic({
     if (sale) {
       const newBasket = [...basket];
       (sale.items || []).forEach((itemToLoad) => {
-        const existingIdx = newBasket.findIndex((b) => b.item?.id === itemToLoad.item?.id);
+        const existingIdx = newBasket.findIndex((b) => 
+          b.item?.id === itemToLoad.item?.id && 
+          b.fromWarehouseId === itemToLoad.fromWarehouseId && 
+          !b.chipActivation && 
+          !itemToLoad.chipActivation
+        );
         if (existingIdx !== -1) { newBasket[existingIdx].quantity += itemToLoad.quantity; }
         else { newBasket.push(itemToLoad); }
       });
@@ -926,12 +1229,21 @@ export default function usePosLogic({
     const codes: string[] = [];
     if (payCash > 0) codes.push(`Efe: ${config.currencySymbol}${payCash}`);
     if (payCard > 0) codes.push(`T/T: ${config.currencySymbol}${payCard} (Ref: ${cardCode.trim() || 'S/Ref'})`);
-    const nextSaleId = generateNextSaleId(sales);
+    const nextSaleId = generateNextSaleId(sales, 'E');
     const saleTicketNum = extractSaleTicketNumber(nextSaleId);
     const changeDue = Math.max(0, totalReceived - basketTotal);
     const completedSale: Sale = {
       id: nextSaleId,
-      items: derivedBasket.map((b) => ({ itemId: b.item.id, name: b.item.name, quantity: b.quantity, price: b.customPrice !== undefined ? b.customPrice : b.item.price })),
+      items: derivedBasket.map((b) => ({
+        itemId: b.item.id,
+        name: b.item.name,
+        quantity: b.quantity,
+        price: b.item.price,
+        originalPrice: b.basePrice,
+        discountValue: b.lineDiscountValue,
+        discountType: b.lineDiscountType,
+        fromWarehouseId: b.fromWarehouseId
+      })),
       total: basketTotal, paymentMethod: finalMethod, createdAt: new Date().toISOString(),
       ticketNumber: saleTicketNum, confirmationCode: codes.join(' | '),
       cashReceived: payCash,
@@ -963,6 +1275,7 @@ export default function usePosLogic({
       }
     });
 
+    localStorage.removeItem('pos_active_basket_v1');
     setBasket([]); setPayCash(0); setPayCard(0); setCardCode('');
     setDiscountEnabled(false); setDiscountValue(0); setDiscountType('percentage');
     setPosShouldSendWhatsApp(false); setPosWhatsappPhone('');
@@ -985,12 +1298,21 @@ export default function usePosLogic({
     const defaultLimit = config.defaultCreditLimit ?? 1000;
     const sym = config.currencySymbol || '$';
 
+    const initialAmt = Number(fiarInitialPayment) || 0;
+    if (initialAmt > basketTotal) {
+      triggerToast(`❌ El anticipo no puede ser mayor que el total de la venta (${sym}${basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}).`, 'error');
+      return;
+    }
+    const finalPayCash = fiarInitialMethod === 'Efectivo' ? initialAmt : 0;
+    const finalPayCard = fiarInitialMethod === 'Tarjeta' ? initialAmt : 0;
+
     // 2. Verificar cliente existente solo si no se está forzando cuenta nueva
     let matchedProfile = fiarExistingAccount;
     if (!fiarExistingAccount && !forceNew && checkFiarClient) {
       const found = checkFiarClient(fiarClientName.trim().toUpperCase(), finalPhone);
       if (found) {
-        if (found.balance > 0) {
+        const namesMatch = found.clientName.trim().toUpperCase() === fiarClientName.trim().toUpperCase();
+        if (found.balance > 0 || !namesMatch) {
           setFiarExistingAccount(found);
           return;
         } else {
@@ -1000,29 +1322,29 @@ export default function usePosLogic({
     }
 
     // 3. Validar límite de crédito
-    let limit = defaultLimit;
+    let limit = 0; // Por defecto es 0 (crédito ilimitado) si no se activa la casilla
     let currentBalance = 0;
-
+ 
     const activeProfile = matchedProfile || fiarExistingAccount;
     if (activeProfile && !forceNew) {
-      limit = activeProfile.creditLimit !== undefined ? activeProfile.creditLimit : defaultLimit;
       currentBalance = activeProfile.balance || 0;
     }
-
-    // Si el usuario capturó un límite en el formulario, ese tiene prioridad
-    if (fiarCreditLimit.trim() !== '') {
-      limit = Number(fiarCreditLimit);
-    }
-
-    // Si limit > 0 (0 es crédito ilimitado), validar saldo acumulado
-    if (limit > 0) {
-      const totalPostSale = currentBalance + basketTotal;
-      if (totalPostSale > limit) {
-        triggerToast(
-          `❌ Límite de crédito excedido. Límite: ${sym}${limit.toLocaleString('es-MX', { minimumFractionDigits: 2 })}, Saldo actual: ${sym}${currentBalance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}, Venta: +${sym}${basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}. Total ${sym}${totalPostSale.toLocaleString('es-MX', { minimumFractionDigits: 2 })} supera el permitido.`,
-          'error'
-        );
+ 
+    if (fiarHasLimit) {
+      if (fiarCreditLimit.trim() === '') {
+        triggerToast('❌ Debe ingresar un límite de crédito si la opción está activa.', 'error');
         return;
+      }
+      limit = Number(fiarCreditLimit);
+      if (limit > 0) {
+        const totalPostSale = currentBalance + basketTotal;
+        if (totalPostSale > limit) {
+          triggerToast(
+            `❌ Límite de crédito excedido. Límite: ${sym}${limit.toLocaleString('es-MX', { minimumFractionDigits: 2 })}, Saldo actual: ${sym}${currentBalance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}, Venta: +${sym}${basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}. Total ${sym}${totalPostSale.toLocaleString('es-MX', { minimumFractionDigits: 2 })} supera el permitido.`,
+            'error'
+          );
+          return;
+        }
       }
     }
 
@@ -1045,8 +1367,8 @@ export default function usePosLogic({
       items,
       basketTotal,
       forceNew,
-      payCash,
-      payCard,
+      finalPayCash,
+      finalPayCard,
       mergedOptions,
       fiarCreditLimit.trim() !== '' ? Number(fiarCreditLimit) : undefined
     );
@@ -1061,7 +1383,9 @@ export default function usePosLogic({
       }
     });
 
-    setBasket([]); setFiarClientName(''); setFiarClientPhone(''); setFiarCreditLimit('');
+    localStorage.removeItem('pos_active_basket_v1');
+    setBasket([]); setFiarClientName(''); setFiarClientPhone(''); setFiarCreditLimit(''); setFiarHasLimit(false);
+    setFiarInitialPayment(''); setFiarInitialMethod('Efectivo');
     setFiarExistingAccount(null); setFiarForceNew(false);
     setDiscountEnabled(false); setDiscountValue(0); setDiscountType('percentage');
     setPosRegisterChipActivation(false);
@@ -1087,8 +1411,6 @@ export default function usePosLogic({
     if (key === 'F2') {
       if (showSaleConfirm) { setPosShouldPrintTicket((prev) => !prev); } else { setShowSoftClientModal(true); }
 
-    } else if (key === 'F3') {
-      setShowRepairSelectionModal((prev) => !prev);
     } else if (key === 'F5') {
       if (showSaleConfirm) { executeSale(); } else { validateAndConfirm(); }
     } else if (key === 'F10') {
@@ -1129,6 +1451,25 @@ export default function usePosLogic({
   React.useEffect(() => {
     localStorage.setItem('pos_saved_sales_v1', JSON.stringify(savedSales));
   }, [savedSales]);
+
+  // Synchronize basket items with the fresh inventory/refacciones database props when they update on startup or sync
+  React.useEffect(() => {
+    if (inventory.length === 0 && refacciones.length === 0) return;
+    setBasketRaw(prev => {
+      let changed = false;
+      const next = prev.map(b => {
+        const freshItem = inventory.find(i => i.id === b.item.id) || refacciones.find(r => r.id === b.item.id);
+        if (freshItem) {
+          if (JSON.stringify(freshItem) !== JSON.stringify(b.item)) {
+            changed = true;
+            return { ...b, item: freshItem };
+          }
+        }
+        return b;
+      });
+      return changed ? next : prev;
+    });
+  }, [inventory, refacciones]);
 
   React.useEffect(() => {
     localStorage.setItem('pos_active_basket_v1', JSON.stringify(basket));
@@ -1363,7 +1704,6 @@ export default function usePosLogic({
       if (e.key === 'F5') { e.preventDefault(); handleShortcutPress('F5'); }
       else if (e.key === 'F10') { e.preventDefault(); handleShortcutPress('F10'); }
       else if (e.key === 'F2') { e.preventDefault(); handleShortcutPress('F2'); }
-      else if (e.key === 'F3') { e.preventDefault(); handleShortcutPress('F3'); }
       else if (e.key === 'F6') { e.preventDefault(); handleShortcutPress('F6'); }
       else if (e.key === 'F9') { e.preventDefault(); handleShortcutPress('F9'); }
       else if ((e.key === 'x' || e.key === 'X') && !isTyping) { e.preventDefault(); handleShortcutPress('ESC'); }
@@ -1376,7 +1716,7 @@ export default function usePosLogic({
 
   return {
     // Config & external
-    config, sales, users, setActiveTab, onCancelSale, orders,
+    config, sales, users, setActiveTab, onCancelSale, orders, creditAccounts, fiarNameSuggestions, fiarPhoneSuggestions, selectExistingCreditAccount, currentUser,
     // State
     basket: derivedBasket, setBasket,
     saleType, setSaleType,
@@ -1406,6 +1746,7 @@ export default function usePosLogic({
     fiarExistingAccount, setFiarExistingAccount,
     fiarForceNew, setFiarForceNew,
     fiarCreditLimit, setFiarCreditLimit,
+    fiarHasLimit, setFiarHasLimit,
     executeFiar,
     changeAmount, setChangeAmount,
     countdown, setCountdown,
@@ -1415,6 +1756,7 @@ export default function usePosLogic({
     mobileTab, setMobileTab,
     isSearchModalOpen, setIsSearchModalOpen,
     modalCurrentPage, setModalCurrentPage,
+    modalCategoryFilter, setModalCategoryFilter,
     isFastSaleModalOpen, setIsFastSaleModalOpen,
     showQuickHistory, setShowQuickHistory,
     quickHistoryConfirm, setQuickHistoryConfirm,
@@ -1443,6 +1785,8 @@ export default function usePosLogic({
     adminAuthError, setAdminAuthError,
     pendingEditItemId, setPendingEditItemId,
     savedSales, setSavedSales,
+    warehouseSelectionItem, setWarehouseSelectionItem,
+    selectedSaleWarehouseId, setSelectedSaleWarehouseId,
     // Refs
     lastSelectedQueryRef, fastSalePriceRef, fastSaleNameInputRef, searchInputRef,
     lastClickTimeRef, modalFastSaleNameInputRef, modalFastSalePriceInputRef,
@@ -1451,12 +1795,15 @@ export default function usePosLogic({
     softCoinsTotal, salesCountMap, queryTrimmed, matchedProductsForModal, exactMatch,
     paginatedModalItems, modalTotalPages,
     topSellingIds, categories, availableItems, inventory: resolvedInventory,
+    getItemStock,
     basketSubtotal, basketTotal, basketTotalItems,
     // Handlers
     triggerToast, playCashRegisterSound, handleCalcBtn,
     cancelAndCleanupFastSale, cancelAndCleanupSearchModal,
     addFastSaleItem, handleModalAddFastSaleItem,
     addToBasket, updateQuantity, removeFromBasket, toggleBasketItemPriceType,
+    updateLineDiscount,
+    confirmWarehouseSale,
     handleSavePrice, handleRequestEditPrice,
     handleAdminAuthSubmit, handleLockAdminMode,
     handleSaveSaleForLater, confirmSaveSaleForLater,
@@ -1488,7 +1835,11 @@ export default function usePosLogic({
     editingChipBasketItem, setEditingChipBasketItem,
     handleConfirmAddChip, handleConfirmEditChip,
     saleNote, setSaleNote,
+    fiarInitialPayment, setFiarInitialPayment,
+    fiarInitialMethod, setFiarInitialMethod,
+    openFiarModal,
     waConnected,
+    outOfStockAlertItem, setOutOfStockAlertItem, playErrorSound, playSuccessSound,
   };
 }
 

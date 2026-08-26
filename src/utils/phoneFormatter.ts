@@ -5,8 +5,19 @@
 export function formatPhoneNumber(val: string | number | undefined | null): string {
   if (val === undefined || val === null) return '';
   const str = String(val);
-  const digits = str.replace(/\D/g, '');
+  let digits = str.replace(/\D/g, '');
   if (!digits) return '';
+
+  // Handle international prefix codes (Mexico 52/521, USA 1, etc.)
+  if (digits.length === 12 && digits.startsWith('52')) {
+    digits = digits.slice(2);
+  } else if (digits.length === 13 && digits.startsWith('521')) {
+    digits = digits.slice(3);
+  } else if (digits.length === 11 && digits.startsWith('1')) {
+    digits = digits.slice(1);
+  } else if (digits.length > 10) {
+    digits = digits.slice(-10);
+  }
 
   // Limit to exactly 10 digits
   const capped = digits.slice(0, 10);

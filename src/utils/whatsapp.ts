@@ -4,6 +4,7 @@
 
 import html2canvas from 'html2canvas';
 import { WorkshopConfig, RepairOrder, Sale, CreditAccount, CreditSaleEntry, ApartadoEntry, ApartadoPayment } from '../types';
+import { buildPosTicketHtml } from './ticketBuilder';
 
 /**
  * Renderiza un string HTML a base64 PNG usando html2canvas.
@@ -266,8 +267,19 @@ export async function sendProductByWhatsapp(
   const api = (window as any).electronAPI;
   const cc = countryCode.replace('+', '') || '52';
   const formattedPhone = formatPhoneForWhatsapp(phone, cc);
-  const shopName = config?.storeName || 'FixManager';
-  const sym = config?.currencySymbol || '$';
+
+  let activeConfig = config;
+  if (!activeConfig) {
+    const saved = localStorage.getItem('fixmanager_config');
+    if (saved) {
+      try {
+        activeConfig = JSON.parse(saved);
+      } catch (e) {}
+    }
+  }
+
+  const shopName = activeConfig?.storeName || 'FixManager';
+  const sym = activeConfig?.currencySymbol || '$';
 
   let text = `📦 *${shopName}* - Ficha de Producto / Cotización\n\n`;
   text += `🔹 *${product.name.toUpperCase()}*\n`;
@@ -279,18 +291,31 @@ export async function sendProductByWhatsapp(
   let base64Image: string | undefined = undefined;
   if (product.imageUrl) {
     if (product.imageUrl.startsWith('data:image/')) {
-      base64Image = product.imageUrl.split(',')[1];
+      base64Image = product.imageUrl;
+    } else if (product.imageUrl.startsWith('http://') || product.imageUrl.startsWith('https://')) {
+      try {
+        const response = await fetch(product.imageUrl);
+        const blob = await response.blob();
+        base64Image = await new Promise<string | undefined>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => resolve(undefined);
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        console.error('[WhatsApp] Error fetching remote image:', e);
+      }
     } else if (api?.readProductImage) {
       try {
         const resBase64 = await api.readProductImage(product.imageUrl);
         if (resBase64 && resBase64.startsWith('data:image/')) {
-          base64Image = resBase64.split(',')[1];
+          base64Image = resBase64;
         }
       } catch (e) {}
     }
   }
 
-  const mode = config?.whatsappMode || 'integrated';
+  const mode = activeConfig?.whatsappMode || 'integrated';
 
   if (mode === 'integrated' && api?.whatsappSendMessage) {
     showUiToast('Enviando cotización por WhatsApp…', 'info');
@@ -312,6 +337,107 @@ export async function sendProductByWhatsapp(
     return { ok: true };
   }
 }
+
+/**
+ * Envía una cotización detallada de los artículos del carrito del POS por WhatsApp.
+ * Genera un ticket digital con título "COTIZACIÓN" y lo envía como imagen en modo integrado.
+ */
+export async function sendPosQuoteByWhatsapp(
+  phone: string,
+  clientName: string,
+  items: any[],
+  total: number,
+  config: WorkshopConfig,
+  countryCode: string = '52',
+  discount?: number,
+  discountType?: 'percentage' | 'fixed',
+  discountValue?: number,
+  notes?: string,
+  createdBy?: string,
+  warehouses?: any[]
+): Promise<{ ok: boolean; error?: string }> {
+  const api = (window as any).electronAPI;
+  if (!api) return { ok: false, error: 'API Electron no disponible' };
+
+  const cc = countryCode.replace('+', '') || '52';
+  const formattedPhone = formatPhoneForWhatsapp(phone, cc);
+  const sym = config.currencySymbol || '$';
+  const shopName = config.storeName || 'FixManager';
+
+  // 1. Formatear texto de caption/resumen
+  let text = `📦 *${shopName}* - Cotización de Productos\n`;
+  text += `------------------------------------------\n`;
+  if (clientName.trim()) {
+    text += `👤 *Cliente:* ${clientName.trim()}\n\n`;
+  }
+  text += `*Artículos:*\n`;
+  items.forEach(cartItem => {
+    const itemPrice = cartItem.item.price;
+    text += `• ${cartItem.quantity}x ${cartItem.item.name} (${sym}${itemPrice.toLocaleString('es-MX', { minimumFractionDigits: 2 })}) - Subtotal: ${sym}${(cartItem.quantity * itemPrice).toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n`;
+  });
+  
+  if (discount && discount > 0) {
+    text += `\nDescuento: -${sym}${discount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+  }
+  text += `\n*TOTAL:* *${sym}${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}*\n`;
+  text += `------------------------------------------\n`;
+  if (notes?.trim()) {
+    text += `📝 *Notas:* ${notes.trim()}\n\n`;
+  }
+  text += `Quedamos a tus órdenes para cualquier duda o apartado. 😊`;
+
+  // 2. Generar el ticket de cotización
+  const tempSale = {
+    id: `COT-${Math.floor(100000 + Math.random() * 900000)}`,
+    items: items.map(cartItem => {
+      return {
+        description: cartItem.item.name,
+        quantity: cartItem.quantity,
+        price: cartItem.item.price,
+        fromWarehouseId: cartItem.fromWarehouseId
+      };
+    }),
+    total: total,
+    createdAt: new Date().toISOString(),
+    notes: notes || undefined,
+    discount: discount || undefined,
+    discountType: discountType || undefined,
+    discountValue: discountValue || undefined,
+    createdBy: createdBy || undefined
+  };
+
+  const html = buildPosTicketHtml(tempSale, config, warehouses, true);
+
+  const mode = config.whatsappMode || 'integrated';
+
+  if (mode === 'integrated') {
+    showUiToast('Generando imagen de cotización…', 'info');
+    const imgBase64 = await renderHtmlToBase64(html);
+    if (!imgBase64) {
+      showUiToast('Error al generar imagen de cotización', 'error');
+      return { ok: false, error: 'Error al renderizar' };
+    }
+
+    showUiToast('Enviando cotización por WhatsApp…', 'info');
+    const res = await api.whatsappSendMessage(formattedPhone, '', imgBase64);
+    if (res?.success) {
+      showUiToast('¡Cotización enviada por WhatsApp!', 'success');
+      return { ok: true };
+    } else {
+      showUiToast('Error al enviar. Abriendo WhatsApp Web...', 'error');
+      const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
+      if (api.openExternal) api.openExternal(waUrl);
+      else window.open(waUrl, '_blank');
+      return { ok: true };
+    }
+  } else {
+    const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
+    if (api.openExternal) api.openExternal(waUrl);
+    else window.open(waUrl, '_blank');
+    return { ok: true };
+  }
+}
+
 
 /**
  * Realiza el envío del mensaje en segundo plano utilizando una API/Pasarela externa (Método Automático).
@@ -598,7 +724,21 @@ export async function sendWhatsappNotification(
 
   // Si está activo el modo integrado, verificar si debe enviarse de forma silenciosa en segundo plano
   if (mode === 'integrated') {
-    const isSale = text.toLowerCase().includes('ticket') || text.toLowerCase().includes('venta') || text.toLowerCase().includes('compra');
+    const isConnected = (window as any).whatsappConnected;
+    if (isConnected === false) {
+      console.warn('[WhatsApp] Envío cancelado: WhatsApp Integrado no está vinculado.');
+      showUiToast('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat.', 'error');
+      return { ok: false, error: 'WhatsApp no está conectado' };
+    }
+
+    const isSale = text.toLowerCase().includes('ticket') || 
+                   text.toLowerCase().includes('venta') || 
+                   text.toLowerCase().includes('compra') || 
+                   text.toLowerCase().includes('crédito') || 
+                   text.toLowerCase().includes('credito') || 
+                   text.toLowerCase().includes('fiado') || 
+                   text.toLowerCase().includes('abono') || 
+                   text.toLowerCase().includes('apartado');
     const isRepair = text.toLowerCase().includes('orden') || text.toLowerCase().includes('reparación') || text.toLowerCase().includes('estatus') || text.toLowerCase().includes('estado');
     
     const cleanedPhone = phone ? phone.replace(/\D/g, '') : '';
@@ -620,7 +760,8 @@ export async function sendWhatsappNotification(
             if (htmlForImage) {
               imgBase64 = await renderHtmlToBase64(htmlForImage);
             }
-            const res = await api.whatsappSendMessage(formattedPhone, text, imgBase64);
+            const finalSendText = htmlForImage ? '' : text;
+            const res = await api.whatsappSendMessage(formattedPhone, finalSendText, imgBase64);
             if (res.success) {
               loading.update('¡Comprobante enviado por WhatsApp en segundo plano!', 'success');
             } else {
@@ -638,8 +779,9 @@ export async function sendWhatsappNotification(
   }
   
   // Despachar evento personalizado para que App.tsx levante el modal de React
+  const finalSendText = htmlForImage ? '' : text;
   window.dispatchEvent(new CustomEvent('show-whatsapp-modal', {
-    detail: { phone, text, htmlForImage, autoAction, change, countryCode }
+    detail: { phone, text: finalSendText, htmlForImage, autoAction, change, countryCode }
   }));
   
   return { ok: true, openWindow: true };
@@ -735,6 +877,13 @@ export function buildWhatsappSaleTicketMessage(sale: Sale, config: WorkshopConfi
         ticket += ' '.repeat(qtyText.length) + descLines[j] + '\n';
       }
     }
+
+    if (i.description && i.description !== i.name) {
+      const detailLines = wrapText(`(${i.description})`, 32 - 3);
+      detailLines.forEach(dl => {
+        ticket += `   ${dl}\n`;
+      });
+    }
   });
   
   ticket += '--------------------------------\n';
@@ -783,6 +932,102 @@ export function buildWhatsappSaleTicketMessage(sale: Sale, config: WorkshopConfi
   wrapText(footerText, 32).forEach(l => ticket += centerText(l, 32) + '\n');
   ticket += '```';
   
+  return ticket;
+}
+
+/**
+ * Mensaje de WhatsApp para Ticket de Recarga o Pago de Servicios.
+ */
+export function buildWhatsappRechargeTicketMessage(sale: Sale, config: WorkshopConfig): string {
+  const sym = config.currencySymbol || '$';
+  const fecha = new Date(sale.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora = new Date(sale.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+  const rechargeItem = (sale.items || []).find(item => {
+    const id = item.itemId || (item as any).id;
+    return id && typeof id === 'string' && id.startsWith('recharge-') && id !== 'recharge-commission';
+  });
+  const commissionItem = (sale.items || []).find(item => {
+    const id = item.itemId || (item as any).id;
+    return id === 'recharge-commission';
+  });
+
+  let carrierName = rechargeItem ? rechargeItem.name.split(' $')[0] : 'RECARGA';
+  if (carrierName.toUpperCase().startsWith('RECARGA ')) {
+    carrierName = carrierName.slice(8);
+  }
+
+  let phoneOrReference = '';
+  if (rechargeItem) {
+    const firstOpenIdx = rechargeItem.name.indexOf('(');
+    const lastCloseIdx = rechargeItem.name.lastIndexOf(')');
+    if (firstOpenIdx !== -1 && lastCloseIdx !== -1 && lastCloseIdx > firstOpenIdx) {
+      phoneOrReference = rechargeItem.name.slice(firstOpenIdx + 1, lastCloseIdx);
+      if (phoneOrReference.startsWith('(') && phoneOrReference.endsWith(')')) {
+        phoneOrReference = phoneOrReference.slice(1, -1);
+      }
+    } else {
+      const parts = rechargeItem.name.split(' ');
+      phoneOrReference = parts[parts.length - 1] || '';
+    }
+  }
+
+  let folio = '';
+  let ref = sale.id;
+  if (sale.confirmationCode) {
+    const folioMatch = sale.confirmationCode.match(/Folio Aut:\s*([^|]+)/i);
+    const refMatch = sale.confirmationCode.match(/Ref:\s*([^|]+)/i);
+    if (folioMatch) folio = folioMatch[1].trim();
+    if (refMatch) ref = refMatch[1].trim();
+  }
+
+  const amount = rechargeItem ? rechargeItem.price : sale.total;
+  const commission = commissionItem ? commissionItem.price : 0;
+  const total = sale.total;
+
+  const isPagoServicio = rechargeItem ? (
+    rechargeItem.name.toUpperCase().includes('CFE') ||
+    rechargeItem.name.toUpperCase().includes('TELMEX') ||
+    rechargeItem.name.toUpperCase().includes('IZZI') ||
+    rechargeItem.name.toUpperCase().includes('SERVICIO') ||
+    (rechargeItem.itemId && rechargeItem.itemId.includes('cfe')) ||
+    (rechargeItem.itemId && rechargeItem.itemId.includes('telmex')) ||
+    (rechargeItem.itemId && rechargeItem.itemId.includes('izzi'))
+  ) : false;
+
+  const titleText = isPagoServicio ? 'COMPROBANTE DE SERVICIOS' : 'COMPROBANTE DE RECARGA';
+
+  let ticket = '```\n';
+  const storeName = (config.storeName || 'TALLER').toUpperCase();
+  wrapText(storeName, 32).forEach(l => ticket += centerText(l, 32) + '\n');
+  if (config.slogan) wrapText(config.slogan, 32).forEach(l => ticket += centerText(l, 32) + '\n');
+  if (config.address) wrapText(config.address, 32).forEach(l => ticket += centerText(l, 32) + '\n');
+  if (config.phone) ticket += centerText(`Tel: ${config.phone}`, 32) + '\n';
+
+  ticket += '--------------------------------\n';
+  wrapText(titleText, 32).forEach(l => ticket += centerText(l, 32) + '\n');
+  ticket += '--------------------------------\n';
+
+  ticket += `Operador: ${carrierName.toUpperCase()}\n`;
+  ticket += `${isPagoServicio ? 'Referencia:' : 'Celular:'} ${phoneOrReference}\n`;
+  if (folio) {
+    ticket += `Folio Aut: ${folio}\n`;
+  }
+  ticket += `ID Transacción: ${ref}\n`;
+  ticket += `Fecha: ${fecha} ${hora}\n`;
+  ticket += '--------------------------------\n';
+
+  ticket += rightAlign('Monto:', `${sym}${amount.toFixed(2)}`, 32) + '\n';
+  if (commission > 0) {
+    ticket += rightAlign('Comisión:', `${sym}${commission.toFixed(2)}`, 32) + '\n';
+  }
+  ticket += rightAlign('TOTAL PAGADO:', `${sym}${total.toFixed(2)}`, 32) + '\n';
+
+  ticket += '--------------------------------\n';
+  const footerText = config.ticketFooterPOS || config.ticketFooter || '¡Gracias por su preferencia!';
+  wrapText(footerText, 32).forEach(l => ticket += centerText(l, 32) + '\n');
+  ticket += '```';
+
   return ticket;
 }
 
@@ -1130,6 +1375,24 @@ export function buildWhatsappFiadoCargoMessage(account: CreditAccount, entry: Cr
   const sym = config.currencySymbol || '$';
   const fecha = new Date(entry.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
+  // Calculate previous balance and current payment (if any) from history
+  const entryTime = new Date(entry.createdAt).getTime();
+  const otherEntries = (account.entries || []).filter(e => e.id !== entry.id);
+  const otherPayments = (account.payments || []).filter(p => {
+    const payTime = new Date(p.createdAt).getTime();
+    return Math.abs(entryTime - payTime) > 30000;
+  });
+  const calcPrevBalance = Math.max(0, 
+    otherEntries.reduce((s, e) => s + e.subtotal, 0) - 
+    otherPayments.reduce((s, p) => s + p.amount, 0)
+  );
+  
+  const thisPayment = (account.payments || []).find(p => {
+    const payTime = new Date(p.createdAt).getTime();
+    return Math.abs(entryTime - payTime) <= 30000;
+  });
+  const paymentAmount = thisPayment ? thisPayment.amount : 0;
+
   let ticket = '```\n';
   const storeName = (config.storeName || 'TALLER').toUpperCase();
   wrapText(storeName, 32).forEach(l => ticket += centerText(l, 32) + '\n');
@@ -1162,8 +1425,14 @@ export function buildWhatsappFiadoCargoMessage(account: CreditAccount, entry: Cr
   });
 
   ticket += '--------------------------------\n';
-  ticket += rightAlign('Importe Cargo:', `${sym}${entry.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
-  ticket += rightAlign('SALDO FIADO:', `${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
+  ticket += rightAlign('Cargo de hoy:', `${sym}${entry.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
+  if (calcPrevBalance > 0) {
+    ticket += rightAlign('Saldo anterior:', `${sym}${calcPrevBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
+  }
+  if (paymentAmount > 0) {
+    ticket += rightAlign('Abono de hoy:', `${sym}${paymentAmount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
+  }
+  ticket += rightAlign('SALDO TOTAL:', `${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 32) + '\n';
   ticket += '--------------------------------\n';
 
   const footerText = config.ticketFooter || '';

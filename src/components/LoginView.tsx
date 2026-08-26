@@ -825,6 +825,11 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
     // PIN correcto — verificar licencia en Supabase obligatoriamente para login inicial
     try {
       const checkOnline = async () => {
+        if (licenseStatus === 'active') {
+          // Si la licencia ya fue validada con éxito en el arranque, omitimos la consulta de red
+          // para que el inicio de sesión del usuario local sea inmediato.
+          return;
+        }
         await supabase.auth.refreshSession();
         const { data: { user: sbUser } } = await supabase.auth.getUser();
         if (sbUser) {
@@ -857,10 +862,10 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
         }
       };
 
-      // Limitar el chequeo online a un tiempo máximo de 3 segundos (3000ms)
+      // Limitar el chequeo online a un tiempo máximo de 10 segundos (10000ms)
       await Promise.race([
         checkOnline(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 3000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 10000))
       ]);
 
     } catch (err: any) {

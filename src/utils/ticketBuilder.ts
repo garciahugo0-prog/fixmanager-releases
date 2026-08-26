@@ -142,12 +142,51 @@ const CODE128_SCRIPT_TEMPLATE = `(function(){
   }
   function draw(text){
     var codes=encode(text);
-    var bw=2,h=32,x=10,bars=[];
-    if (codes.length >= 17) {
-      bw = 1.2;
-    } else if (codes.length >= 13) {
-      bw = 1.5;
+    
+    // Calcular módulos totales para determinar el ancho óptimo
+    var totalModules = 0;
+    for(var i=0;i<codes.length;i++){
+      var pat=C128[codes[i]];
+      for(var j=0;j<pat.length;j++){
+        totalModules += pat[j];
+      }
     }
+
+    var barcodeAsImage = false; // __BARCODE_AS_IMAGE__
+    var hideText = false; // __HIDE_TEXT__
+    var targets = document.getElementsByClassName('bc-target');
+    var el = document.getElementById('bc');
+    var targetEl = el;
+    if (targets && targets.length > 0) {
+      targetEl = targets[0];
+    }
+
+    // Medición del ancho real del contenedor padre
+    var containerWidth = 150;
+    if (targetEl && targetEl.parentElement) {
+      containerWidth = targetEl.parentElement.offsetWidth || 150;
+    }
+    if (containerWidth <= 0) {
+      containerWidth = 150;
+    }
+
+    // Diseñar código para ocupar el 90% del contenedor para quiet zones seguras
+    var availableWidth = Math.floor(containerWidth * 0.90);
+    if (availableWidth < 80) availableWidth = 80;
+
+    // Calcular bw de forma adaptativa
+    var bw = availableWidth / totalModules;
+    if (bw < 0.9) {
+      bw = 0.9;
+    } else if (bw > 2.0) {
+      bw = 2.0;
+    }
+    bw = Math.round(bw * 100) / 100;
+
+    var bw=2,h=32,x=10,bars=[];
+    // Sobrescribir bw inicial de la firma de reemplazo por el dinámico calculado
+    bw = bw; 
+
     for(var i=0;i<codes.length;i++){
       var pat=C128[codes[i]];
       for(var j=0;j<pat.length;j++){
@@ -156,10 +195,6 @@ const CODE128_SCRIPT_TEMPLATE = `(function(){
       }
     }
     var tw=x+10;
-    var barcodeAsImage = false; // __BARCODE_AS_IMAGE__
-    var hideText = false; // __HIDE_TEXT__
-    var targets = document.getElementsByClassName('bc-target');
-    var el = document.getElementById('bc');
 
     if (barcodeAsImage) {
       var canvas = document.createElement('canvas');
@@ -173,17 +208,18 @@ const CODE128_SCRIPT_TEMPLATE = `(function(){
         ctx.fillText(text, tw / 2, h + 10);
       }
       var imgUrl = canvas.toDataURL('image/png');
-      var img = '<img src="' + imgUrl + '" style="display:block;width:100%;max-width:280px;height:auto;margin:0 auto" />';
+      var img = '<img src="' + imgUrl + '" style="display:block;width:auto;max-width:100%;height:auto;margin:0 auto" />';
       if (targets && targets.length > 0) {
         for (var t = 0; t < targets.length; t++) { targets[t].innerHTML = img; }
       } else {
         if (el) el.innerHTML = img;
       }
     } else {
-      var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+tw+'" height="'+(h+(hideText ? 2 : 12))+'" viewBox="0 0 '+tw+' '+(h+(hideText ? 2 : 12))+'" shape-rendering="crispEdges" style="display:block;width:100%;max-width:280px;height:auto;margin:0 auto" preserveAspectRatio="none">';
+      var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+tw+'" height="'+(h+(hideText ? 2 : 12))+'" viewBox="0 0 '+tw+' '+(h+(hideText ? 2 : 12))+'" shape-rendering="crispEdges" style="display:block;width:auto;max-width:100%;height:auto;margin:0 auto">';
       for(var k=0;k<bars.length;k++){svg+='<rect x="'+bars[k].x+'" y="0" width="'+bars[k].w+'" height="'+h+'" fill="black" shape-rendering="crispEdges"/>';}
       if (!hideText) {
-        svg+='<text x="'+(tw/2)+'" y="'+(h+10)+'" text-anchor="middle" font-family="monospace" font-size="9" fill="black">'+text+'</text>';
+        var escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        svg+='<text x="'+(tw/2)+'" y="'+(h+10)+'" text-anchor="middle" font-family="monospace" font-size="9" fill="black">'+escapedText+'</text>';
       }
       svg+='</svg>';
       if (targets && targets.length > 0) {
@@ -350,8 +386,9 @@ export function buildTicketFooterBlock(config: WorkshopConfig, paperWidth: '58mm
   
   const hasHours = !!config.businessHours;
   const hasSocial = !!(config.socialFacebook || config.socialInstagram || config.socialTiktok);
+  const hasMaps = !!(config.googleMapsLink && config.googleMapsLink.trim() !== '' && !config.hideMapsQr);
   
-  if (!hasHours && !hasSocial) return '';
+  if (!hasHours && !hasSocial && !hasMaps) return '';
   
   let hoursHtml = '';
   if (hasHours) {
@@ -456,6 +493,18 @@ export function buildTicketFooterBlock(config: WorkshopConfig, paperWidth: '58mm
       `</div>`;
   }
 
+  let googleMapsHtml = '';
+  if (hasMaps) {
+    const qrSize = is58 ? 45 : 60;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&margin=0&data=` + encodeURIComponent(config.googleMapsLink!);
+    googleMapsHtml = `
+      <div style="text-align:center;margin-top:5px;margin-bottom:3px;font-family:system-ui,-apple-system,sans-serif;">
+        <div style="font-size:${isMediaCarta ? '8px' : (is58 ? '7px' : '8px')};color:#000;font-weight:900;text-transform:uppercase;margin-bottom:2px;">📍 Ubícanos en Google Maps</div>
+        <img src="${qrUrl}" style="width:${qrSize}px;height:${qrSize}px;display:block;margin:0 auto;" />
+      </div>
+    `;
+  }
+
   const waWarningHtml = `<div style="font-size:${isMediaCarta ? '7.5px' : (is58 ? '7px' : '8px')};font-style:italic;color:#000;font-weight:500;margin-top:3px;text-align:center;line-height:1.2;font-family:system-ui,-apple-system,sans-serif;">(Guárdanos en tus contactos para recibir notificaciones por WhatsApp)</div>`;
 
   const style = isMediaCarta 
@@ -465,6 +514,7 @@ export function buildTicketFooterBlock(config: WorkshopConfig, paperWidth: '58mm
   return `<div style="${style}">` +
     hoursHtml +
     socialHtml +
+    googleMapsHtml +
     waWarningHtml +
     `</div>`;
 }
@@ -508,6 +558,26 @@ export function buildTicketHeaderHtml(config: WorkshopConfig, paperWidth: '58mm'
     '</div>';
 }
 
+export function buildPromoHtml(config: WorkshopConfig, is58: boolean): { top: string; bottom: string } {
+  const todayStr = new Date().toLocaleDateString('sv-SE');
+  const isPromoActive = 
+    config.promoActive && 
+    config.promoText && 
+    config.promoText.trim() !== '' &&
+    (!config.promoStartDate || todayStr >= config.promoStartDate) &&
+    (!config.promoEndDate || todayStr <= config.promoEndDate);
+  
+  if (!isPromoActive) {
+    return { top: '', bottom: '' };
+  }
+  
+  const promoHtml = '<div style="border:1.5px dashed #000;padding:5px;text-align:center;font-size:' + (is58 ? '9.5' : '10.5') + 'px;margin:5px 0;font-weight:900;line-height:1.35;word-break:break-word;white-space:pre-wrap;">📢 ' + config.promoText + '</div>';
+  
+  const top = config.promoPosition === 'top' ? promoHtml : '';
+  const bottom = config.promoPosition !== 'top' ? promoHtml : '';
+  return { top, bottom };
+}
+
 export function buildTicketHtml(order: RepairOrder, config: WorkshopConfig, page?: 'front' | 'back' | 'whatsapp'): string {
   if (config.ticketPaperWidth === 'media-carta') {
     if (page === 'whatsapp') {
@@ -530,6 +600,7 @@ export function buildTicketHtml(order: RepairOrder, config: WorkshopConfig, page
   const footer = config.ticketFooterService || config.ticketFooter || '¡Gracias por su preferencia!';
   const policies = config.termsAndConditionsService || config.termsAndConditions || '';
   const paperWidth = config.ticketPaperWidth === '58mm' ? '58mm' : '80mm';
+  const { top: promoTop, bottom: promoBottom } = buildPromoHtml(config, paperWidth === '58mm');
 
   const _d = new Date(order.createdAt);
   const _pad = (n: number) => String(n).padStart(2, '0');
@@ -555,22 +626,26 @@ export function buildTicketHtml(order: RepairOrder, config: WorkshopConfig, page
     accessHtml = '<div class="row"><span class="lbl">Acceso:</span><span class="val bold">' + order.devicePin + '</span></div>';
   }
 
-  const notesText = (order.diagnosticsNote || '').trim().toUpperCase();
+  const rawNotes = order.ticketNote !== undefined ? order.ticketNote : (order.diagnosticsNote || '');
+  const notesText = rawNotes.trim().toUpperCase();
   const isDefaultNote = notesText === '' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO';
-  let formattedNote = (order.diagnosticsNote || '').trim();
+  let formattedNote = rawNotes.trim();
   if (formattedNote) {
-    if (/^soluci[oó]n propuesta/i.test(formattedNote)) {
-      formattedNote = formattedNote.replace(/^soluci[oó]n propuesta:?\s*/i, 'Solución propuesta:\n');
+    if (/^soluci[oó]n propuesta:?\s*/i.test(formattedNote)) {
+      formattedNote = formattedNote.replace(/^soluci[oó]n propuesta:?\s*/i, '');
     }
   }
   const formattedNoteHtml = formattedNote.replace(/\n/g, '<br/>');
 
   const diagnosticsRow = order.showNotesOnLabel && !isDefaultNote
-    ? '<div style="font-size:9.5px;margin:4px 0 2px 0;color:#000;white-space:pre-wrap;word-break:break-word;line-height:1.35;text-align:left;">' + formattedNoteHtml + '</div>'
+    ? '<div style="border:1.5px dashed #000;padding:6px;margin:6px 0;font-size:9.5px;line-height:1.35;word-break:break-word;white-space:pre-wrap;text-align:left;color:#000;">' +
+      '<div style="font-weight:900;margin-bottom:3px;font-size:10px;">📋 NOTAS DEL TALLER:</div>' +
+      '<div>' + formattedNoteHtml + '</div>' +
+      '</div>'
     : '';
 
   const policiesHtml = policies
@@ -620,11 +695,13 @@ export function buildTicketHtml(order: RepairOrder, config: WorkshopConfig, page
     '</head><body>' +
     buildTicketHeaderHtml(config, paperWidth as any) +
     '<hr class="sep">' +
+    (promoTop ? promoTop + '<hr class="sep">' : '') +
     '<div class="section-badge">ORDEN DE TRABAJO</div>' +
     '<div class="row"><span class="lbl">No:</span><span class="val bold">' + order.id + '</span></div>' +
     '<div class="row"><span class="lbl">Fecha de Ingreso:</span><span class="val">' + dateStr + '</span></div>' +
     '<div class="row"><span class="lbl">Promesa de Entrega:</span><span class="val">' + deliveryStr + '</span></div>' +
     technicianRow +
+    (order.createdBy ? '<div class="row"><span class="lbl">Atendió:</span><span class="val">' + order.createdBy.toUpperCase() + '</span></div>' : '') +
     '<hr class="sep">' +
     '<div class="section-title">CLIENTE</div>' +
     '<div class="row"><span class="lbl">Nom:</span><span class="val bold">' + order.customerName.toUpperCase() + '</span></div>' +
@@ -685,6 +762,7 @@ export function buildTicketHtml(order: RepairOrder, config: WorkshopConfig, page
     '<div class="bc-target" id="bc" style="margin:5px 0 2px 0;text-align:center;width:100%;overflow:hidden"></div>' +
     '<hr class="sep">' +
     buildTicketFooterBlock(config, paperWidth as any) +
+    (promoBottom ? promoBottom + '<hr class="sep">' : '') +
     '<div class="footer-text">' + footer + '</div>' +
     '<script>' + code128Script + '<\/script>' +
     '</body></html>';
@@ -693,7 +771,7 @@ export function buildTicketHtml(order: RepairOrder, config: WorkshopConfig, page
 export function buildPosTicketHtml(
   sale: {
     id: string;
-    items: { description: string; quantity: number; price: number }[];
+    items: { description: string; quantity: number; price: number; fromWarehouseId?: string }[];
     total: number;
     createdAt: string;
     paymentMethod?: string;
@@ -705,8 +783,11 @@ export function buildPosTicketHtml(
     discount?: number;
     discountType?: 'percentage' | 'fixed';
     discountValue?: number;
+    createdBy?: string;
   },
-  config: WorkshopConfig
+  config: WorkshopConfig,
+  warehouses?: { id: string; name: string }[],
+  isQuote?: boolean
 ): string {
   let effectivePosWidth = config.posPaperWidth || config.ticketPaperWidth || '80mm';
   if (effectivePosWidth === 'media-carta' || effectivePosWidth === 'media-carta-duplicado') {
@@ -760,12 +841,46 @@ export function buildPosTicketHtml(
           ? '<td style="text-align:right;white-space:nowrap;color:#000;padding:3px 4px;border:none !important;">' + currSym + item.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>'
           : '<td style="border:none !important;"></td>')
       : '';
+    const whName = warehouses && item.fromWarehouseId ? (warehouses.find(w => w.id === item.fromWarehouseId)?.name || 'Bodega') : (item.fromWarehouseId ? 'Bodega' : '');
+    const descSuffix = whName ? ` (${whName})` : '';
     itemsHtml +=
       '<tr>' +
-      '<td style="font-weight:700;padding:3px 4px 3px 0;word-break:break-word;border:none !important;">' + item.quantity + 'x ' + item.description + '</td>' +
+      '<td style="font-weight:700;padding:3px 4px 3px 0;word-break:break-word;border:none !important;">' + item.quantity + 'x ' + item.description + descSuffix + '</td>' +
       unitCell +
       '<td style="text-align:right;white-space:nowrap;font-weight:900;padding:3px 0;border:none !important;">' + currSym + lineTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
       '</tr>';
+
+    const originalPrice = (item as any).originalPrice !== undefined ? (item as any).originalPrice : item.price;
+    const discountValue = (item as any).discountValue;
+    const discountType = (item as any).discountType;
+    const hasLineDiscount = discountValue !== undefined && discountValue > 0;
+
+    if (hasLineDiscount) {
+      const unitDiscountAmt = originalPrice - item.price;
+      const totalDiscountAmt = unitDiscountAmt * item.quantity;
+      
+      const origStr = originalPrice.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const unitDescStr = unitDiscountAmt.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const finalStr = item.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const totalDescStr = totalDiscountAmt.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      
+      let descDetail = '';
+      if (discountType === 'percentage') {
+        descDetail = `${currSym}${origStr} - ${discountValue}% = ${currSym}${finalStr}`;
+      } else {
+        descDetail = `${currSym}${origStr} - ${currSym}${unitDescStr} = ${currSym}${finalStr}`;
+      }
+      
+      if (item.quantity > 1) {
+        descDetail += ` (Ahorro total: -${currSym}${totalDescStr})`;
+      }
+
+      itemsHtml +=
+        '<tr>' +
+        '<td colspan="' + (hasMultiQty ? 3 : 2) + '" style="font-size:' + (is58 ? '8.5' : '9.5') + 'px;color:#000;font-style:italic;padding:0 0 4px 12px;border:none !important;">' +
+        '└─ Descuento: ' + descDetail + '</td>' +
+        '</tr>';
+    }
   });
   itemsHtml += '</tbody></table>';
 
@@ -789,7 +904,11 @@ export function buildPosTicketHtml(
     ? '<div class="row"><span class="lbl">Forma de pago:</span><span class="val">' + sale.paymentMethod + '</span></div>'
     : '';
 
-  const confirmationRow = sale.confirmationCode
+  const showConfirmation = sale.confirmationCode && 
+    !sale.confirmationCode.includes('Ref: S/Ref') &&
+    !(sale.confirmationCode.startsWith('Efe:') && !sale.confirmationCode.includes('T/T:'));
+
+  const confirmationRow = showConfirmation
     ? '<div class="row" style="font-size: ' + (is58 ? '9' : '10') + 'px;"><span class="lbl">Ref/Aut:</span><span class="val bold">' + sale.confirmationCode + '</span></div>'
     : '';
 
@@ -842,9 +961,10 @@ export function buildPosTicketHtml(
     '<hr class="sep">' +
     promoTop +
     (promoTop ? '<hr class="sep">' : '') +
-    '<div class="section-badge">TICKET DE VENTA</div>' +
-    '<div class="row"><span class="lbl">No:</span><span class="val bold">' + sale.id + '</span></div>' +
+    '<div class="section-badge">' + (isQuote ? 'COTIZACIÓN' : 'TICKET DE VENTA') + '</div>' +
+    '<div class="row"><span class="lbl">' + (isQuote ? 'Cotización No:' : 'No:') + '</span><span class="val bold">' + sale.id + '</span></div>' +
     '<div class="row"><span class="lbl">Fecha:</span><span class="val">' + dateStr + '</span></div>' +
+    (sale.createdBy ? '<div class="row"><span class="lbl">Atendió:</span><span class="val">' + sale.createdBy.toUpperCase() + '</span></div>' : '') +
     paymentRow +
     confirmationRow +
     '<hr class="sep">' +
@@ -870,13 +990,199 @@ export function buildPosTicketHtml(
     '</body></html>';
 }
 
+export function buildRechargeTicketHtml(
+  sale: {
+    id: string;
+    items: { itemId: string; name: string; price: number; quantity: number; description?: string }[];
+    total: number;
+    createdAt: string;
+    paymentMethod?: string;
+    confirmationCode?: string;
+    createdBy?: string;
+    cashReceived?: number;
+    change?: number;
+  },
+  config: WorkshopConfig
+): string {
+  const rechargeItem = (sale.items || []).find(item => {
+    const id = (item.itemId || (item as any).id || '') as string;
+    const name = (item.name || item.description || '') as string;
+    if (id === 'recharge-commission' || name.toLowerCase().includes('comisión de recarga') || name.toLowerCase().includes('comision de recarga') || name.toLowerCase().includes('comisión de servicio')) {
+      return false;
+    }
+    if (id.startsWith('recharge-') || id.startsWith('recarga-')) {
+      return true;
+    }
+    return (
+      name.toLowerCase().includes('tiempo aire') ||
+      name.toLowerCase().includes('paquete') ||
+      name.toLowerCase().includes('telcel') ||
+      name.toLowerCase().includes('movistar') ||
+      name.toLowerCase().includes('att') ||
+      name.toLowerCase().includes('at&t') ||
+      name.toLowerCase().includes('unefon') ||
+      name.toLowerCase().includes('bait') ||
+      name.toLowerCase().includes('virgin') ||
+      name.toLowerCase().includes('cfe') ||
+      name.toLowerCase().includes('telmex') ||
+      name.toLowerCase().includes('izzi') ||
+      name.toLowerCase().includes('recarga') ||
+      name.toLowerCase().includes('servicio')
+    );
+  }) || (sale.items || [])[0];
+
+  const commissionItem = (sale.items || []).find(item => {
+    const id = (item.itemId || (item as any).id || '') as string;
+    const name = (item.name || item.description || '') as string;
+    return (
+      id === 'recharge-commission' ||
+      name.toLowerCase().includes('comisión') ||
+      name.toLowerCase().includes('comision')
+    );
+  });
+
+  const rawItemName = rechargeItem ? (rechargeItem.name || rechargeItem.description || '') : '';
+  let cleanItemName = rawItemName;
+  if (cleanItemName.toUpperCase().startsWith('1X ') || cleanItemName.toUpperCase().startsWith('1 X ')) {
+    cleanItemName = cleanItemName.slice(3).trim();
+  }
+
+  let carrierName = cleanItemName ? cleanItemName.split(' $')[0] : 'RECARGA';
+  if (carrierName.toUpperCase().startsWith('RECARGA ')) {
+    carrierName = carrierName.slice(8);
+  }
+  
+  // Extract phone/reference from description, item name, or confirmationCode
+  let phoneOrReference = '';
+  if (cleanItemName) {
+    const firstOpenIdx = cleanItemName.indexOf('(');
+    const lastCloseIdx = cleanItemName.lastIndexOf(')');
+    if (firstOpenIdx !== -1 && lastCloseIdx !== -1 && lastCloseIdx > firstOpenIdx) {
+      let rawInner = cleanItemName.slice(firstOpenIdx + 1, lastCloseIdx).trim();
+      while (rawInner.startsWith('(') && rawInner.endsWith(')')) {
+        rawInner = rawInner.slice(1, -1).trim();
+      }
+      phoneOrReference = rawInner;
+    } else {
+      const phoneMatch = cleanItemName.match(/\(?\d{2,3}\)?[-.\s]?\d{3,4}[-.\s]?\d{4}/) || cleanItemName.match(/\b\d{10}\b/);
+      if (phoneMatch) {
+        phoneOrReference = phoneMatch[0];
+      } else {
+        const parts = cleanItemName.split(' ');
+        phoneOrReference = parts[parts.length - 1] || '';
+      }
+    }
+  }
+
+  // Parse folio and reference from confirmationCode (e.g. "Folio Aut: 123456 | Ref: TX-789012")
+  let folio = '';
+  let ref = sale.id; // Fallback to sale ID
+  if (sale.confirmationCode) {
+    const folioMatch = sale.confirmationCode.match(/Folio Aut:\s*([^|]+)/i);
+    const refMatch = sale.confirmationCode.match(/Ref:\s*([^|]+)/i);
+    if (folioMatch) folio = folioMatch[1].trim();
+    if (refMatch) ref = refMatch[1].trim();
+  }
+
+  const commission = commissionItem ? commissionItem.price : 0;
+  let amount = rechargeItem ? rechargeItem.price : (sale.total - commission);
+  if (amount <= 0 || (commission > 0 && amount === sale.total)) {
+    amount = sale.total - commission;
+  }
+  const total = sale.total;
+
+  const itemCheckStr = ((rechargeItem?.itemId || '') + ' ' + (rechargeItem?.name || '') + ' ' + (rechargeItem?.description || '')).toUpperCase();
+  const isPagoServicio = (
+    itemCheckStr.includes('CFE') ||
+    itemCheckStr.includes('TELMEX') ||
+    itemCheckStr.includes('IZZI') ||
+    itemCheckStr.includes('SERVICIO') ||
+    itemCheckStr.includes('PAGO DE SERVICIO')
+  );
+
+  const badgeText = isPagoServicio ? 'PAGO DE SERVICIOS' : 'COMPROBANTE DE RECARGA';
+
+  let effectivePosWidth = config.posPaperWidth || config.ticketPaperWidth || '80mm';
+  if (effectivePosWidth === 'media-carta' || effectivePosWidth === 'media-carta-duplicado') {
+    effectivePosWidth = '80mm';
+  }
+  const currSym = config.currencySymbol || '$';
+  const paperWidth = effectivePosWidth === '58mm' ? '58mm' : '80mm';
+  const is58 = paperWidth === '58mm';
+
+  const _d = new Date(sale.createdAt);
+  const _pad = (n: number) => String(n).padStart(2, '0');
+  const _h = _d.getHours(); const _ampm = _h >= 12 ? 'PM' : 'AM'; const _h12 = _h % 12 || 12;
+  const dateStr = isNaN(_d.getTime()) ? sale.createdAt : `${_pad(_d.getDate())}/${_pad(_d.getMonth()+1)}/${_d.getFullYear()} ${_h12}:${_pad(_d.getMinutes())}${_ampm}`;
+
+  const isStarTsp100 = config.selectedPrinterProfileId === 'star-tsp100';
+  const effectivePaperSize = isStarTsp100 ? '72mm' : paperWidth;
+  const offset = config.ticketMarginOffset || 0;
+  const rightPad = isStarTsp100 ? '1mm' : (paperWidth === '58mm' ? '4mm' : '6mm');
+  const leftPad = isStarTsp100 ? '1mm' : (paperWidth === '58mm' ? '4mm' : '5mm');
+  const bottomPad = paperWidth === '58mm' ? '2mm' : '4mm';
+
+  let detailText = '';
+  const rawDesc = (rechargeItem?.description || rechargeItem?.name || '').trim();
+  if (rawDesc) {
+    let cleanDesc = rawDesc;
+    // 1. Remove 1x or 1 X prefix if present
+    if (cleanDesc.toUpperCase().startsWith('1X ') || cleanDesc.toUpperCase().startsWith('1 X ')) {
+      cleanDesc = cleanDesc.slice(3).trim();
+    }
+    // 2. Remove phone / reference in parentheses from description so it's not repeated
+    if (phoneOrReference && cleanDesc.includes(phoneOrReference)) {
+      cleanDesc = cleanDesc.replace(new RegExp('\\(?\\(?\\s*' + phoneOrReference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\)?\\)?', 'gi'), '').trim();
+    }
+    // 3. Clean any trailing empty parentheses
+    cleanDesc = cleanDesc.replace(/\s*\(\s*\)\s*$/g, '').trim();
+
+    detailText = cleanDesc || rawDesc;
+  }
+
+  return '<!DOCTYPE html><html><head>' +
+    '<meta charset="utf-8">' +
+    '<style>' +
+    '@page { size: ' + effectivePaperSize + ' auto; margin: 0; }' +
+    '* { box-sizing: border-box; margin: 0; padding: 0; }' +
+    'body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: ' + (paperWidth === '58mm' ? '11' : '13') + 'px; font-weight: 700; width: 100%; padding: 0 calc(' + rightPad + ' - ' + offset + 'px) ' + bottomPad + ' calc(' + leftPad + ' + ' + offset + 'px); color: #000; background: #fff; overflow-x: hidden; overflow-wrap: break-word; word-break: break-word; }' +
+    '.sep { border: none; border-top: 1.5px dashed #000; margin: 4px 0; }' +
+    '.section-badge { display: block; font-weight: 900; text-align: center; font-size: ' + (paperWidth === '58mm' ? '10' : '11') + 'px; background: #000; color: #fff; padding: 2px 0; margin: 3px 0; letter-spacing: 1px; }' +
+    '.row { display: flex; flex-wrap: wrap; justify-content: space-between; font-size: ' + (paperWidth === '58mm' ? '11' : '12') + 'px; margin: 2px 0; line-height: 1.3; }' +
+    '.lbl { font-weight: 700; white-space: nowrap; margin-right: 4px; }' +
+    '.val { text-align: right; flex: 1; min-width: 0; word-break: break-word; }' +
+    '.bold { font-weight: 900; }' +
+    '.total-line { display: flex; justify-content: space-between; font-size: ' + (paperWidth === '58mm' ? '12' : '14') + 'px; font-weight: 900; margin-top: 4px; padding: 4px; border: 1.5px solid #000; }' +
+    '.footer-text { font-size: ' + (paperWidth === '58mm' ? '8.5' : '9.5') + 'px; text-align: center; font-weight: 700; margin: 4px 0 2px 0; }' +
+    '</style>' +
+    '</head><body>' +
+    buildTicketHeaderHtml(config, paperWidth as any) +
+    '<hr class="sep">' +
+    '<div class="section-badge">' + badgeText + '</div>' +
+    '<div class="row"><span class="lbl">Operador:</span><span class="val bold">' + carrierName.toUpperCase() + '</span></div>' +
+    (detailText ? '<div class="row"><span class="lbl">Detalle:</span><span class="val bold">' + detailText.toUpperCase() + '</span></div>' : '') +
+    '<div class="row"><span class="lbl">' + (isPagoServicio ? 'Referencia:' : 'Celular:') + '</span><span class="val bold">' + phoneOrReference + '</span></div>' +
+    (folio ? '<div class="row"><span class="lbl">Folio Aut:</span><span class="val bold">' + folio + '</span></div>' : '') +
+    '<div class="row"><span class="lbl">ID Transacción:</span><span class="val">' + ref + '</span></div>' +
+    '<div class="row"><span class="lbl">Fecha:</span><span class="val">' + dateStr + '</span></div>' +
+    (sale.createdBy ? '<div class="row"><span class="lbl">Atendió:</span><span class="val">' + sale.createdBy.toUpperCase() + '</span></div>' : '') +
+    '<hr class="sep">' +
+    '<div class="row"><span class="lbl">Monto:</span><span class="val">' + currSym + amount.toFixed(2) + '</span></div>' +
+    (commission > 0 ? '<div class="row"><span class="lbl">Comisión:</span><span class="val">' + currSym + commission.toFixed(2) + '</span></div>' : '') +
+    '<div class="total-line"><span class="lbl">TOTAL PAGADO:</span><span class="val bold">' + currSym + total.toFixed(2) + '</span></div>' +
+    '<hr class="sep">' +
+    '<div class="footer-text">' + (config.ticketFooterPOS || config.ticketFooter || '¡Gracias por su preferencia!') + '</div>' +
+    '</body></html>';
+}
+
+
 // ─── ETIQUETA DE SERVICIO ────────────────────────────────────────────────────
 
 const SERVICE_LABEL_SIZES: Record<string, { scale: number }> = {
   '51x25mm':  { scale: 1.00 },
   '50x30mm':  { scale: 1.10 },
   '40x20mm':  { scale: 0.80 },
-  '40x30mm':  { scale: 0.92 },
+  '40x30mm':  { scale: 0.88 },
   '60x30mm':  { scale: 1.15 },
   '30x15mm':  { scale: 0.58 },
   '38x25mm':  { scale: 0.85 },
@@ -892,6 +1198,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
   const phone = config.phone || '';
   const store = (config.storeName || 'TALLER').toUpperCase();
   const sizeKey = config.labelPaperSize || '51x25mm';
+  const isVertical = config.labelOrientation === 'vertical';
   const [labelWmm, labelHmm] = sizeKey.replace('mm','').split('x').map(Number);
   const labelW = `${labelWmm}mm`;
   
@@ -904,7 +1211,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
 
   const logoSrc = config.labelLogoUrl || '';
   const logoHtml = logoSrc
-    ? `<div style="width:${s(16)}px;height:${s(16)}px;background:#ffffff;border-radius:${s(2)}px;display:flex;align-items:center;justify-content:center;margin-bottom:${s(3)}px;padding:1.5px;box-sizing:border-box;"><img src="${logoSrc}" style="width:100%;height:100%;object-fit:contain;filter:brightness(0);display:block;"/></div>`
+    ? `<div style="width:${s(16)}px;height:${s(16)}px;background:#ffffff;border-radius:${s(2)}px;display:flex;align-items:center;justify-content:center;margin-bottom:${s(3)}px;padding:1.5px;box-sizing:border-box;"><img src="${logoSrc}" style="width:100%;height:100%;object-fit:contain;display:block;"/></div>`
     : '';
 
   const _d = new Date(order.createdAt);
@@ -914,11 +1221,13 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
     ? `${_pad(_d.getDate())}/${_pad(_d.getMonth()+1)} ${_pad(_h12)}:${_pad(_d.getMinutes())}${_ampm.slice(0,1)}`
     : `${_pad(_d.getDate())}/${_pad(_d.getMonth()+1)}/${String(_d.getFullYear()).slice(-2)} ${_pad(_h12)}:${_pad(_d.getMinutes())}${_ampm}`;
 
-  const customerPhone = order.customerPhone
-    ? formatCustomerPhoneWithCountryCode(order.customerPhone, order.customerCountryCode)
-    : phone;
-
   const shouldHidePrice = order.hidePriceOnLabel ?? config.hidePriceOnLabel ?? false;
+
+  const customerPhone = shouldHidePrice
+    ? ''
+    : (order.customerPhone
+        ? formatCustomerPhoneWithCountryCode(order.customerPhone, order.customerCountryCode)
+        : phone);
   const isTicketLabelFormat = sizeKey === '58x40mm' || sizeKey === '80x50mm';
   const labelOffset = isTicketLabelFormat ? (config.labelMarginOffset || 0) : 0;
 
@@ -1028,7 +1337,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
     serviceLineHeight = '1.05';
   }
 
-  const notesText = (order.diagnosticsNote || '').trim();
+  const notesText = (order.labelNote !== undefined ? order.labelNote : order.diagnosticsNote || '').trim();
   const isDefaultNote = notesText.toUpperCase() === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText.toUpperCase() === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText.toUpperCase() === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
@@ -1082,10 +1391,10 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
           <div class="v-service-txt">${cleanServiceType}</div>
           ${shouldHidePrice ? '' : `<div class="v-price-badge">${priceDisplay}</div>`}
         </div>
-        ${hasCustomNote ? `<div style="font-size:${s(6.0)}px;font-weight:800;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;">NTS: ${cleanNote.toUpperCase()}</div>` : ''}
+        ${hasCustomNote ? `<div style="font-size:${s(6.0)}px;font-weight:800;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;">NTS: ${cleanNote}</div>` : ''}
       </div>
       <div class="v-footer">
-        <span>TEL: ${customerPhone}</span>
+        <span>${customerPhone ? `TEL: ${customerPhone}` : ''}</span>
         ${pinHtml || patternHtml ? `<div style="display:flex;align-items:center;">${pinHtml || patternHtml}</div>` : '<span style="background:#000;color:#fff;padding:0 3px;border-radius:2px;font-size:6px;font-weight:900;">SIN CLAVE</span>'}
       </div>
     </div>
@@ -1110,10 +1419,10 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
           <span style="font-size: ${s(6.5)}px; font-weight: 800;">${dateStr.split(' ')[0]}</span>
         </div>
         <div class="qr-row" style="font-size: ${s(nameBaseSize - 0.8)}px; font-weight: 900; text-transform: uppercase;">${order.customerName}</div>
-        <div class="qr-row" style="font-size: ${s(6.2)}px; font-weight: 800;">TEL: ${customerPhone}</div>
+        ${customerPhone ? `<div class="qr-row" style="font-size: ${s(6.2)}px; font-weight: 800;">TEL: ${customerPhone}</div>` : ''}
         <div class="qr-row" style="font-size: ${s(6.5)}px; font-weight: 800; text-transform: uppercase; color: #222;">${deviceLine}</div>
         <div class="qr-row" style="font-size: ${s(serviceBaseSize - 1.2)}px; font-weight: 900; text-transform: uppercase;">${cleanServiceType}</div>
-        ${hasCustomNote ? `<div class="qr-row" style="font-size: ${s(5.8)}px; font-weight: 800; color: #333;">NTS: ${cleanNote.toUpperCase()}</div>` : ''}
+        ${hasCustomNote ? `<div class="qr-row" style="font-size: ${s(5.8)}px; font-weight: 800; color: #333;">NTS: ${cleanNote}</div>` : ''}
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 1px; line-height: 1;">
           ${pinHtml || patternHtml ? `<div style="display:flex;align-items:center;">${patternHtml || pinHtml}</div>` : '<span style="font-size:6px;font-weight:900;background:#000;color:#fff;padding:0 2px;border-radius:1px;">SIN CLAVE</span>'}
           ${shouldHidePrice ? '' : `<span style="font-size: ${s(12)}px; font-weight: 950; line-height: 1;">${priceDisplay}</span>`}
@@ -1154,7 +1463,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
       <div style="display: flex; justify-content: space-between; gap: ${sm(1)}mm; flex: 1; margin: 2px 0; min-height: 0;">
         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between;">
           <div class="t-row" style="font-size: ${s(nameBaseSize - 0.8)}px; font-weight: 900; text-transform: uppercase;">CLI: ${order.customerName}</div>
-          <div class="t-row" style="font-size: ${s(6.2)}px; font-weight: 800;">TEL: ${customerPhone}</div>
+          ${customerPhone ? `<div class="t-row" style="font-size: ${s(6.2)}px; font-weight: 800;">TEL: ${customerPhone}</div>` : ''}
           <div class="t-row" style="font-size: ${s(deviceFontSizeNum - 0.8)}px; font-weight: 900; text-transform: uppercase;">EQP: ${deviceLine}</div>
           <div class="t-row" style="font-size: ${s(serviceBaseSize - 1.2)}px; font-weight: 900; text-transform: uppercase;">TRB: ${cleanServiceType}</div>
         </div>
@@ -1163,7 +1472,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
         </div>
       </div>
       <div style="border-top: ${s(1)}px dashed #000; padding-top: 1px; display: flex; justify-content: space-between; align-items: flex-end; font-size: ${s(6.5)}px; font-weight: 800; line-height: 1;">
-        <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; margin-right: 4px;">${hasCustomNote ? `NTS: ${cleanNote.toUpperCase()}` : ''}</div>
+        <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; margin-right: 4px;">${hasCustomNote ? `NTS: ${cleanNote}` : ''}</div>
         ${shouldHidePrice ? '' : `<div style="font-size: ${s(12)}px; font-weight: 950; line-height: 1;">${priceDisplay}</div>`}
       </div>
     </div>
@@ -1172,7 +1481,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
 
   // OPCIÓN 1: Estándar Taller (LA PLANTILLA ACTUAL INTACTA SIN TOCAR)
   // Determine if it is a small label (hide sidebars and redistribute layout)
-  const isSmallLabel = labelWmm <= 40 || labelHmm <= 20;
+  const isSmallLabel = labelWmm < 38 || labelHmm <= 20;
   const isExtremelySmall = labelHmm <= 16;
 
   // Ultra-compact layout for extremely small height labels (e.g. 30x15mm)
@@ -1193,10 +1502,10 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
       }
       .label {
         position: absolute;
-        top: ${sm(0.6)}mm;
-        left: ${sm(0.8)}mm;
-        width: calc(100% - ${sm(1.6)}mm);
-        height: calc(${cssLabelH} - ${sm(1.2)}mm);
+        top: ${sm(1.2)}mm;
+        left: ${sm(2.0)}mm;
+        width: calc(100% - ${sm(4.0)}mm);
+        height: calc(${cssLabelH} - ${sm(2.4)}mm);
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -1383,9 +1692,8 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
       font-size: ${s(notesBaseSize)}px;
       line-height: 1.05;
       font-weight: 500;
-      text-transform: uppercase;
       word-break: break-word;
-      white-space: normal;
+      white-space: pre-wrap;
       overflow: hidden;
       display: -webkit-box;
       -webkit-line-clamp: ${labelHmm <= 22 ? 1 : 3};
@@ -1434,7 +1742,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
         </div>
         <div class="handwrite-area">
           ${hasCustomNote ? `
-          <div class="handwrite-notes">${cleanNote.toUpperCase()}</div>
+          <div class="handwrite-notes">${cleanNote}</div>
           ` : `
           <div class="handwrite-line"></div>
           `}
@@ -1447,8 +1755,10 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
     ` : `
     <div class="left-bar">
       ${logoHtml}
-      <div style="writing-mode: vertical-lr; margin-top: ${logoSrc ? s(4) + 'px' : '0'};">
-        ${order.id.replace(/\D/g, '')}
+      <div style="display: block; margin-top: ${logoSrc ? s(4) + 'px' : '0'}; text-align: center; width: 100%;">
+        <span style="writing-mode: vertical-lr; display: inline-block; line-height: 1;">
+          ${order.id.replace(/\D/g, '')}
+        </span>
       </div>
     </div>
     <div class="center-area">
@@ -1475,7 +1785,7 @@ export function buildServiceLabelHtml(order: RepairOrder, config: WorkshopConfig
         </div>
         <div class="handwrite-area">
           ${hasCustomNote ? `
-          <div class="handwrite-notes">${cleanNote.toUpperCase()}</div>
+          <div class="handwrite-notes">${cleanNote}</div>
           ` : `
           <div class="handwrite-line"></div>
           `}
@@ -1514,15 +1824,15 @@ export function buildWarrantyLabelHtml(order: RepairOrder, config: WorkshopConfi
   const customerNameClean = (order.customerName || 'CLIENTE GENERICO').trim().toUpperCase();
   const deviceLine = [order.deviceBrand, order.deviceModel, order.deviceModelNumber ? `(${order.deviceModelNumber})` : ''].filter(Boolean).join(' ').toUpperCase();
 
-  const isSmallLabel = labelWmm <= 40 || labelHmm <= 20;
+  const isSmallLabel = labelWmm < 38 || labelHmm <= 20;
   const isExtremelySmall = labelHmm <= 16;
 
   const logoSrc = config.labelLogoUrl || '';
   const logoHtmlHeader = logoSrc
-    ? `<img src="${logoSrc}" style="height:${s(11)}px;max-width:${s(30)}px;object-fit:contain;filter:brightness(0);display:block;margin:0 4px;"/>`
+    ? `<img src="${logoSrc}" style="height:${s(11)}px;max-width:${s(30)}px;object-fit:contain;display:block;margin:0 4px;"/>`
     : '';
   const logoHtmlRightBar = logoSrc
-    ? `<div style="width:${s(16)}px;height:${s(16)}px;background:#ffffff;border-radius:${s(2)}px;display:flex;align-items:center;justify-content:center;margin-bottom:${s(3)}px;padding:1.5px;box-sizing:border-box;"><img src="${logoSrc}" style="width:100%;height:100%;object-fit:contain;filter:brightness(0);display:block;"/></div>`
+    ? `<div style="width:${s(16)}px;height:${s(16)}px;background:#ffffff;border-radius:${s(2)}px;display:flex;align-items:center;justify-content:center;margin-bottom:${s(3)}px;padding:1.5px;box-sizing:border-box;"><img src="${logoSrc}" style="width:100%;height:100%;object-fit:contain;display:block;"/></div>`
     : '';
 
   // Warning texts
@@ -1546,10 +1856,10 @@ export function buildWarrantyLabelHtml(order: RepairOrder, config: WorkshopConfi
       }
       .label {
         position: absolute;
-        top: ${sm(0.6)}mm;
-        left: ${sm(0.8)}mm;
-        width: calc(100% - ${sm(1.6)}mm);
-        height: calc(${cssLabelH} - ${sm(1.2)}mm);
+        top: ${sm(1.2)}mm;
+        left: ${sm(2.0)}mm;
+        width: calc(100% - ${sm(4.0)}mm);
+        height: calc(${cssLabelH} - ${sm(2.4)}mm);
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -1560,7 +1870,7 @@ export function buildWarrantyLabelHtml(order: RepairOrder, config: WorkshopConfi
     <div class="label">
       <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; border-bottom: ${s(1.0)}px solid #000; padding-bottom: 2px; flex-shrink: 0;">
         <span style="font-size: ${s(7.5)}px; font-weight: 950;">#${order.id}</span>
-        ${logoSrc ? `<img src="${logoSrc}" style="height:${s(7.5)}px;max-width:${s(20)}px;object-fit:contain;filter:brightness(0);"/>` : ''}
+        ${logoSrc ? `<img src="${logoSrc}" style="height:${s(7.5)}px;max-width:${s(20)}px;object-fit:contain;"/>` : ''}
         <span style="font-size: ${s(6.5)}px; font-weight: 900; background: #000; color: #fff; padding: 0 ${s(1.5)}px; border-radius: ${s(1)}px;">${dateStr.split(' ')[0]}</span>
       </div>
       <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden; line-height: 1.1;">
@@ -1774,8 +2084,10 @@ export function buildWarrantyLabelHtml(order: RepairOrder, config: WorkshopConfi
     </div>
     <div class="right-bar">
       ${logoHtmlRightBar}
-      <div style="writing-mode: vertical-rl; margin-top: ${logoSrc ? s(4) + 'px' : '0'}; font-weight: 950;">
-        ${store}
+      <div style="display: block; margin-top: ${logoSrc ? s(4) + 'px' : '0'}; font-weight: 950; text-align: center; width: 100%;">
+        <span style="writing-mode: vertical-rl; display: inline-block; line-height: 1;">
+          ${store}
+        </span>
       </div>
     </div>
     `}
@@ -1789,7 +2101,7 @@ const LABEL_SIZES: Record<string, { w: string; h: string; bcH: number; scale: nu
   '51x25mm':  { w: '51mm',  h: '25mm', bcH: 48, scale: 1.00 },
   '50x30mm':  { w: '50mm',  h: '30mm', bcH: 58, scale: 1.10 },
   '40x20mm':  { w: '40mm',  h: '20mm', bcH: 35, scale: 0.82 },
-  '40x30mm':  { w: '40mm',  h: '30mm', bcH: 58, scale: 0.92 },
+  '40x30mm':  { w: '40mm',  h: '30mm', bcH: 50, scale: 0.88 },
   '60x30mm':  { w: '60mm',  h: '30mm', bcH: 50, scale: 1.15 },
   '30x15mm':  { w: '30mm',  h: '15mm', bcH: 18, scale: 0.62 },
   '38x25mm':  { w: '38mm',  h: '25mm', bcH: 40, scale: 0.90 },
@@ -1817,20 +2129,21 @@ export function buildProductLabelHtml(
   const hideStoreName = config.hideStoreNameOnLabel || false;
   const hasHeader = !hideStoreName || logoSrc;
   const bcH = (hasHeader || templateStyle !== 'standard') ? sizeInfo.bcH : Math.round(sizeInfo.bcH * 1.28);
-  const { w: labelW, h: labelH, scale } = sizeInfo;
+  const { w: baseW, h: baseH, scale } = sizeInfo;
   const s = (base: number) => (base * scale).toFixed(1);
   const sm = (base: number) => (base * scale).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const bc128 = getBarcodeScript(barcodeId, false, true, true, bcH)
     .replace("document.getElementById('bc')", "((document.currentScript && document.currentScript.previousElementSibling) ? document.currentScript.previousElementSibling.querySelector('.bc-target') : document.getElementById('bc'))");
   const price = item.price % 1 === 0 ? item.price.toFixed(0) : item.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // Calculate a slightly smaller height for the CSS to avoid subpixel rounding overflow/blank page issues
-  const hMm = Number(labelH.replace('mm', ''));
+  const isVertical = config.labelOrientation === 'vertical';
+  const labelW = baseW;
+  const hMm = Number(baseH.replace('mm', ''));
   const cssLabelH = `${hMm - 0.8}mm`;
 
   const labelOffset = config.labelMarginOffset || 0;
   const logoHtml = logoSrc
-    ? `<img src="${logoSrc}" style="height:${s(18)}px;max-width:${s(40)}px;object-fit:contain;display:block;filter:brightness(0);"/>`
+    ? `<img src="${logoSrc}" style="height:${s(18)}px;max-width:${s(40)}px;object-fit:contain;display:block;"/>`
     : '';
 
   const isSmallLabel = labelWmm <= 40 || labelHmm <= 20;
@@ -1931,7 +2244,7 @@ export function buildProductLabelHtml(
     .product-name { font-size: ${nameFontSize}; font-weight: 900; text-transform: uppercase; text-align: center; line-height: ${nameLineHeight}; flex-shrink: 0; white-space: normal; word-break: break-word; overflow-wrap: break-word; display: -webkit-box; -webkit-line-clamp: ${maxLines}; -webkit-box-orient: vertical; overflow: hidden; }
     .divider { border: none; border-top: 1.5px solid #000; margin: ${sm(0.8)}mm 0 ${sm(0.6)}mm; flex-shrink: 0; }
     .barcode-wrap { text-align: center; line-height: 0; flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-    .barcode-wrap svg, .barcode-wrap img { max-width: 72% !important; width: auto !important; height: ${bcH}px !important; }
+    .barcode-wrap svg, .barcode-wrap img { max-width: 95% !important; width: auto !important; height: ${bcH}px !important; }
     .tech-barcode-wrap svg, .tech-barcode-wrap img, .vitrina-barcode-wrap svg, .vitrina-barcode-wrap img { height: 100% !important; }
     .barcode-num { text-align: center; font-size: ${s(7.5)}px; font-weight: 700; letter-spacing: 1.5px; font-family: 'Courier New', monospace; margin-top: ${barcodeNumMargin}; flex-shrink: 0; }
     .footer { display: flex; align-items: flex-end; justify-content: flex-end; margin-top: ${footerMargin}; padding-right: ${sm(2)}mm; flex-shrink: 0; }
@@ -2088,6 +2401,7 @@ export function buildEntryTicketHtml(order: RepairOrder, config: WorkshopConfig)
   <div class="badge">COMPROBANTE DE RECEPCIÓN</div>
   <div class="row"><span class="lbl">No. Orden:</span><span class="val bold">${order.id}</span></div>
   <div class="row"><span class="lbl">Fecha:</span><span class="val">${dateStr}</span></div>
+  ${order.createdBy ? `<div class="row"><span class="lbl">Atendió:</span><span class="val">${order.createdBy.toUpperCase()}</span></div>` : ''}
   ${deliveryStr ? `<div class="row"><span class="lbl">Entrega estimada:</span><span class="val">${deliveryStr}</span></div>` : ''}
   <hr class="sep">
   <div class="row"><span class="lbl">Cliente:</span><span class="val bold">${order.customerName.toUpperCase()}</span></div>
@@ -2352,7 +2666,7 @@ export function buildMediaCartaQuoteTicketHtml(quote: Quote, config: WorkshopCon
     '.total-row { display: flex; justify-content: space-between; padding: 2.5px 0; font-size: 10.5px; }' +
     '.total-row.grand-total { font-size: 12px; font-weight: 900; background: #000; color: #fff; padding: 4px; margin-top: 3px; border-radius: 2px; }' +
     '.policies-box { font-size: 7px; color: #475569; line-height: 1.3; border: 1px solid #e2e8f0; padding: 4px 6px; background: #f8fafc; border-radius: 4px; margin-top: 4px; margin-bottom: 8px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 5px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 5px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 2px; font-size: 8px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '</style></head><body>' +
     '<div class="invoice-container">' +
@@ -2464,7 +2778,7 @@ export function buildQuoteTicketHtml(quote: Quote, config: WorkshopConfig): stri
 
   const devicesHtml = quote.devices.map((d, i) => {
     const dq = d.quantity || 1;
-    const detailsCost = dq > 1 ? '<div style="font-size:' + fsSm + 'px;color:#4b5563;margin-top:2px">CANT: ' + dq + ' x ' + sym + d.estimatedCost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</div>' : '';
+    const detailsCost = dq > 1 ? '<div style="font-size:' + fsSm + 'px;color:#000;margin-top:2px">CANT: ' + dq + ' x ' + sym + d.estimatedCost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</div>' : '';
     const rowSubtotal = dq * d.estimatedCost;
     return (
       '<div style="margin:6px 0;border:' + (multipleDevices ? '2px solid #000' : '1px solid #000') + ';border-radius:2px;overflow:hidden">' +
@@ -2486,12 +2800,12 @@ export function buildQuoteTicketHtml(quote: Quote, config: WorkshopConfig): stri
     );
   }).join('') + (quote.additionalConcepts || []).map((c, i) => {
     const cq = c.quantity || 1;
-    const detailsCost = cq > 1 ? '<div style="font-size:' + fsSm + 'px;color:#4b5563;margin-top:2px">CANT: ' + cq + ' x ' + sym + c.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</div>' : '';
+    const detailsCost = cq > 1 ? '<div style="font-size:' + fsSm + 'px;color:#000;margin-top:2px">CANT: ' + cq + ' x ' + sym + c.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</div>' : '';
     const rowSubtotal = cq * c.price;
     return (
       '<div style="margin:6px 0;border:1px solid #000;border-radius:2px;overflow:hidden">' +
         '<div style="padding:4px 5px">' +
-          '<div style="font-size:' + fsSm + 'px;font-weight:900;text-transform:uppercase;color:#1e3a8a">INSUMO / MANO DE OBRA</div>' +
+          '<div style="font-size:' + fsSm + 'px;font-weight:900;text-transform:uppercase;color:#000">INSUMO / MANO DE OBRA</div>' +
           '<div style="border-top:1px dashed #000;margin:3px 0"></div>' +
           '<div style="display:flex;justify-content:space-between;font-size:' + fsMd + 'px;font-weight:900"><span>' + c.description + '</span><span>' + sym + rowSubtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span></div>' +
           detailsCost +
@@ -2561,6 +2875,7 @@ export function buildConsolidatedTicketHtml(orders: RepairOrder[], config: Works
   const footer = config.ticketFooterService || config.ticketFooter || '¡Gracias por su preferencia!';
   const policies = config.termsAndConditionsService || config.termsAndConditions || '';
   const paperWidth = config.ticketPaperWidth === '58mm' ? '58mm' : '80mm';
+  const { top: promoTop, bottom: promoBottom } = buildPromoHtml(config, paperWidth === '58mm');
   const fs = paperWidth === '58mm' ? '11' : '13';
   const fsSm = paperWidth === '58mm' ? '9' : '10';
   const fsMd = paperWidth === '58mm' ? '10' : '12';
@@ -2716,6 +3031,7 @@ export function buildConsolidatedTicketHtml(orders: RepairOrder[], config: Works
     '</style></head><body>' +
     buildTicketHeaderHtml(config, paperWidth as any) +
     '<hr class="sep">' +
+    (promoTop ? promoTop + '<hr class="sep">' : '') +
     `<div class="section-badge">RECEPCIÓN MÚLTIPLE · ${orders.length} EQUIPOS</div>` +
     `<div class="row"><span class="lbl">Fecha:</span><span class="val">${dateStr}</span></div>` +
     '<hr class="sep">' +
@@ -2741,6 +3057,7 @@ export function buildConsolidatedTicketHtml(orders: RepairOrder[], config: Works
     (barcodeHtml ? '<hr class="sep">' + barcodeHtml : '') +
     '<hr class="sep">' +
     buildTicketFooterBlock(config, paperWidth as any) +
+    (promoBottom ? promoBottom + '<hr class="sep">' : '') +
     `<div class="footer-text">${footer}</div>` +
     '</body></html>';
 }
@@ -2768,15 +3085,16 @@ export function buildMediaCartaConsolidatedTicketHtml(orders: RepairOrder[], con
   const _h = now.getHours(); const _ampm = _h >= 12 ? 'PM' : 'AM'; const _h12 = _h % 12 || 12;
   const dateStr = `${_pad(now.getDate())}/${_pad(now.getMonth()+1)}/${now.getFullYear()} ${_h12}:${_pad(now.getMinutes())}${_ampm}`;
 
-  const notesText = (orders[0]?.diagnosticsNote || '').trim().toUpperCase();
+  const rawNotes = orders[0]?.ticketNote !== undefined ? orders[0]?.ticketNote : (orders[0]?.diagnosticsNote || '');
+  const notesText = rawNotes.trim().toUpperCase();
   const isDefaultNote = notesText === '' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO';
-  const showCustomNotes = !!(orders[0]?.showNotesOnLabel && orders[0]?.diagnosticsNote && !isDefaultNote);
+  const showCustomNotes = !!(orders[0]?.showNotesOnLabel && rawNotes && !isDefaultNote);
 
-  let rawConsNote = (orders[0]?.diagnosticsNote || '').trim();
+  let rawConsNote = rawNotes.trim();
   if (rawConsNote && /^soluci[oó]n propuesta/i.test(rawConsNote)) {
     rawConsNote = rawConsNote.replace(/^soluci[oó]n propuesta:?\s*/i, 'Solución propuesta:\n');
   }
@@ -2890,7 +3208,7 @@ export function buildMediaCartaConsolidatedTicketHtml(orders: RepairOrder[], con
     '.total-row { display: flex; justify-content: space-between; padding: 1.5px 0; font-size: 9.5px; }' +
     '.total-row.grand-total { font-size: 11px; font-weight: 900; background: #000; color: #fff; padding: 3px; margin-top: 2px; border-radius: 2px; }' +
     '.policies-box { font-size: 6.5px; color: #475569; line-height: 1.25; border: 1px solid #e2e8f0; padding: 3px 5px; background: #f8fafc; border-radius: 4px; margin-top: 3px; margin-bottom: 5px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 1.5px; font-size: 7.5px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '</style></head><body>' +
     '<div class="invoice-container">' +
@@ -3036,13 +3354,14 @@ export function buildSingleDuplexMediaCartaConsolidatedTicketHtml(orders: Repair
   const _h = now.getHours(); const _ampm = _h >= 12 ? 'PM' : 'AM'; const _h12 = _h % 12 || 12;
   const dateStr = `${_pad(now.getDate())}/${_pad(now.getMonth()+1)}/${now.getFullYear()} ${_h12}:${_pad(now.getMinutes())}${_ampm}`;
 
-  const notesText = (orders[0]?.diagnosticsNote || '').trim().toUpperCase();
+  const rawNotes = orders[0]?.ticketNote !== undefined ? orders[0]?.ticketNote : (orders[0]?.diagnosticsNote || '');
+  const notesText = rawNotes.trim().toUpperCase();
   const isDefaultNote = notesText === '' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO';
-  const showCustomNotes = !!(orders[0]?.showNotesOnLabel && orders[0]?.diagnosticsNote && !isDefaultNote);
+  const showCustomNotes = !!(orders[0]?.showNotesOnLabel && rawNotes && !isDefaultNote);
 
   const customerPhone = formatCustomerPhoneWithCountryCode(first?.customerPhone, first?.customerCountryCode);
 
@@ -3189,7 +3508,7 @@ export function buildSingleDuplexMediaCartaConsolidatedTicketHtml(orders: Repair
     '    <div style="border: 1px solid #000; border-radius: 4px; padding: 6px; margin-top: 0; margin-bottom: 4px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; min-height: 20mm;">' +
     '      <div style="font-weight: 900; font-size: 8px; text-transform: uppercase; border-bottom: 1.5px solid #000; padding-bottom: 2px; margin-bottom: 4px; letter-spacing: 0.5px; flex-shrink: 0;">OBSERVACIONES / NOTAS ADICIONALES</div>' +
     (showCustomNotes
-      ? '      <div style="font-size: 8.5px; line-height: 1.35; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + orders[0].diagnosticsNote + '</div>'
+      ? '      <div style="font-size: 8.5px; line-height: 1.35; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + rawNotes + '</div>'
       : '      <div style="margin-top: 2px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 6px 0; min-height: 0;">' +
         '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
         '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
@@ -3292,7 +3611,7 @@ export function buildSingleDuplexMediaCartaConsolidatedTicketHtml(orders: Repair
     '.total-row { display: flex; justify-content: space-between; padding: 1.5px 0; font-size: 9.5px; }' +
     '.total-row.grand-total { font-size: 11px; font-weight: 900; background: #000; color: #fff; padding: 3px; margin-top: 2px; border-radius: 2px; }' +
     '.policies-box { font-size: 6.5px; color: #475569; line-height: 1.25; border: 1px solid #e2e8f0; padding: 3px 5px; background: #f8fafc; border-radius: 4px; margin-top: 3px; margin-bottom: 5px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 1.5px; font-size: 7.5px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '.contract-wrapper { width: 100%; height: 134mm; max-height: 134mm; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: 4px; box-sizing: border-box; }' +
     '.contract-header-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; flex-shrink: 0; }' +
@@ -3358,15 +3677,16 @@ export function buildMediaCartaTicketHtml(order: RepairOrder, config: WorkshopCo
   const pinDisplay = patternNodes ? '[PATRÓN GRÁFICO]' : (order.devicePin || '(NINGUNO)');
   const pinSvg = patternNodes ? buildPatternSvgHtml(patternNodes) : '';
 
-  const notesText = (order.diagnosticsNote || '').trim().toUpperCase();
+  const rawNotes = order.ticketNote !== undefined ? order.ticketNote : (order.diagnosticsNote || '');
+  const notesText = rawNotes.trim().toUpperCase();
   const isDefaultNote = notesText === '' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO';
-  const showCustomNotes = !!(order.showNotesOnLabel && order.diagnosticsNote && !isDefaultNote);
+  const showCustomNotes = !!(order.showNotesOnLabel && rawNotes && !isDefaultNote);
 
-  let formattedMCNote = (order.diagnosticsNote || '').trim();
+  let formattedMCNote = rawNotes.trim();
   if (formattedMCNote && /^soluci[oó]n propuesta/i.test(formattedMCNote)) {
     formattedMCNote = formattedMCNote.replace(/^soluci[oó]n propuesta:?\s*/i, 'Solución propuesta:\n');
   }
@@ -3537,7 +3857,7 @@ export function buildMediaCartaTicketHtml(order: RepairOrder, config: WorkshopCo
     '.total-row { display: flex; justify-content: space-between; padding: 1px 0; font-size: 9px; }' +
     '.total-row.grand-total { font-size: 9.5px; font-weight: 900; background: #000; color: #fff; padding: 2px; margin-top: 1px; border-radius: 2px; }' +
     '.policies-box { font-size: 6.5px; color: #475569; line-height: 1.25; border: 1px solid #e2e8f0; padding: 3px 5px; background: #f8fafc; border-radius: 4px; margin-top: 3px; margin-bottom: 5px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 1px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 1px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 1px; font-size: 7px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '</style></head><body>' +
     '<div class="invoice-container">' + innerTicketHtml + '</div>' +
@@ -3588,13 +3908,14 @@ export function buildSingleDuplexMediaCartaTicketHtml(order: RepairOrder, config
   const pinDisplay = patternNodes ? '[PATRÓN GRÁFICO]' : (order.devicePin || '(NINGUNO)');
   const pinSvg = patternNodes ? buildPatternSvgHtml(patternNodes) : '';
 
-  const notesText = (order.diagnosticsNote || '').trim().toUpperCase();
+  const rawNotes = order.ticketNote !== undefined ? order.ticketNote : (order.diagnosticsNote || '');
+  const notesText = rawNotes.trim().toUpperCase();
   const isDefaultNote = notesText === '' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO';
-  const showCustomNotes = !!(order.showNotesOnLabel && order.diagnosticsNote && !isDefaultNote);
+  const showCustomNotes = !!(order.showNotesOnLabel && rawNotes && !isDefaultNote);
 
   const code128Script = getBarcodeScript(order.id, config.barcodeAsImage, config.showBarcodeOnTicket);
   const cleanFault = (order.faultDescription || '').replace(/^\[[^\]]*\]\s*/g, '').trim();
@@ -3677,7 +3998,7 @@ export function buildSingleDuplexMediaCartaTicketHtml(order: RepairOrder, config
     '    <div style="border: 1px solid #000; border-radius: 4px; padding: 6px; margin-top: 0; margin-bottom: 4px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; min-height: 20mm;">' +
     '      <div style="font-weight: 900; font-size: 8px; text-transform: uppercase; border-bottom: 1.5px solid #000; padding-bottom: 2px; margin-bottom: 4px; letter-spacing: 0.5px; flex-shrink: 0;">OBSERVACIONES / NOTAS ADICIONALES</div>' +
     (showCustomNotes
-      ? '      <div style="font-size: 8.5px; line-height: 1.35; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + order.diagnosticsNote + '</div>'
+      ? '      <div style="font-size: 8.5px; line-height: 1.35; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + rawNotes + '</div>'
       : '      <div style="margin-top: 2px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 6px 0; min-height: 0;">' +
         '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
         '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
@@ -3793,7 +4114,7 @@ export function buildSingleDuplexMediaCartaTicketHtml(order: RepairOrder, config
     '.total-row { display: flex; justify-content: space-between; padding: 1.5px 0; font-size: 9.5px; }' +
     '.total-row.grand-total { font-size: 11px; font-weight: 900; background: #000; color: #fff; padding: 3px; margin-top: 2px; border-radius: 2px; }' +
     '.policies-box { font-size: 6.5px; color: #475569; line-height: 1.25; border: 1px solid #e2e8f0; padding: 3px 5px; background: #f8fafc; border-radius: 4px; margin-top: 3px; margin-bottom: 5px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 1.5px; font-size: 7.5px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '.contract-wrapper { width: 100%; height: 134mm; max-height: 134mm; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: 4px; box-sizing: border-box; }' +
     '.contract-header-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; flex-shrink: 0; }' +
@@ -3807,15 +4128,17 @@ export function buildSingleDuplexMediaCartaTicketHtml(order: RepairOrder, config
 export function buildMediaCartaPosTicketHtml(
   sale: {
     id: string;
-    items: { description: string; quantity: number; price: number }[];
+    items: { description: string; quantity: number; price: number; fromWarehouseId?: string }[];
     total: number;
     createdAt: string;
     paymentMethod?: string;
     cashReceived?: number;
     cardReceived?: number;
     change?: number;
+    createdBy?: string;
   },
-  config: WorkshopConfig
+  config: WorkshopConfig,
+  warehouses?: { id: string; name: string }[]
 ): string {
   const currSym = config.currencySymbol || '$';
   const footer = config.ticketFooterPOS || config.ticketFooter || '¡Gracias por su compra!';
@@ -3859,8 +4182,10 @@ export function buildMediaCartaPosTicketHtml(
   let itemsHtml = '';
   (sale.items || []).forEach(item => {
     const totalLine = item.quantity * item.price;
+    const whName = warehouses && item.fromWarehouseId ? (warehouses.find(w => w.id === item.fromWarehouseId)?.name || 'Bodega') : (item.fromWarehouseId ? 'Bodega' : '');
+    const descSuffix = whName ? ` (${whName})` : '';
     itemsHtml += '<tr>' +
-      '<td style="padding: 6px; border-bottom: 1px solid #e2e8f0; font-weight: 700;">' + item.description + '</td>' +
+      '<td style="padding: 6px; border-bottom: 1px solid #e2e8f0; font-weight: 700;">' + item.description + descSuffix + '</td>' +
       '<td style="padding: 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 700;">' + item.quantity + '</td>' +
       '<td style="padding: 6px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">' + currSym + item.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
       '<td style="padding: 6px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 900;">' + currSym + totalLine.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
@@ -3915,6 +4240,7 @@ export function buildMediaCartaPosTicketHtml(
     '            <div class="grid-body">' +
     '              <div class="data-row"><span class="data-label">Ticket Folio:</span><span class="data-value">#' + sale.id + '</span></div>' +
     '              <div class="data-row"><span class="data-label">Fecha:</span><span class="data-value">' + dateStr + '</span></div>' +
+    (sale.createdBy ? '              <div class="data-row"><span class="data-label">Atendió:</span><span class="data-value">' + sale.createdBy.toUpperCase() + '</span></div>' : '') +
     '            </div>' +
     '          </div>' +
     '        </td>' +
@@ -4026,13 +4352,14 @@ export function buildMediaCartaDuplicadoTicketHtml(order: RepairOrder, config: W
   const pinDisplay = patternNodes ? '[PATRÓN GRÁFICO]' : (order.devicePin || '(NINGUNO)');
   const pinSvg = patternNodes ? buildPatternSvgHtml(patternNodes) : '';
 
-  const notesText = (order.diagnosticsNote || '').trim().toUpperCase();
+  const rawNotes = order.ticketNote !== undefined ? order.ticketNote : (order.diagnosticsNote || '');
+  const notesText = rawNotes.trim().toUpperCase();
   const isDefaultNote = notesText === '' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO';
-  const showCustomNotes = !!(order.showNotesOnLabel && order.diagnosticsNote && !isDefaultNote);
+  const showCustomNotes = !!(order.showNotesOnLabel && rawNotes && !isDefaultNote);
 
   const code128Script = getBarcodeScript(order.id, config.barcodeAsImage, config.showBarcodeOnTicket);
   const cleanFault = (order.faultDescription || '').replace(/^\[[^\]]*\]\s*/g, '').trim();
@@ -4118,7 +4445,7 @@ export function buildMediaCartaDuplicadoTicketHtml(order: RepairOrder, config: W
         '        <div style="border: 1px solid #000; border-radius: 4px; padding: 3px 5px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; min-height: 8mm;">' +
         '          <div style="font-weight: 900; font-size: 7.5px; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 1px; margin-bottom: 2px; letter-spacing: 0.5px; flex-shrink: 0;">OBSERVACIONES</div>' +
         (showCustomNotes
-          ? '          <div style="font-size: 8px; line-height: 1.2; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + order.diagnosticsNote + '</div>'
+          ? '          <div style="font-size: 8px; line-height: 1.2; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + rawNotes + '</div>'
           : '          <div style="margin-top: 1px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 1px 0; min-height: 0;">' +
             '            <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
             '            <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
@@ -4145,7 +4472,7 @@ export function buildMediaCartaDuplicadoTicketHtml(order: RepairOrder, config: W
       : '    <div style="border: 1px solid #000; border-radius: 4px; padding: 4px; margin-top: 0; margin-bottom: 2px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; min-height: 12mm;">' +
         '      <div style="font-weight: 900; font-size: 8px; text-transform: uppercase; border-bottom: 1.5px solid #000; padding-bottom: 1px; margin-bottom: 2px; letter-spacing: 0.5px; flex-shrink: 0;">OBSERVACIONES / NOTAS ADICIONALES</div>' +
         (showCustomNotes
-          ? '      <div style="font-size: 8.5px; line-height: 1.3; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + order.diagnosticsNote + '</div>'
+          ? '      <div style="font-size: 8.5px; line-height: 1.3; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + rawNotes + '</div>'
           : '      <div style="margin-top: 1px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0; min-height: 0;">' +
             '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
             '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
@@ -4199,7 +4526,7 @@ export function buildMediaCartaDuplicadoTicketHtml(order: RepairOrder, config: W
     '.total-row { display: flex; justify-content: space-between; padding: 1px 0; font-size: 9px; }' +
     '.total-row.grand-total { font-size: 9.5px; font-weight: 900; background: #000; color: #fff; padding: 2px; margin-top: 1px; border-radius: 2px; }' +
     '.policies-box { font-size: 6.5px; color: #475569; line-height: 1.25; border: 1px solid #e2e8f0; padding: 3px 5px; background: #f8fafc; border-radius: 4px; margin-top: 3px; margin-bottom: 5px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 1px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 1px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 1px; font-size: 7px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '.divider-line { width: 100%; height: 5mm; display: flex; align-items: center; justify-content: center; position: relative; margin: 0.5mm 0; }' +
     '.divider-dashed { width: 100%; border-top: 1px dashed #000; }' +
@@ -4292,6 +4619,7 @@ export function buildMediaCartaBatchIndividualTicketsHtml(orders: RepairOrder[],
       '              <div class="data-row"><span class="data-label">Fecha Ingreso:</span><span class="data-value">' + dateStr + '</span></div>' +
       '              <div class="data-row"><span class="data-label">Est. Entrega:</span><span class="data-value">' + deliveryStr + '</span></div>' +
       (order.assignedTechnician ? '              <div class="data-row"><span class="data-label">Técnico:</span><span class="data-value">' + order.assignedTechnician + '</span></div>' : '') +
+      (order.createdBy ? '              <div class="data-row"><span class="data-label">Atendió:</span><span class="data-value">' + order.createdBy.toUpperCase() + '</span></div>' : '') +
       '            </div>' +
       '          </div>' +
       '        </td>' +
@@ -4430,7 +4758,7 @@ export function buildMediaCartaBatchIndividualTicketsHtml(orders: RepairOrder[],
     '.total-row { display: flex; justify-content: space-between; padding: 1.5px 0; font-size: 9.5px; }' +
     '.total-row.grand-total { font-size: 11px; font-weight: 900; background: #000; color: #fff; padding: 3px; margin-top: 2px; border-radius: 2px; }' +
     '.policies-box { font-size: 6.5px; color: #475569; line-height: 1.25; border: 1px solid #e2e8f0; padding: 3px 5px; background: #f8fafc; border-radius: 4px; margin-top: 3px; margin-bottom: 5px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 1.5px; font-size: 7.5px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '.divider-line { width: 100%; height: 6mm; display: flex; align-items: center; justify-content: center; position: relative; margin: 1mm 0; }' +
     '.divider-dashed { width: 100%; border-top: 1px dashed #000; }' +
@@ -4708,7 +5036,7 @@ export function buildDuplexMediaCartaTicketHtml(order: RepairOrder, config: Work
     '.total-row { display: flex; justify-content: space-between; padding: 1.5px 0; font-size: 9.5px; }' +
     '.total-row.grand-total { font-size: 11px; font-weight: 900; background: #000; color: #fff; padding: 3px; margin-top: 2px; border-radius: 2px; }' +
     '.policies-box { font-size: 6.5px; color: #475569; line-height: 1.25; border: 1px solid #e2e8f0; padding: 3px 5px; background: #f8fafc; border-radius: 4px; margin-top: 3px; margin-bottom: 5px; word-break: break-all; overflow-wrap: break-word; }' +
-    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' visibility: hidden !important;' : '') + ' }' +
+    '.signatures-table { width: 100%; margin-top: 3px; margin-bottom: 0;' + (config.hideTicketSignature ? ' display: none !important;' : '') + ' }' +
     '.signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; padding-top: 1.5px; font-size: 7.5px; font-weight: 700; text-align: center; text-transform: uppercase; }' +
     '.divider-line { width: 100%; height: 6mm; display: flex; align-items: center; justify-content: center; position: relative; margin: 1mm 0; }' +
     '.divider-dashed { width: 100%; border-top: 1px dashed #000; }' +
@@ -4740,7 +5068,7 @@ export function buildDuplexMediaCartaTicketHtml(order: RepairOrder, config: Work
 export function buildMediaCartaDuplicadoPosTicketHtml(
   sale: {
     id: string;
-    items: { description: string; quantity: number; price: number }[];
+    items: { description: string; quantity: number; price: number; fromWarehouseId?: string }[];
     total: number;
     createdAt: string;
     paymentMethod?: string;
@@ -4748,7 +5076,8 @@ export function buildMediaCartaDuplicadoPosTicketHtml(
     cardReceived?: number;
     change?: number;
   },
-  config: WorkshopConfig
+  config: WorkshopConfig,
+  warehouses?: { id: string; name: string }[]
 ): string {
   const currSym = config.currencySymbol || '$';
   const footer = config.ticketFooterPOS || config.ticketFooter || '¡Gracias por su compra!';
@@ -5176,13 +5505,14 @@ export function buildMediaCartaDuplicadoConsolidatedTicketHtml(orders: RepairOrd
     combinedBreakdown.push({ method: 'Efectivo', amount: totalAnticipo });
   }
 
-  const notesText = (orders[0]?.diagnosticsNote || '').trim().toUpperCase();
+  const rawNotes = orders[0]?.ticketNote !== undefined ? orders[0]?.ticketNote : (orders[0]?.diagnosticsNote || '');
+  const notesText = rawNotes.trim().toUpperCase();
   const isDefaultNote = notesText === '' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNÓSTICO DE INGRESO INICIAL REGISTRADO' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO.' ||
                         notesText === 'DIAGNOSTICO DE INGRESO INICIAL REGISTRADO';
-  const showCustomNotes = !!(orders[0]?.showNotesOnLabel && orders[0]?.diagnosticsNote && !isDefaultNote);
+  const showCustomNotes = !!(orders[0]?.showNotesOnLabel && rawNotes && !isDefaultNote);
 
   let itemsHtml = '';
   orders.forEach((o, idx) => {
@@ -5276,7 +5606,7 @@ export function buildMediaCartaDuplicadoConsolidatedTicketHtml(orders: RepairOrd
         '        <div style="border: 1px solid #000; border-radius: 4px; padding: 4px 6px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; min-height: 12mm;">' +
         '          <div style="font-weight: 900; font-size: 7.5px; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 1px; margin-bottom: 3px; letter-spacing: 0.5px; flex-shrink: 0;">OBSERVACIONES</div>' +
         (showCustomNotes
-          ? '          <div style="font-size: 8px; line-height: 1.25; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + orders[0].diagnosticsNote + '</div>'
+          ? '          <div style="font-size: 8px; line-height: 1.25; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + rawNotes + '</div>'
           : '          <div style="margin-top: 2px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0; min-height: 0;">' +
             '            <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
             '            <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
@@ -5304,7 +5634,7 @@ export function buildMediaCartaDuplicadoConsolidatedTicketHtml(orders: RepairOrd
       : '    <div style="border: 1px solid #000; border-radius: 4px; padding: 6px; margin-top: 4px; margin-bottom: 4px; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; min-height: 24mm;">' +
         '      <div style="font-weight: 900; font-size: 8px; text-transform: uppercase; border-bottom: 1.5px solid #000; padding-bottom: 2px; margin-bottom: 4px; letter-spacing: 0.5px; flex-shrink: 0;">OBSERVACIONES / NOTAS ADICIONALES</div>' +
         (showCustomNotes
-          ? '      <div style="font-size: 8.5px; line-height: 1.35; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + orders[0].diagnosticsNote + '</div>'
+          ? '      <div style="font-size: 8.5px; line-height: 1.35; color: #000; font-weight: 600; white-space: pre-wrap; text-align: left; flex: 1; overflow: hidden;">' + rawNotes + '</div>'
           : '      <div style="margin-top: 2px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 6px 0; min-height: 0;">' +
             '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +
             '        <div style="border-bottom: 1px dotted #000; height: 0;"></div>' +

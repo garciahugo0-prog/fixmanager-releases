@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FixManager</string>
+    <string name="title_activity_main">FixManager</string>
+    <string name="package_name">com.fixmanager.app</string>
+    <string name="custom_url_scheme">com.fixmanager.app</string>
+</resources>

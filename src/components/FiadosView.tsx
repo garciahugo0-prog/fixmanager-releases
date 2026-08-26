@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Plus, X, ChevronRight, CreditCard, AlertTriangle, CheckCircle, ShoppingBag, Trash2, Package, Printer } from 'lucide-react';
-import { CreditAccount, CreditSaleEntry, CreditPayment, WorkshopConfig, InventoryItem, AppUser, ApartadoEntry, ApartadoPayment } from '../types';
+import { CreditAccount, CreditSaleEntry, CreditPayment, WorkshopConfig, InventoryItem, AppUser, ApartadoEntry, ApartadoPayment, RefaccionItem } from '../types';
 import { formatPhoneNumber } from '../utils/phoneFormatter';
 import { CODE128_RESPONSIVE, getBarcodeScript, buildApartadoTicketHtml } from '../utils/ticketBuilder';
 import { sendWhatsappNotification, buildWhatsappApartadoMessage, buildWhatsappApartadoAbonoMessage, buildWhatsappFiadoCargoMessage, buildWhatsappFiadoAbonoMessage, buildWhatsappFiadoAperturaMessage } from '../utils/whatsapp';
@@ -9,11 +9,13 @@ import { handleCaretPreservingChange } from '../utils/domHelpers';
 interface Props {
   accounts: CreditAccount[];
   inventory: InventoryItem[];
+  refacciones?: RefaccionItem[];
   config: WorkshopConfig;
   currentUser: AppUser | null;
   users: AppUser[];
+  clients?: any[];
   onCreateAccount: (account: CreditAccount) => void;
-  onAddEntry: (accountId: string, entry: CreditSaleEntry) => void;
+  onAddEntry: (accountId: string, entry: CreditSaleEntry, decrementStock?: boolean) => void;
   onAddPayment: (accountId: string, payment: CreditPayment) => void;
   onUpdateAccount: (account: CreditAccount) => void;
   onDeleteAccount: (accountId: string) => void;
@@ -21,6 +23,12 @@ interface Props {
   onCreateApartado: (a: ApartadoEntry) => void;
   onAddApartadoPayment: (apartadoId: string, payment: ApartadoPayment) => void;
   onUpdateApartadoStatus: (apartadoId: string, status: ApartadoEntry['status']) => void;
+  initialSelectedAccountId?: string | null;
+  initialSelectedApartadoId?: string | null;
+  initialActiveTab?: 'fiados' | 'apartados';
+  highlightedEntryId?: string | null;
+  highlightedApartadoId?: string | null;
+  onClearNavigationStates?: () => void;
 }
 
 const genId = () => `FD-${Date.now().toString(36).toUpperCase()}`;
@@ -217,6 +225,7 @@ const buildFiadoCargoTicket = (opts: {
   const rows = items.map(i =>
     `<div class="kv"><span>${i.name}${i.quantity > 1 ? ` x${i.quantity}` : ''}</span><span class="bold">${sym}${(i.price * i.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>`
   ).join('');
+  const prevBalance = Math.max(0, newBalance - subtotal);
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     @page{size:${pageSize};margin:${pageMargin}}
     *{box-sizing:border-box}
@@ -225,7 +234,9 @@ const buildFiadoCargoTicket = (opts: {
     .store{font-size:15px;font-weight:900;text-align:center;margin-bottom:1px}
     hr{border:none;border-top:1.5px dashed #000;margin:4px 0}
     .badge{display:block;font-weight:900;text-align:center;font-size:13px;background:#000;color:#fff;padding:2px 0;margin:3px 0}
-    .kv{display:flex;justify-content:space-between;font-size:10px;margin:1px 0}
+    .kv{display:flex;justify-content:space-between;font-size:10px;margin:1px 0;align-items:flex-start}
+    .kv span:first-child{word-break:break-all;flex:1;min-width:0;text-align:left;padding-right:6px}
+    .kv span:last-child{flex-shrink:0;text-align:right}
     .bold{font-weight:900}
     .total-row{font-size:13px;font-weight:900;text-align:right;border-top:2px solid #000;margin-top:4px;padding-top:2px}
     .footer{font-size:9px;text-align:center;margin-top:5px}
@@ -239,8 +250,11 @@ const buildFiadoCargoTicket = (opts: {
     <hr>
     ${rows}
     <hr>
-    <div class="total-row">CARGO: ${sym}${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-    <div class="kv" style="margin-top:3px"><span>SALDO PENDIENTE:</span><span class="bold">${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+    <div class="total-row">CARGO DE HOY: ${sym}${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+    ${prevBalance > 0 ? `
+      <div class="kv" style="margin-top:2px"><span>SALDO ANTERIOR:</span><span>${sym}${prevBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+    ` : ''}
+    <div class="kv" style="margin-top:3px;border-top:1px dashed #000;padding-top:2px"><span>SALDO PENDIENTE TOTAL:</span><span class="bold">${sym}${newBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
     <div class="footer">${footer}</div>
   </div></body></html>`;
 };
@@ -441,11 +455,33 @@ const buildFiadoTicket = (opts: {
   </div></body></html>`;
 };
 
-const CODE128_SCRIPT = `(function(){var C128=[[2,1,2,2,2,2],[2,2,2,1,2,2],[2,2,2,2,2,1],[1,2,1,2,2,3],[1,2,1,3,2,2],[1,3,1,2,2,2],[1,2,2,2,1,3],[1,2,2,3,1,2],[1,3,2,2,1,2],[2,2,1,2,1,3],[2,2,1,3,1,2],[2,3,1,2,1,2],[1,1,2,2,3,2],[1,2,2,1,3,2],[1,2,2,2,3,1],[1,1,3,2,2,2],[1,2,3,1,2,2],[1,2,3,2,2,1],[2,2,3,2,1,1],[2,2,1,1,3,2],[2,2,1,2,3,1],[2,1,3,2,1,2],[2,2,3,1,1,2],[3,1,2,1,3,1],[3,1,1,2,2,2],[3,2,1,1,2,2],[3,2,1,2,2,1],[3,1,2,2,1,2],[3,2,2,1,1,2],[3,2,2,2,1,1],[2,1,2,1,2,3],[2,1,2,3,2,1],[2,3,2,1,2,1],[1,1,1,3,2,3],[1,3,1,1,2,3],[1,3,1,3,2,1],[1,1,2,3,1,3],[1,3,2,1,1,3],[1,3,2,3,1,1],[2,1,1,3,1,3],[2,3,1,1,1,3],[2,3,1,3,1,1],[1,1,2,1,3,3],[1,1,2,3,3,1],[1,3,2,1,3,1],[1,1,3,1,2,3],[1,1,3,3,2,1],[1,3,3,1,2,1],[3,1,3,1,2,1],[2,1,1,3,3,1],[2,3,1,1,3,1],[2,1,3,1,1,3],[2,1,3,3,1,1],[2,1,3,1,3,1],[3,1,1,1,2,3],[3,1,1,3,2,1],[3,3,1,1,2,1],[3,1,2,1,1,3],[3,1,2,3,1,1],[3,3,2,1,1,1],[3,1,4,1,1,1],[2,2,1,4,1,1],[4,3,1,1,1,1],[1,1,1,2,2,4],[1,1,1,4,2,2],[1,2,1,1,2,4],[1,2,1,4,2,1],[1,4,1,1,2,2],[1,4,1,2,2,1],[1,1,2,2,1,4],[1,1,2,4,1,2],[1,2,2,1,1,4],[1,2,2,4,1,1],[1,4,2,1,1,2],[1,4,2,2,1,1],[2,4,1,2,1,1],[2,2,1,1,1,4],[4,1,3,1,1,1],[2,4,1,1,1,2],[1,3,4,1,1,1],[1,1,1,2,4,2],[1,2,1,1,4,2],[1,2,1,2,4,1],[1,1,4,2,1,2],[1,2,4,1,1,2],[1,2,4,2,1,1],[4,1,1,2,1,2],[4,2,1,1,1,2],[4,2,1,2,1,1],[2,1,2,1,4,1],[2,1,4,1,2,1],[4,1,2,1,2,1],[1,1,1,1,4,3],[1,1,1,3,4,1],[1,3,1,1,4,1],[1,1,4,1,1,3],[1,1,4,3,1,1],[4,1,1,1,1,3],[4,1,1,3,1,1],[1,1,3,1,4,1],[1,1,4,1,3,1],[3,1,1,1,4,1],[4,1,1,1,3,1],[2,1,1,4,1,2],[2,1,1,2,1,4],[2,1,1,2,3,2],[2,3,3,1,1,1,2]];var START_B=104,STOP=106;function encode(s){var codes=[START_B],sum=START_B;for(var i=0;i<s.length;i++){var c=s.charCodeAt(i)-32;codes.push(c);sum+=c*(i+1);}codes.push(sum%103);codes.push(STOP);return codes;}function draw(text){var codes=encode(text);var bw=2,h=40,x=10,bars=[];for(var i=0;i<codes.length;i++){var pat=C128[codes[i]];for(var j=0;j<pat.length;j++){if(j%2===0)bars.push({x:x,w:pat[j]*bw});x+=pat[j]*bw;}}var tw=x+10;var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+tw+'" height="'+(h+12)+'" shape-rendering="crispEdges" style="display:block;margin:0 auto">';for(var k=0;k<bars.length;k++){svg+='<rect x="'+bars[k].x+'" y="0" width="'+bars[k].w+'" height="'+h+'" fill="black" shape-rendering="crispEdges"/>';}svg+='<text x="'+(tw/2)+'" y="'+(h+10)+'" text-anchor="middle" font-family="monospace" font-size="9" fill="black">'+text+'</text>';svg+='</svg>';document.getElementById('bc').innerHTML=svg;}draw('__ID__');})();`;
+const CODE128_SCRIPT = `(function(){var C128=[[2,1,2,2,2,2],[2,2,2,1,2,2],[2,2,2,2,2,1],[1,2,1,2,2,3],[1,2,1,3,2,2],[1,3,1,2,2,2],[1,2,2,2,1,3],[1,2,2,3,1,2],[1,3,2,2,1,2],[2,2,1,2,1,3],[2,2,1,3,1,2],[2,3,1,2,1,2],[1,1,2,2,3,2],[1,2,2,1,3,2],[1,2,2,2,3,1],[1,1,3,2,2,2],[1,2,3,1,2,2],[1,2,3,2,2,1],[2,2,3,2,1,1],[2,2,1,1,3,2],[2,2,1,2,3,1],[2,1,3,2,1,2],[2,2,3,1,1,2],[3,1,2,1,3,1],[3,1,1,2,2,2],[3,2,1,1,2,2],[3,2,1,2,2,1],[3,1,2,2,1,2],[3,2,2,1,1,2],[3,2,2,2,1,1],[2,1,2,1,2,3],[2,1,2,3,2,1],[2,3,2,1,2,1],[1,1,1,3,2,3],[1,3,1,1,2,3],[1,3,1,3,2,1],[1,1,2,3,1,3],[1,3,2,1,1,3],[1,3,2,3,1,1],[2,1,1,3,1,3],[2,3,1,1,1,3],[2,3,1,3,1,1],[1,1,2,1,3,3],[1,1,2,3,3,1],[1,3,2,1,3,1],[1,1,3,1,2,3],[1,1,3,3,2,1],[1,3,3,1,2,1],[3,1,3,1,2,1],[2,1,1,3,3,1],[2,3,1,1,3,1],[2,1,3,1,1,3],[2,1,3,3,1,1],[2,1,3,1,3,1],[3,1,1,1,2,3],[3,1,1,3,2,1],[3,3,1,1,2,1],[3,1,2,1,1,3],[3,1,2,3,1,1],[3,3,2,1,1,1],[3,1,4,1,1,1],[2,2,1,4,1,1],[4,3,1,1,1,1],[1,1,1,2,2,4],[1,1,1,4,2,2],[1,2,1,1,2,4],[1,2,1,4,2,1],[1,4,1,1,2,2],[1,4,1,2,2,1],[1,1,2,2,1,4],[1,1,2,4,1,2],[1,2,2,1,1,4],[1,2,2,4,1,1],[1,4,2,1,1,2],[1,4,2,2,1,1],[2,4,1,2,1,1],[2,2,1,1,1,4],[4,1,3,1,1,1],[2,4,1,1,1,2],[1,3,4,1,1,1],[1,1,1,2,4,2],[1,2,1,1,4,2],[1,2,1,2,4,1],[1,1,4,2,1,2],[1,2,4,1,1,2],[1,2,4,2,1,1],[4,1,1,2,1,2],[4,2,1,1,1,2],[4,2,1,2,1,1],[2,1,2,1,4,1],[2,1,4,1,2,1],[4,1,2,1,2,1],[1,1,1,1,4,3],[1,1,1,3,4,1],[1,3,1,1,4,1],[1,1,4,1,1,3],[1,1,4,3,1,1],[4,1,1,1,1,3],[4,1,1,3,1,1],[1,1,3,1,4,1],[1,1,4,1,3,1],[3,1,1,1,4,1],[4,1,1,1,3,1],[2,1,1,4,1,2],[2,1,1,2,1,4],[2,1,1,2,3,2],[2,3,3,1,1,1,2]];var START_B=104,STOP=106;function encode(s){var codes=[START_B],sum=START_B;for(var i=0;i<s.length;i++){var c=s.charCodeAt(i)-32;codes.push(c);sum+=c*(i+1);}codes.push(sum%103);codes.push(STOP);return codes;}function draw(text){var codes=encode(text);var bw=2,h=40,x=10,bars=[];for(var i=0;i<codes.length;i++){var pat=C128[codes[i]];for(var j=0;j<pat.length;j++){if(j%2===0)bars.push({x:x,w:pat[j]*bw});x+=pat[j]*bw;}}var tw=x+10;var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+tw+'" height="'+(h+12)+'" shape-rendering="crispEdges" style="display:block;margin:0 auto">';for(var k=0;k<bars.length;k++){svg+='<rect x="'+bars[k].x+'" y="0" width="'+bars[k].w+'" height="'+h+'" fill="black" shape-rendering="crispEdges"/>';}var escapedText=text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");svg+='<text x="'+(tw/2)+'" y="'+(h+10)+'" text-anchor="middle" font-family="monospace" font-size="9" fill="black">'+escapedText+'</text>';svg+='</svg>';document.getElementById('bc').innerHTML=svg;}draw('__ID__');})();`;
 
 
 
-export default function FiadosView({ accounts, inventory, config, currentUser, users, onCreateAccount, onAddEntry, onAddPayment, onDeleteAccount, apartados, onCreateApartado, onAddApartadoPayment, onUpdateApartadoStatus }: Props) {
+export default function FiadosView({
+  accounts,
+  inventory,
+  refacciones = [],
+  config,
+  currentUser,
+  users,
+  clients = [],
+  onCreateAccount,
+  onAddEntry,
+  onAddPayment,
+  onDeleteAccount,
+  apartados,
+  onCreateApartado,
+  onAddApartadoPayment,
+  onUpdateApartadoStatus,
+  initialSelectedAccountId,
+  initialSelectedApartadoId,
+  initialActiveTab,
+  highlightedEntryId,
+  highlightedApartadoId,
+  onClearNavigationStates,
+}: Props) {
   const sym = config.currencySymbol || '$';
   const isRetro = config.theme === 'retro-window';
   let effectivePaperWidth = (config.hybridPrintMode
@@ -458,6 +494,31 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
     ? (config.posPrinterBrand || config.ticketPrinterBrand || '')
     : (config.ticketPrinterBrand || '');
   const isLight = config.themeMode === 'light';
+
+  // Combined inventory and refacciones for credit search
+  const combinedItems = React.useMemo(() => {
+    const activeRef = refacciones.filter(r => r.active !== false);
+    const surrogateRef: InventoryItem[] = activeRef.map(r => ({
+      id: r.id,
+      code: r.code || '',
+      name: `[REFACCIÓN] ${r.name.toUpperCase()} (${(r.deviceBrand || '').toUpperCase()} ${(r.deviceModel || '').toUpperCase()})`,
+      brand: r.brand,
+      category: r.category || 'Refacciones',
+      stock: r.stock,
+      minStock: r.minStock || 0,
+      price: r.price,
+      wholesalePrice: r.wholesalePrice,
+      cost: r.cost || 0,
+      imageUrl: r.imageUrl,
+      extraImages: r.extraImages,
+      favorite: !!r.favorite,
+      reservedQty: 0,
+      manageStock: r.manageStock !== false,
+      warehouseStock: r.warehouseStock,
+      isChip: false,
+    }));
+    return [...inventory, ...surrogateRef];
+  }, [inventory, refacciones]);
 
   // Main tab switcher
   const [mainTab, setMainTab] = useState<'fiados' | 'apartados'>('fiados');
@@ -487,13 +548,46 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
     };
   }, []);
 
-  const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+  useEffect(() => {
+    if (initialActiveTab) {
+      setMainTab(initialActiveTab);
+    }
+    if (initialSelectedAccountId) {
+      setSelectedId(initialSelectedAccountId);
+      setFilter('todos');
+    }
+    if (initialSelectedApartadoId) {
+      setSelectedAptId(initialSelectedApartadoId);
+      setAptFilter('todos');
+    }
+    
+    if (highlightedEntryId) {
+      setLocalHighlightedEntryId(highlightedEntryId);
+      const t = setTimeout(() => setLocalHighlightedEntryId(null), 2500);
+      onClearNavigationStates?.();
+      return () => clearTimeout(t);
+    }
+    
+    if (highlightedApartadoId) {
+      setLocalHighlightedApartadoId(highlightedApartadoId);
+      const t = setTimeout(() => setLocalHighlightedApartadoId(null), 2500);
+      onClearNavigationStates?.();
+      return () => clearTimeout(t);
+    }
+  }, [initialSelectedAccountId, initialSelectedApartadoId, initialActiveTab, highlightedEntryId, highlightedApartadoId]);
+
+  const isWaIntegratedOffline = !waConnected;
 
   // Apartados state
   const [aptSearch, setAptSearch] = useState('');
   const [aptFilter, setAptFilter] = useState<'Activo' | 'Listo' | 'Entregado' | 'Cancelado' | 'todos'>('Activo');
   const [selectedAptId, setSelectedAptId] = useState<string | null>(null);
   const [aptModal, setAptModal] = useState<'nuevo' | 'abonar' | null>(null);
+  const [localHighlightedEntryId, setLocalHighlightedEntryId] = useState<string | null>(null);
+  const [localHighlightedApartadoId, setLocalHighlightedApartadoId] = useState<string | null>(null);
+  const [aptCancelStep, setAptCancelStep] = useState<'pin' | 'confirm' | null>(null);
+  const [aptCancelPin, setAptCancelPin] = useState('');
+  const [aptCancelPinError, setAptCancelPinError] = useState('');
 
   // Nuevo apartado form
   const [aptClientName, setAptClientName] = useState('');
@@ -513,6 +607,8 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
   const [aptAbonoAmount, setAptAbonoAmount] = useState('');
   const [aptAbonoMethod, setAptAbonoMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia'>('Efectivo');
   const [aptAbonoNote, setAptAbonoNote] = useState('');
+  const [aptAbonoTargetItemId, setAptAbonoTargetItemId] = useState<string | null>(null);
+  const [aptAbonoItemQtyToPay, setAptAbonoItemQtyToPay] = useState(1);
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'activos' | 'cerrados' | 'todos' | 'eliminados'>('activos');
@@ -521,10 +617,12 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
   // Modals
   const [modal, setModal] = useState<'abonar' | 'pagar' | 'agregar' | 'nuevo' | null>(null);
 
-  // Abonar — pago mixto
   const [abonoEfectivo, setAbonoEfectivo] = useState('');
   const [abonoTarjeta, setAbonoTarjeta] = useState('');
   const [abonoRef, setAbonoRef] = useState('');
+  const [abonoTargetEntryId, setAbonoTargetEntryId] = useState<string | null>(null);
+  const [abonoTargetItemId, setAbonoTargetItemId] = useState<string | null>(null);
+  const [abonoItemQtyToPay, setAbonoItemQtyToPay] = useState(1);
 
   // Pagar deuda completa — pago mixto
   const [pagoEfectivo, setPagoEfectivo] = useState('');
@@ -775,7 +873,7 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
         offset: config.ticketMarginOffset || 0,
         config,
       });
-      sendWhatsappNotification(config, newApt.clientPhone, msg, html).catch(err => {
+      sendWhatsappNotification(config, newApt.clientPhone, msg, html, true, undefined, undefined, true).catch(err => {
         console.error('[WhatsApp] Error sending new layaway:', err);
       });
     }
@@ -785,6 +883,29 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
     setAptInitialAmount(''); setAptInitialMethod('Efectivo');
     setAptModal(null);
     setSelectedAptId(newApt.id);
+  };
+
+  const openAptAbonoModal = (defaultAmount?: number, defaultNote?: string, itemId?: string) => {
+    setAptAbonoAmount(defaultAmount ? defaultAmount.toString() : '');
+    setAptAbonoMethod('Efectivo');
+    setAptAbonoNote(defaultNote || '');
+    setAptAbonoTargetItemId(itemId || null);
+    
+    let initialQty = 1;
+    if (selectedApt && itemId) {
+      const item = selectedApt.items.find(it => it.itemId === itemId);
+      if (item && item.quantity > 1) {
+        const itemPayments = selectedApt.payments.filter(p => p.itemId === itemId);
+        const totalPaid = itemPayments.reduce((s, p) => s + p.amount, 0);
+        const paidUnits = Math.floor(totalPaid / item.price);
+        
+        initialQty = 1;
+        setAptAbonoAmount(item.price.toString());
+        setAptAbonoNote(`Pago de: 1x ${item.name}`);
+      }
+    }
+    setAptAbonoItemQtyToPay(initialQty);
+    setAptModal('abonar');
   };
 
   const handleAbonarApartado = () => {
@@ -797,6 +918,7 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
       amount,
       method: aptAbonoMethod,
       note: aptAbonoNote.trim() || undefined,
+      itemId: aptAbonoTargetItemId || undefined,
     };
     onAddApartadoPayment(selectedApt.id, payment);
     const bal = aptBalance(selectedApt);
@@ -827,11 +949,12 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
         offset: config.ticketMarginOffset || 0,
         config,
       });
-      sendWhatsappNotification(config, selectedApt.clientPhone, msg, html).catch(err => {
+      sendWhatsappNotification(config, selectedApt.clientPhone, msg, html, true, undefined, undefined, true).catch(err => {
         console.error('[WhatsApp] Error sending layaway abono:', err);
       });
     }
     setAptAbonoAmount(''); setAptAbonoNote('');
+    setAptAbonoTargetItemId(null);
     setAptModal(null);
   };
 
@@ -873,7 +996,7 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
-  const openModal = (m: 'abonar' | 'pagar' | 'agregar') => {
+  const openModal = (m: 'abonar' | 'pagar' | 'agregar', defaultAmount?: number, defaultNote?: string, entryId?: string, itemId?: string) => {
     setConfirmStep(false);
     setModal(m);
     if (m === 'pagar') {
@@ -883,9 +1006,31 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
       setTimeout(() => { const el = document.getElementById('pago-efectivo') as HTMLInputElement; el?.focus(); el?.select(); }, 100);
     }
     if (m === 'abonar') {
-      setAbonoEfectivo('');
+      setAbonoTargetEntryId(entryId || null);
+      setAbonoTargetItemId(itemId || null);
+      
+      let initialQty = 1;
+      let initialAmt = defaultAmount || 0;
+      let initialNote = defaultNote || '';
+
+      if (entryId && itemId && selectedAccount) {
+        const entry = selectedAccount.entries.find(e => e.id === entryId);
+        const item = entry?.items.find(it => it.itemId === itemId);
+        if (item && item.quantity > 1) {
+          const itemPayments = selectedAccount.payments.filter(p => p.entryId === entryId && p.itemId === itemId);
+          const totalPaid = itemPayments.reduce((s, p) => s + p.amount, 0);
+          const paidUnits = Math.floor(totalPaid / item.price);
+          
+          initialQty = 1;
+          initialAmt = item.price;
+          initialNote = `Pago de: 1x ${item.name}`;
+        }
+      }
+
+      setAbonoItemQtyToPay(initialQty);
+      setAbonoEfectivo(initialAmt ? initialAmt.toString() : '');
       setAbonoTarjeta('');
-      setAbonoRef('');
+      setAbonoRef(initialNote);
       setTimeout(() => { const el = document.getElementById('abono-efectivo') as HTMLInputElement; el?.focus(); el?.select(); }, 100);
     }
     if (m === 'agregar') {
@@ -917,7 +1062,15 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
     const noteString = codes.join(' | ') || undefined;
 
     const paymentId = genId();
-    onAddPayment(selectedAccount.id, { id: paymentId, createdAt: new Date().toISOString(), amount: amt, method, note: noteString });
+    onAddPayment(selectedAccount.id, { 
+      id: paymentId, 
+      createdAt: new Date().toISOString(), 
+      amount: amt, 
+      method, 
+      note: noteString,
+      entryId: abonoTargetEntryId || undefined,
+      itemId: abonoTargetItemId || undefined
+    });
     const paperWidth = effectivePaperWidth;
     if (printTicket) {
       const paperWidthMicrons = paperWidth === 'media-carta' ? 215900 : paperWidth === 'media-carta-duplicado' ? 210000 : (paperWidth === '58mm' ? 48000 : 72000);
@@ -946,11 +1099,13 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
         config,
         id: paymentId,
       });
-      sendWhatsappNotification(config, selectedAccount.clientPhone, msg, html).catch(err => {
+      sendWhatsappNotification(config, selectedAccount.clientPhone, msg, html, true, undefined, undefined, true).catch(err => {
         console.error('[WhatsApp] Error sending abono fiado:', err);
       });
     }
     setAbonoEfectivo(''); setAbonoTarjeta(''); setAbonoRef('');
+    setAbonoTargetEntryId(null);
+    setAbonoTargetItemId(null);
     setModal(null);
     if (amt >= selectedBalance) setSelectedId(null);
   };
@@ -998,7 +1153,7 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
         config,
         id: paymentId,
       });
-      sendWhatsappNotification(config, selectedAccount.clientPhone, msg, html).catch(err => {
+      sendWhatsappNotification(config, selectedAccount.clientPhone, msg, html, true, undefined, undefined, true).catch(err => {
         console.error('[WhatsApp] Error sending payment liquidation:', err);
       });
     }
@@ -1015,7 +1170,7 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
       items: itemsToAdd.map(i => ({ itemId: i.itemId, name: i.name, quantity: i.qty, price: i.price })),
       subtotal,
     };
-    onAddEntry(selectedAccount.id, entry);
+    onAddEntry(selectedAccount.id, entry, true);
     const prevBalance = selectedBalance;
     const newBalance = prevBalance + subtotal;
     const paperWidth = effectivePaperWidth;
@@ -1046,7 +1201,7 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
         config,
         id: entry.id,
       });
-      sendWhatsappNotification(config, selectedAccount.clientPhone, msg, html).catch(err => {
+      sendWhatsappNotification(config, selectedAccount.clientPhone, msg, html, true, undefined, undefined, true).catch(err => {
         console.error('[WhatsApp] Error sending cargo fiado:', err);
       });
     }
@@ -1119,14 +1274,14 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
       const msg = buildWhatsappFiadoAperturaMessage(account, config);
       const whatsappPaperWidth = (paperWidth === 'media-carta' || paperWidth === 'media-carta-duplicado') ? 'media-carta' : paperWidth;
       const html = buildAperturaHtml(whatsappPaperWidth);
-      sendWhatsappNotification(config, clientPhone, msg, html).catch(err => {
+      sendWhatsappNotification(config, clientPhone, msg, html, true, undefined, undefined, true).catch(err => {
         console.error('[WhatsApp] Error sending account opening:', err);
       });
     }
     setNewName(''); setNewPhone(''); setNewCreditLimit(''); setModal(null);
   };
 
-  const filteredInventory = inventory.filter(i => {
+  const filteredInventory = combinedItems.filter(i => {
     const cleanSearch = itemSearch.replace(/,(?!\s)/g, '-');
     return i.name.toLowerCase().includes(cleanSearch.toLowerCase()) ||
       (i.code && i.code.toLowerCase().includes(cleanSearch.toLowerCase()));
@@ -1163,7 +1318,11 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
     setDeletePin('');
     setDeletePinError('');
     const isEmployee = currentUser && currentUser.role !== 'admin';
-    setDeleteStep(isEmployee ? 'pin' : 'confirm');
+    if (selectedBalance > 0) {
+      setDeleteStep('pin');
+    } else {
+      setDeleteStep(isEmployee ? 'pin' : 'confirm');
+    }
   };
 
   const verifyDeletePin = () => {
@@ -1180,6 +1339,27 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
     setSelectedId(null);
     setDeleteStep(null);
     setDeletePin('');
+  };
+
+  const openAptCancelModal = () => {
+    setAptCancelPin('');
+    setAptCancelPinError('');
+    setAptCancelStep('pin');
+  };
+
+  const verifyAptCancelPin = () => {
+    const admins = users.filter(u => u.role === 'admin');
+    const ok = admins.some(u => u.pin === aptCancelPin);
+    if (!ok) { setAptCancelPinError('PIN incorrecto.'); return; }
+    setAptCancelPinError('');
+    setAptCancelStep('confirm');
+  };
+
+  const executeAptCancel = () => {
+    if (!selectedApt) return;
+    onUpdateApartadoStatus(selectedApt.id, 'Cancelado');
+    setAptCancelStep(null);
+    setAptCancelPin('');
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────────
@@ -1257,6 +1437,8 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
             const bal = getBalance(account);
             const alert = isAlert(account);
             const isSelected = selectedId === account.id;
+            const clientMatch = clients?.find(c => c.phone === account.clientPhone || c.name.toLowerCase().trim() === account.clientName.toLowerCase().trim());
+            const limit = clientMatch?.creditLimit ?? account.creditLimit;
             return (
               <button key={account.id} onClick={() => setSelectedId(isSelected ? null : account.id)}
                 className={`w-full text-left px-4 py-3 border-b ${divider} flex items-center gap-3 transition-all cursor-pointer ${isSelected ? (isLight ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'bg-blue-950/30 border-l-4 border-l-blue-500') : hoverRow}`}>
@@ -1265,7 +1447,18 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={`text-xs font-black truncate ${textMain}`}>{account.clientName}</div>
-                  <div className={`text-[9px] ${textSub}`}>{account.clientPhone}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={`text-[9px] ${textSub}`}>{account.clientPhone}</span>
+                    {limit !== undefined && limit > 0 && (
+                      <span className={`text-[8px] font-black px-1 py-0.2 rounded shrink-0 border ${
+                        isLight 
+                          ? 'bg-amber-50 border-amber-200 text-amber-700' 
+                          : 'bg-amber-950/30 border-amber-900/40 text-amber-400'
+                      }`}>
+                        Lím: {sym}{limit.toLocaleString('es-MX')}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className={`text-xs font-black ${bal > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>{sym}{bal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
@@ -1293,7 +1486,17 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <h2 className={`text-base font-black ${textMain}`}>{selectedAccount.clientName}</h2>
-                  <p className={`text-xs ${textSub}`}>{selectedAccount.clientPhone} · Cliente desde {new Date(selectedAccount.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                  <p className={`text-xs ${textSub}`}>
+                    {selectedAccount.clientPhone} · Cliente desde {new Date(selectedAccount.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {' · '}
+                    <span className="font-bold text-amber-600 dark:text-amber-500">
+                      Límite de Crédito: {(() => {
+                        const clientMatch = clients?.find(c => c.phone === selectedAccount.clientPhone || c.name.toLowerCase().trim() === selectedAccount.clientName.toLowerCase().trim());
+                        const limit = clientMatch?.creditLimit ?? selectedAccount.creditLimit;
+                        return limit !== undefined && limit > 0 ? `${sym}${limit.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Sin límite';
+                      })()}
+                    </span>
+                  </p>
                 </div>
                 {/* Resumen financiero */}
                 <div className={`flex items-stretch gap-px rounded-lg overflow-hidden border shrink-0 ${isRetro ? 'border-zinc-300' : isLight ? 'border-zinc-200' : 'border-zinc-700'}`}>
@@ -1359,20 +1562,92 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
               <div>
                 <div className={`text-[9px] font-black uppercase tracking-wider mb-2 ${textSub}`}>📦 Artículos fiados</div>
                 {selectedAccount.entries.length === 0 && <p className={`text-xs ${textSub}`}>Sin cargos</p>}
-                {selectedAccount.entries.map(entry => (
-                  <div key={entry.id} className={`${cardBg} rounded mb-2 overflow-hidden`}>
-                    <div className={`px-3 py-1.5 flex justify-between items-center border-b ${divider} ${isRetro ? 'bg-zinc-50' : isLight ? 'bg-zinc-50' : 'bg-zinc-800/50'}`}>
-                      <span className={`text-[9px] font-bold ${textSub}`}>{new Date(entry.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                      <span className={`text-[10px] font-black ${textMain}`}>{sym}{entry.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    {entry.items.map((it, i) => (
-                      <div key={i} className={`flex justify-between px-3 py-1.5 text-xs border-b last:border-0 ${divider} ${textMain}`}>
-                        <span className="flex-1 truncate">{it.name}{it.quantity > 1 ? <span className={`ml-1 ${textSub}`}>×{it.quantity}</span> : ''}</span>
-                        <span className="font-black ml-2">{sym}{(it.price * it.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                {selectedAccount.entries.map(entry => {
+                  const entryPayments = selectedAccount.payments.filter(p => p.entryId === entry.id);
+                  const totalPaidForEntry = entryPayments.reduce((s, p) => s + p.amount, 0);
+                  const entryRemaining = Math.max(0, entry.subtotal - totalPaidForEntry);
+                  const isEntryFullyPaid = totalPaidForEntry >= entry.subtotal;
+                  const isEntryPartiallyPaid = totalPaidForEntry > 0 && totalPaidForEntry < entry.subtotal;
+
+                  const isHighlighted = localHighlightedEntryId === entry.id;
+
+                  return (
+                    <div key={entry.id} className={`${cardBg} rounded mb-2 overflow-hidden border transition-all duration-300 ${isHighlighted ? (isRetro ? 'border-amber-500 bg-amber-50 shadow-sm' : 'border-amber-500 bg-amber-500/5 shadow-md') : 'border-transparent'}`} style={isHighlighted ? { transform: 'scale(1.01)', transition: 'all 0.3s ease-in-out' } : undefined}>
+                      <div className={`px-3 py-1.5 flex justify-between items-center border-b ${divider} ${isRetro ? 'bg-zinc-50' : isLight ? 'bg-zinc-50' : 'bg-zinc-800/50'}`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] font-bold ${textSub}`}>{new Date(entry.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          
+                          {isEntryFullyPaid ? (
+                            <span className="text-[8.5px] font-black uppercase px-2 py-0.5 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/20">
+                              ✓ Liquidado
+                            </span>
+                          ) : (
+                            <>
+                              <button onClick={() => openModal('abonar', entryRemaining, `Liquidación de cargo: ${entry.id}`, entry.id)}
+                                title={isEntryPartiallyPaid ? "Liquidar el saldo restante de este cargo" : "Abonar o liquidar el monto total de este cargo"}
+                                className={`px-1.5 py-0.5 text-[8.5px] font-black uppercase cursor-pointer hover:opacity-85 active:scale-95 transition-all ${
+                                  isRetro
+                                    ? 'bg-zinc-200 text-zinc-850 border border-zinc-450 rounded shadow-sm'
+                                    : 'bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 rounded'
+                                }`}
+                              >
+                                {isEntryPartiallyPaid ? '💵 Liquidar Resto' : '💵 Liquidar Cargo'}
+                              </button>
+                              {isEntryPartiallyPaid && (
+                                <span className={`text-[9px] font-bold ${isLight ? 'text-orange-600' : 'text-orange-400'}`}>
+                                  (Abonado: {sym}{totalPaidForEntry.toLocaleString('es-MX', { minimumFractionDigits: 2 })})
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <span className={`text-[10px] font-black ${textMain}`}>{sym}{entry.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
-                    ))}
-                  </div>
-                ))}
+                      {entry.items.map((it, i) => {
+                        const itemPayments = selectedAccount.payments.filter(p => p.entryId === entry.id && p.itemId === it.itemId);
+                        const totalPaidForItem = itemPayments.reduce((s, p) => s + p.amount, 0);
+                        const itemTotal = it.price * it.quantity;
+                        const isItemFullyPaid = totalPaidForItem >= itemTotal;
+                        const isItemPartiallyPaid = totalPaidForItem > 0 && totalPaidForItem < itemTotal;
+
+                        const showItemBadges = entry.items.length > 1 || it.quantity > 1;
+                        const showPayItemButton = showItemBadges && !isItemFullyPaid && !isEntryFullyPaid;
+
+                        const amtToPay = (it.quantity > 1 && totalPaidForItem === 0) ? it.price : (itemTotal - totalPaidForItem);
+                        const defaultNote = (it.quantity > 1 && totalPaidForItem === 0) ? `Pago de: 1x ${it.name}` : `Pago de: ${it.quantity}x ${it.name}`;
+
+                        return (
+                          <div key={i} className={`flex justify-between items-center px-3 py-1.5 text-xs border-b last:border-0 ${divider} ${textMain}`}>
+                            <div className="flex-1 truncate flex items-center gap-1.5">
+                              <span className="truncate">{it.name}{it.quantity > 1 ? <span className={`ml-1 ${textSub}`}>×{it.quantity}</span> : ''}</span>
+                              {showItemBadges && isItemFullyPaid && (
+                                <span className="text-[8px] font-black uppercase px-1 py-0.2 bg-emerald-500/10 text-emerald-500 rounded">✓ Pagado</span>
+                              )}
+                              {showItemBadges && isItemPartiallyPaid && (
+                                <span className="text-[8px] font-black uppercase px-1 py-0.2 bg-orange-500/10 text-orange-500 rounded">Abonado: {sym}{totalPaidForItem.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {showPayItemButton && (
+                                <button onClick={() => openModal('abonar', amtToPay, defaultNote, entry.id, it.itemId)}
+                                  title="Registrar abono/pago para este artículo específico"
+                                  className={`px-1.5 py-0.5 text-[8px] font-black uppercase cursor-pointer hover:opacity-85 active:scale-95 transition-all ${
+                                    isRetro
+                                      ? 'bg-zinc-100 text-zinc-700 border border-zinc-350 rounded shadow-sm'
+                                      : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 rounded'
+                                  }`}
+                                >
+                                  Pagar Art.
+                                </button>
+                              )}
+                              <span className="font-black font-mono">{sym}{(it.price * it.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Abonos */}
@@ -1382,10 +1657,17 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                   {selectedAccount.payments.map(p => (
                     <div key={p.id} className={`flex justify-between items-center px-3 py-2 rounded mb-1 ${isRetro ? 'bg-emerald-50 border border-emerald-200' : isLight ? 'bg-emerald-50 border border-emerald-100' : 'bg-emerald-950/20 border border-emerald-900/30'}`}>
                       <div>
-                        <span className={`text-[10px] font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>+{sym}{p.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        <span className={`text-[9px] ml-2 ${textSub}`}>{p.method}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>+{sym}{p.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span className={`text-[9px] ${textSub}`}>{p.method}</span>
+                        </div>
+                        {p.note && (
+                          <div className={`text-[9.5px] font-bold mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                            {p.note}
+                          </div>
+                        )}
                       </div>
-                      <span className={`text-[9px] ${textSub}`}>{new Date(p.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                      <span className={`text-[9px] ${textSub}`}>{new Date(p.createdAt).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                     </div>
                   ))}
                 </div>
@@ -1416,6 +1698,81 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                 <span className={textSub}>Saldo pendiente</span>
                 <span ref={el => { if (el) el.style.setProperty('color','#f43f5e','important'); }}>{sym}{selectedBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+              
+              {/* Contexto del abono/pago de cargo o artículo */}
+              {(() => {
+                const targetEntry = selectedAccount.entries.find(e => e.id === abonoTargetEntryId);
+                const targetItem = targetEntry?.items.find(it => it.itemId === abonoTargetItemId);
+                if (!targetEntry) return null;
+
+                if (targetItem) {
+                  const itemPayments = selectedAccount.payments.filter(p => p.entryId === targetEntry.id && p.itemId === targetItem.itemId);
+                  const totalPaid = itemPayments.reduce((s, p) => s + p.amount, 0);
+                  const maxUnpaid = targetItem.quantity - Math.floor(totalPaid / targetItem.price);
+
+                  if (targetItem.quantity > 1) {
+                    return (
+                      <div className={`p-2 border rounded ${isRetro ? 'bg-zinc-50 border-zinc-350' : isLight ? 'bg-zinc-50 border-zinc-150' : 'bg-zinc-800/40 border-zinc-800'} space-y-1.5`}>
+                        <div className={`text-[9px] font-black uppercase ${textSub}`}>Artículo Seleccionado:</div>
+                        <div className={`text-xs font-bold leading-tight ${textMain}`}>{targetItem.name}</div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className={textSub}>Unidades a pagar:</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              disabled={abonoItemQtyToPay <= 1}
+                              onClick={() => {
+                                const newQty = abonoItemQtyToPay - 1;
+                                setAbonoItemQtyToPay(newQty);
+                                setAbonoEfectivo((newQty * targetItem.price).toString());
+                                setAbonoRef(`Pago de: ${newQty}x ${targetItem.name}`);
+                              }}
+                              className={`w-5 h-5 flex items-center justify-center font-black border rounded cursor-pointer disabled:opacity-40 select-none ${
+                                isRetro ? 'border-zinc-400 bg-zinc-100 text-zinc-800' : isLight ? 'border-zinc-300 bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-350'
+                              }`}
+                            >
+                              -
+                            </button>
+                            <span className={`font-black ${textMain}`}>{abonoItemQtyToPay} / {maxUnpaid}</span>
+                            <button
+                              disabled={abonoItemQtyToPay >= maxUnpaid}
+                              onClick={() => {
+                                const newQty = abonoItemQtyToPay + 1;
+                                setAbonoItemQtyToPay(newQty);
+                                setAbonoEfectivo((newQty * targetItem.price).toString());
+                                setAbonoRef(`Pago de: ${newQty}x ${targetItem.name}`);
+                              }}
+                              className={`w-5 h-5 flex items-center justify-center font-black border rounded cursor-pointer disabled:opacity-40 select-none ${
+                                isRetro ? 'border-zinc-400 bg-zinc-100 text-zinc-800' : isLight ? 'border-zinc-300 bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-350'
+                              }`}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                        <div className={`text-[9px] font-semibold text-center mt-1 text-emerald-500`}>
+                          Se pagará {abonoItemQtyToPay} de {targetItem.quantity} unidad(es) ({sym}{targetItem.price} c/u)
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className={`p-2 border rounded ${isRetro ? 'bg-zinc-50 border-zinc-350' : isLight ? 'bg-zinc-50 border-zinc-150' : 'bg-zinc-800/40 border-zinc-800'} space-y-0.5`}>
+                        <div className={`text-[9px] font-black uppercase ${textSub}`}>Artículo Seleccionado:</div>
+                        <div className={`text-xs font-bold leading-tight ${textMain}`}>{targetItem.name}</div>
+                        <div className={`text-[9.5px] font-medium ${textSub}`}>Abonando a este artículo único</div>
+                      </div>
+                    );
+                  }
+                } else {
+                  return (
+                    <div className={`p-2 border rounded ${isRetro ? 'bg-zinc-50 border-zinc-350' : isLight ? 'bg-zinc-50 border-zinc-150' : 'bg-zinc-800/40 border-zinc-800'} space-y-0.5`}>
+                      <div className={`text-[9px] font-black uppercase ${textSub}`}>Cargo Seleccionado:</div>
+                      <div className={`text-xs font-bold ${textMain}`}>{new Date(targetEntry.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                      <div className={`text-[9.5px] font-medium ${textSub}`}>Liquidando el saldo restante de la compra</div>
+                    </div>
+                  );
+                }
+              })()}
               {/* Campos pago mixto */}
               <div>
                 <label className={`text-[10px] font-black uppercase ${textSub}`}>💵 Efectivo</label>
@@ -1735,13 +2092,20 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
             ) : (
               /* ── Paso Resumen / Confirmación ── */
               <div className="p-4 space-y-3">
-                <div className={`rounded-lg p-3 border space-y-1.5 ${isRetro ? 'bg-rose-50 border-rose-300' : isLight ? 'bg-rose-50 border-rose-200' : 'bg-rose-950/20 border-rose-800/30'}`}>
-                  <p className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-rose-700' : 'text-rose-400'}`}>⚠️ Resumen — acción irreversible</p>
+                <div className={`rounded-lg p-3 border space-y-1.5 ${selectedBalance > 0 ? (isRetro ? 'bg-amber-50 border-amber-300' : isLight ? 'bg-amber-50 border-amber-200' : 'bg-amber-950/20 border-amber-800/30') : (isRetro ? 'bg-rose-50 border-rose-300' : isLight ? 'bg-rose-50 border-rose-200' : 'bg-rose-950/20 border-rose-800/30')}`}>
+                  {selectedBalance > 0 ? (
+                    <>
+                      <p className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>⚠️ ADVERTENCIA: SALDO ACTIVO</p>
+                      <p className={`text-[9.5px] leading-tight ${isLight ? 'text-amber-600' : 'text-amber-300'}`}>Esta cuenta tiene una deuda activa de <strong>{sym}{selectedBalance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong>. Se recomienda liquidar la deuda antes de eliminar la cuenta para evitar descuadres en los cierres de caja.</p>
+                    </>
+                  ) : (
+                    <p className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-rose-700' : 'text-rose-400'}`}>⚠️ Resumen — acción irreversible</p>
+                  )}
                   <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Cliente</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{selectedAccount.clientName}</span></div>
                   <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Teléfono</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{selectedAccount.clientPhone}</span></div>
                   <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Cargos registrados</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{selectedAccount.entries.length}</span></div>
                   <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Abonos registrados</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{selectedAccount.payments.length}</span></div>
-                  <div className={`flex justify-between text-sm font-black border-t pt-1.5 mt-1 ${isRetro ? 'border-rose-300' : isLight ? 'border-rose-200' : 'border-rose-800/40'}`}>
+                  <div className={`flex justify-between text-sm font-black border-t pt-1.5 mt-1 ${selectedBalance > 0 ? (isRetro ? 'border-amber-300' : isLight ? 'border-amber-200' : 'border-amber-800/40') : (isRetro ? 'border-rose-300' : isLight ? 'border-rose-200' : 'border-rose-800/40')}`}>
                     <span className={isLight ? 'text-zinc-700' : 'text-zinc-200'}>Saldo pendiente</span>
                     <span className={selectedBalance > 0 ? 'text-rose-500' : 'text-emerald-500'}>{selectedBalance > 0 ? `${sym}${selectedBalance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Saldado'}</span>
                   </div>
@@ -1756,6 +2120,74 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                   <button onClick={() => { setDeleteStep(null); setDeletePin(''); setDeletePinError(''); }}
                     className={`px-4 py-2.5 font-black text-xs uppercase cursor-pointer ${isRetro ? 'bg-zinc-200 text-zinc-700 border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400' : isLight ? 'bg-zinc-100 text-zinc-600 rounded-lg' : 'bg-zinc-700 text-zinc-300 rounded-lg'}`}>
                     Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL CANCELAR APARTADO (CON PIN) ───────────────────────── */}
+      {aptCancelStep !== null && selectedApt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setAptCancelStep(null); setAptCancelPin(''); setAptCancelPinError(''); }}>
+          <div className={`w-full max-w-xs mx-4 overflow-hidden shadow-2xl ${isRetro ? 'bg-white border-2 border-zinc-400' : isLight ? 'bg-white border border-zinc-200 rounded-2xl' : 'bg-zinc-900 border border-zinc-700 rounded-2xl'}`} onClick={e => e.stopPropagation()}>
+            <div className={`${headerBg} px-4 py-3 flex items-center justify-between`}
+              ref={el => { if (el && isRetro) { el.style.setProperty('color','white','important'); Array.from(el.querySelectorAll('*')).forEach((c:Element) => (c as HTMLElement).style?.setProperty('color','white','important')); } }}>
+              <span className="text-sm font-black uppercase text-white">⚠️ Cancelar Apartado</span>
+              <button onClick={() => { setAptCancelStep(null); setAptCancelPin(''); setAptCancelPinError(''); }} className="text-white/70 text-lg font-black cursor-pointer">✕</button>
+            </div>
+
+            {aptCancelStep === 'pin' ? (
+              <div className="p-4 space-y-3">
+                <div className={`rounded-lg p-3 border ${isRetro ? 'bg-amber-50 border-amber-300' : isLight ? 'bg-amber-50 border-amber-200' : 'bg-amber-950/20 border-amber-800/30'}`}>
+                  <p className={`text-xs font-black ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>🔐 Autorización requerida</p>
+                  <p className={`text-[10px] mt-1 ${isLight ? 'text-amber-600' : 'text-amber-300'}`}>Se requiere el PIN de un administrador para cancelar el apartado.</p>
+                </div>
+                <div>
+                  <label className={`text-[10px] font-black uppercase ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>PIN de administrador</label>
+                  <input
+                    autoFocus
+                    type="password"
+                    maxLength={6}
+                    value={aptCancelPin}
+                    onChange={e => { setAptCancelPin(e.target.value); setAptCancelPinError(''); }}
+                    onKeyDown={e => e.key === 'Enter' && verifyAptCancelPin()}
+                    placeholder="••••"
+                    className={`${inputCls} mt-1 text-center tracking-widest text-lg`}
+                  />
+                  {aptCancelPinError && <p className="text-[10px] text-rose-500 font-black mt-1">{aptCancelPinError}</p>}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button onClick={verifyAptCancelPin} disabled={!aptCancelPin}
+                    className={`flex-1 py-2.5 font-black text-xs uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${isRetro ? 'bg-rose-600 text-white border-2 border-t-rose-400 border-l-rose-400 border-b-rose-900 border-r-rose-900' : 'bg-rose-600 hover:bg-rose-700 text-white rounded-lg'}`}
+                    ref={el => { if (el && isRetro) el.style.setProperty('color','white','important'); }}>
+                    Verificar →
+                  </button>
+                  <button onClick={() => { setAptCancelStep(null); setAptCancelPin(''); setAptCancelPinError(''); }}
+                    className={`px-4 py-2.5 font-black text-xs uppercase cursor-pointer ${isRetro ? 'bg-zinc-200 text-zinc-700 border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400' : isLight ? 'bg-zinc-100 text-zinc-600 rounded-lg' : 'bg-zinc-700 text-zinc-300 rounded-lg'}`}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 space-y-3">
+                <div className={`rounded-lg p-3 border space-y-1.5 ${isRetro ? 'bg-rose-50 border-rose-300' : isLight ? 'bg-rose-50 border-rose-200' : 'bg-rose-950/20 border-rose-800/30'}`}>
+                  <p className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-rose-700' : 'text-rose-400'}`}>⚠️ Confirmar Cancelación</p>
+                  <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Cliente</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{selectedApt.clientName}</span></div>
+                  <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Total apartado</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{sym}{selectedApt.totalValue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span></div>
+                  <div className="flex justify-between text-xs"><span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Pagos/Abonos</span><span className={`font-black ${isLight ? 'text-zinc-900' : 'text-white'}`}>{sym}{selectedApt.payments.reduce((s, p) => s + p.amount, 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span></div>
+                </div>
+                <p className={`text-[10.5px] text-center font-black ${isLight ? 'text-rose-600' : 'text-rose-455'}`}>¿Realmente deseas cancelar este apartado? Esto devolverá los artículos reservados al stock y marcará el apartado como Cancelado.</p>
+                <div className="flex gap-2">
+                  <button onClick={executeAptCancel}
+                    className={`flex-1 py-2.5 font-black text-xs uppercase cursor-pointer ${isRetro ? 'bg-rose-600 text-white border-2 border-t-rose-400 border-l-rose-400 border-b-rose-900 border-r-rose-900' : 'bg-rose-600 hover:bg-rose-700 text-white rounded-lg'}`}
+                    ref={el => { if (el && isRetro) el.style.setProperty('color','white','important'); }}>
+                    Sí, Cancelar
+                  </button>
+                  <button onClick={() => { setAptCancelStep(null); setAptCancelPin(''); setAptCancelPinError(''); }}
+                    className={`px-4 py-2.5 font-black text-xs uppercase cursor-pointer ${isRetro ? 'bg-zinc-200 text-zinc-700 border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400' : isLight ? 'bg-zinc-100 text-zinc-600 rounded-lg' : 'bg-zinc-700 text-zinc-300 rounded-lg'}`}>
+                    Cerrar
                   </button>
                 </div>
               </div>
@@ -1924,7 +2356,7 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                       </button>
                     )}
                     {(selectedApt.status === 'Activo' || selectedApt.status === 'Listo') && (
-                      <button onClick={() => onUpdateApartadoStatus(selectedApt.id, 'Cancelado')}
+                      <button onClick={openAptCancelModal}
                         className={`flex items-center gap-1.5 px-3 py-2 text-xs font-black uppercase cursor-pointer transition-all active:scale-95 ${isRetro ? 'bg-rose-600 text-white border-2 border-t-rose-400 border-l-rose-400 border-b-rose-900 border-r-rose-900 rounded' : 'bg-rose-600 hover:bg-rose-700 text-white rounded-lg'}`}
                         ref={el => { if (el && isRetro) el.style.setProperty('color','white','important'); }}>
                         Cancelar
@@ -1946,14 +2378,55 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                   {/* Items */}
                   <div>
                     <div className={`text-[9px] font-black uppercase tracking-wider mb-2 ${textSub}`}>📦 Artículos apartados</div>
-                    <div className={`${cardBg} rounded overflow-hidden`}>
-                      {selectedApt.items.map((it, i) => (
-                        <div key={i} className={`flex justify-between px-3 py-2 text-xs border-b last:border-0 ${divider} ${textMain}`}>
-                          <span className="flex-1 truncate">{it.name}{it.quantity > 1 ? <span className={`ml-1 ${textSub}`}>×{it.quantity}</span> : ''}</span>
-                          <span className="font-black ml-2">{sym}{(it.price * it.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    {(() => {
+                      const isAptHighlighted = localHighlightedApartadoId === selectedApt.id;
+                      return (
+                        <div className={`${cardBg} rounded overflow-hidden border transition-all duration-300 ${isAptHighlighted ? (isRetro ? 'border-amber-500 bg-amber-50 shadow-sm' : 'border-amber-500 bg-amber-500/5 shadow-md') : 'border-transparent'}`} style={isAptHighlighted ? { transform: 'scale(1.01)', transition: 'all 0.3s ease-in-out' } : undefined}>
+                          {selectedApt.items.map((it, i) => {
+                            const itemPayments = selectedApt.payments.filter(p => p.itemId === it.itemId);
+                            const totalPaidForItem = itemPayments.reduce((s, p) => s + p.amount, 0);
+                            const itemTotal = it.price * it.quantity;
+                            const isItemFullyPaid = totalPaidForItem >= itemTotal;
+                            const isItemPartiallyPaid = totalPaidForItem > 0 && totalPaidForItem < itemTotal;
+
+                            const showItemBadges = selectedApt.items.length > 1 || it.quantity > 1;
+                            const showPayItemButton = showItemBadges && !isItemFullyPaid && selectedApt.status !== 'Entregado' && selectedApt.status !== 'Cancelado';
+
+                            const amtToPay = (it.quantity > 1 && totalPaidForItem === 0) ? it.price : (itemTotal - totalPaidForItem);
+                            const defaultNote = (it.quantity > 1 && totalPaidForItem === 0) ? `Pago de: 1x ${it.name}` : `Pago de: ${it.quantity}x ${it.name}`;
+
+                            return (
+                              <div key={i} className={`flex justify-between items-center px-3 py-2 text-xs border-b last:border-0 ${divider} ${textMain}`}>
+                                <div className="flex-1 truncate flex items-center gap-1.5">
+                                  <span className="truncate">{it.name}{it.quantity > 1 ? <span className={`ml-1 ${textSub}`}>×{it.quantity}</span> : ''}</span>
+                                  {showItemBadges && isItemFullyPaid && (
+                                    <span className="text-[8px] font-black uppercase px-1 py-0.2 bg-emerald-500/10 text-emerald-500 rounded">✓ Pagado</span>
+                                  )}
+                                  {showItemBadges && isItemPartiallyPaid && (
+                                    <span className="text-[8px] font-black uppercase px-1 py-0.2 bg-orange-500/10 text-orange-500 rounded">Abonado: {sym}{totalPaidForItem.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {showPayItemButton && (
+                                    <button onClick={() => openAptAbonoModal(amtToPay, defaultNote, it.itemId)}
+                                      title="Registrar abono/pago para este artículo específico del apartado"
+                                      className={`px-1.5 py-0.5 text-[8px] font-black uppercase cursor-pointer hover:opacity-85 active:scale-95 transition-all ${
+                                        isRetro
+                                          ? 'bg-zinc-100 text-zinc-700 border border-zinc-350 rounded shadow-sm'
+                                          : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 rounded'
+                                      }`}
+                                    >
+                                      Pagar Art.
+                                    </button>
+                                  )}
+                                  <span className="font-black font-mono">{sym}{itemTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })()}
                   </div>
                   {/* Payments */}
                   {selectedApt.payments.length > 0 && (
@@ -1962,11 +2435,17 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                       {selectedApt.payments.map(p => (
                         <div key={p.id} className={`flex justify-between items-center px-3 py-2 rounded mb-1 ${isRetro ? 'bg-emerald-50 border border-emerald-200' : isLight ? 'bg-emerald-50 border border-emerald-100' : 'bg-emerald-950/20 border border-emerald-900/30'}`}>
                           <div>
-                            <span className={`text-[10px] font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>+{sym}{p.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            <span className={`text-[9px] ml-2 ${textSub}`}>{p.method}</span>
-                            {p.note && <span className={`text-[9px] ml-1 ${textSub}`}>· {p.note}</span>}
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>+{sym}{p.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <span className={`text-[9px] ${textSub}`}>{p.method}</span>
+                            </div>
+                            {p.note && (
+                              <div className={`text-[9.5px] font-bold mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
+                                {p.note}
+                              </div>
+                            )}
                           </div>
-                          <span className={`text-[9px] ${textSub}`}>{new Date(p.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                          <span className={`text-[9px] ${textSub}`}>{new Date(p.date).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                         </div>
                       ))}
                     </div>
@@ -2120,6 +2599,71 @@ export default function FiadosView({ accounts, inventory, config, currentUser, u
                 <span className={textSub}>Saldo pendiente</span>
                 <span ref={el => { if (el) el.style.setProperty('color','#f43f5e','important'); }}>{sym}{aptBalance(selectedApt).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+
+              {/* Contexto del abono/pago de artículo en apartado */}
+              {(() => {
+                if (!aptAbonoTargetItemId) return null;
+                const targetItem = selectedApt.items.find(it => it.itemId === aptAbonoTargetItemId);
+                if (!targetItem) return null;
+
+                const itemPayments = selectedApt.payments.filter(p => p.itemId === targetItem.itemId);
+                const totalPaid = itemPayments.reduce((s, p) => s + p.amount, 0);
+                const maxUnpaid = targetItem.quantity - Math.floor(totalPaid / targetItem.price);
+
+                if (targetItem.quantity > 1) {
+                  return (
+                    <div className={`p-2 border rounded ${isRetro ? 'bg-zinc-50 border-zinc-350' : isLight ? 'bg-zinc-50 border-zinc-150' : 'bg-zinc-800/40 border-zinc-800'} space-y-1.5`}>
+                      <div className={`text-[9px] font-black uppercase ${textSub}`}>Artículo Seleccionado:</div>
+                      <div className={`text-xs font-bold leading-tight ${textMain}`}>{targetItem.name}</div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className={textSub}>Unidades a pagar:</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            disabled={aptAbonoItemQtyToPay <= 1}
+                            onClick={() => {
+                              const newQty = aptAbonoItemQtyToPay - 1;
+                              setAptAbonoItemQtyToPay(newQty);
+                              setAptAbonoAmount((newQty * targetItem.price).toString());
+                              setAptAbonoNote(`Pago de: ${newQty}x ${targetItem.name}`);
+                            }}
+                            className={`w-5 h-5 flex items-center justify-center font-black border rounded cursor-pointer disabled:opacity-40 select-none ${
+                              isRetro ? 'border-zinc-400 bg-zinc-100 text-zinc-800' : isLight ? 'border-zinc-300 bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-355'
+                            }`}
+                          >
+                            -
+                          </button>
+                          <span className={`font-black ${textMain}`}>{aptAbonoItemQtyToPay} / {maxUnpaid}</span>
+                          <button
+                            disabled={aptAbonoItemQtyToPay >= maxUnpaid}
+                            onClick={() => {
+                              const newQty = aptAbonoItemQtyToPay + 1;
+                              setAptAbonoItemQtyToPay(newQty);
+                              setAptAbonoAmount((newQty * targetItem.price).toString());
+                              setAptAbonoNote(`Pago de: ${newQty}x ${targetItem.name}`);
+                            }}
+                            className={`w-5 h-5 flex items-center justify-center font-black border rounded cursor-pointer disabled:opacity-40 select-none ${
+                              isRetro ? 'border-zinc-400 bg-zinc-100 text-zinc-800' : isLight ? 'border-zinc-300 bg-zinc-100 hover:bg-zinc-200 text-zinc-700' : 'border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-355'
+                            }`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      <div className={`text-[9px] font-semibold text-center mt-1 text-emerald-500`}>
+                        Se pagará {aptAbonoItemQtyToPay} de {targetItem.quantity} unidad(es) ({sym}{targetItem.price} c/u)
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className={`p-2 border rounded ${isRetro ? 'bg-zinc-50 border-zinc-350' : isLight ? 'bg-zinc-50 border-zinc-150' : 'bg-zinc-800/40 border-zinc-800'} space-y-0.5`}>
+                      <div className={`text-[9px] font-black uppercase ${textSub}`}>Artículo Seleccionado:</div>
+                      <div className={`text-xs font-bold leading-tight ${textMain}`}>{targetItem.name}</div>
+                      <div className={`text-[9.5px] font-medium ${textSub}`}>Abonando a este artículo único</div>
+                    </div>
+                  );
+                }
+              })()}
               <div>
                 <label className={`text-[10px] font-black uppercase ${textSub}`}>Monto</label>
                 <input autoFocus type="number" min="0" step="any" value={aptAbonoAmount}

@@ -142,6 +142,73 @@ export function tgVentaPOS(sale: Sale, config: WorkshopConfig): string {
   );
 }
 
+export function tgVentaRecharge(sale: Sale, config: WorkshopConfig): string {
+  const sym = config.currencySymbol || '$';
+  const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+  const hora = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+  // Buscar el item de recarga (que empiece con 'recharge-' y no sea la comisión)
+  const rechargeItem = sale.items.find(i => i.itemId.startsWith('recharge-') && i.itemId !== 'recharge-commission');
+  const commissionItem = sale.items.find(i => i.itemId === 'recharge-commission');
+
+  let rechargeDetails = '';
+  if (rechargeItem) {
+    // Extraer número de teléfono/referencia entre el primer '(' y último ')'
+    const firstOpenIdx = rechargeItem.name.indexOf('(');
+    const lastCloseIdx = rechargeItem.name.lastIndexOf(')');
+    let phone = 'Desconocido';
+    if (firstOpenIdx !== -1 && lastCloseIdx !== -1 && lastCloseIdx > firstOpenIdx) {
+      phone = rechargeItem.name.slice(firstOpenIdx + 1, lastCloseIdx);
+      if (phone.startsWith('(') && phone.endsWith(')')) {
+        phone = phone.slice(1, -1);
+      }
+    } else {
+      const parts = rechargeItem.name.split(' ');
+      phone = parts[parts.length - 1] || 'Desconocido';
+    }
+    const carrier = rechargeItem.name.split(' $')[0] || 'Taecel';
+    const detailText = rechargeItem.description
+      ? `📝 Detalle: *${rechargeItem.description}*\n`
+      : '';
+    rechargeDetails = 
+      `📱 Compañía: *${carrier}*\n` +
+      `📞 Número: *${phone}*\n` +
+      `💵 Monto: *${sym}${rechargeItem.price.toFixed(2)}*\n` +
+      detailText;
+  } else {
+    rechargeDetails = `🛒 Artículos:\n` + sale.items.map(i => `  • ${i.name} (${sym}${i.price})`).join('\n') + `\n`;
+  }
+
+  const comisionText = commissionItem && commissionItem.price > 0
+    ? `⚡ Comisión: ${sym}${commissionItem.price.toFixed(2)}\n`
+    : '';
+
+  // Parsear el folio de autorización desde confirmationCode
+  let authFolio = '';
+  if (sale.confirmationCode) {
+    const parts = sale.confirmationCode.split(' | ');
+    const autPart = parts.find(p => p.startsWith('Folio Aut:'));
+    if (autPart) {
+      authFolio = autPart.replace('Folio Aut:', '').trim();
+    }
+  }
+
+  return (
+    `⚡ *RECARGA / SERVICIO REGISTRADO*\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `🏪 Tienda: ${config.storeName || 'Taller'}\n` +
+    `🎫 Ticket: ${sale.ticketNumber || sale.id}\n` +
+    `📅 Fecha: ${fecha} ${hora}\n` +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    rechargeDetails +
+    comisionText +
+    (authFolio ? `🔑 Folio Aut: *${authFolio}*\n` : '') +
+    `━━━━━━━━━━━━━━━━━━━\n` +
+    `💰 Total Cobrado: *${sym}${sale.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*\n` +
+    `💳 Pago: ${sale.paymentMethod}`
+  );
+}
+
 export function tgNuevaOrden(order: RepairOrder, config: WorkshopConfig): string {
   const sym = config.currencySymbol || '$';
   const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });

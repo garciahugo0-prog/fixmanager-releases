@@ -1,0 +1,7 @@
+node_modules
+dist
+dist_test
+release
+extracted_app
+temp_unpacked
+.DS_Store

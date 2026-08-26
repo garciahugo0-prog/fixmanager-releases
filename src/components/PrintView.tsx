@@ -149,7 +149,7 @@ export function buildTicketHtmlFromTemplate(
     var img = '<img src="' + imgUrl + '" style="display:block;margin:0 auto" />';
     if (el) el.innerHTML = img;
   } else {
-    var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+tw+'" height="'+(h+12)+'" shape-rendering="crispEdges" style="display:block;margin:0 auto">';for(var k=0;k<bars.length;k++){svg+='<rect x="'+bars[k].x+'" y="0" width="'+bars[k].w+'" height="'+h+'" fill="black" shape-rendering="crispEdges"/>';}svg+='<text x="'+(tw/2)+'" y="'+(h+10)+'" text-anchor="middle" font-family="monospace" font-size="9" fill="black">'+text+'</text>';svg+='</svg>';if (el) el.innerHTML=svg;
+    var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+tw+'" height="'+(h+12)+'" shape-rendering="crispEdges" style="display:block;margin:0 auto">';for(var k=0;k<bars.length;k++){svg+='<rect x="'+bars[k].x+'" y="0" width="'+bars[k].w+'" height="'+h+'" fill="black" shape-rendering="crispEdges"/>';}var escapedText=text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");svg+='<text x="'+(tw/2)+'" y="'+(h+10)+'" text-anchor="middle" font-family="monospace" font-size="9" fill="black">'+escapedText+'</text>';svg+='</svg>';if (el) el.innerHTML=svg;
   }
 }draw('${orderId}');})();`;
 
@@ -332,7 +332,15 @@ export default function PrintView({ order, sale, config, setActiveTab, onClearSe
     } else if (!isOrder && sale) {
       const saleForTicket = {
         ...sale,
-        items: sale.items.map(i => ({ description: i.name, quantity: i.quantity, price: i.price })),
+        items: sale.items.map(i => ({
+          description: i.description || i.name || '',
+          name: i.name || i.description || '',
+          quantity: i.quantity,
+          price: i.price,
+          originalPrice: i.originalPrice,
+          discountValue: i.discountValue,
+          discountType: i.discountType
+        })),
       };
       html = buildPosTicketHtml(saleForTicket, config);
     } else {
@@ -377,8 +385,22 @@ export default function PrintView({ order, sale, config, setActiveTab, onClearSe
 
   // Calculate items breakdown
   const itemsList = isOrder
-    ? [{ description: `Reparación: ${order?.deviceBrand} ${order?.deviceModel} - ${order?.serviceType}`, price: order?.cost || 0, qty: 1 }]
-    : sale?.items.map(i => ({ description: i.name, price: i.price, qty: i.quantity })) || [];
+    ? [{
+        description: `Reparación: ${order?.deviceBrand} ${order?.deviceModel} - ${order?.serviceType}`,
+        price: order?.cost || 0,
+        qty: 1,
+        originalPrice: order?.cost,
+        discountValue: 0,
+        discountType: 'fixed' as const
+      }]
+    : sale?.items.map(i => ({
+        description: i.name,
+        price: i.price,
+        qty: i.quantity,
+        originalPrice: i.originalPrice,
+        discountValue: i.discountValue,
+        discountType: i.discountType
+      })) || [];
 
   const subtotalSum = itemsList.reduce((sum, item) => sum + item.price * item.qty, 0);
   const totalTax = subtotalSum * config.taxRate;
@@ -472,6 +494,19 @@ export default function PrintView({ order, sale, config, setActiveTab, onClearSe
       const desc = item.description.substring(0, 24).padEnd(24);
       const pr = `${config.currencySymbol}${(item.price * item.qty).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       itemsStr += `${q}${desc} ${pr}\n`;
+      
+      const originalPrice = item.originalPrice !== undefined ? item.originalPrice : item.price;
+      const discountValue = item.discountValue;
+      const discountType = item.discountType;
+      const hasLineDiscount = discountValue !== undefined && discountValue > 0;
+      
+      if (hasLineDiscount) {
+        const unitDiscountAmt = originalPrice - item.price;
+        const descDetail = discountType === 'percentage'
+          ? `${discountValue}% (ahorro ${config.currencySymbol}${unitDiscountAmt.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+          : `${config.currencySymbol}${discountValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por unidad`;
+        itemsStr += `   └─ Descuento: -${descDetail}\n`;
+      }
     });
     data['{DETALLE_MOSTRADOR}'] = itemsStr.trim();
 

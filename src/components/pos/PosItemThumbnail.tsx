@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { X, ZoomIn, MessageCircle, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import { sendProductByWhatsapp } from '../../utils/whatsapp';
+import { formatPhoneNumber } from '../../utils/phoneFormatter';
 
 interface PosItemThumbnailProps {
   imageUrl?: string;
@@ -31,6 +32,26 @@ export const PosItemThumbnail: React.FC<PosItemThumbnailProps> = ({
   const [showModal, setShowModal] = useState<boolean>(false);
   const [showWaInput, setShowWaInput] = useState<boolean>(false);
   const [clientPhone, setClientPhone] = useState<string>('');
+  const [countryCode, setCountryCode] = useState<string>('+52');
+  const [waConnected, setWaConnected] = useState<boolean>(() => {
+    return (window as any).whatsappConnected || false;
+  });
+
+  useEffect(() => {
+    const handleStatus = (e: Event) => {
+      setWaConnected((e as CustomEvent).detail);
+    };
+    window.addEventListener('whatsapp-status-update', handleStatus);
+    const api = (window as any).electronAPI;
+    if (api && api.whatsappGetStatus) {
+      api.whatsappGetStatus().then((info: any) => {
+        const isConnected = info && info.status === 'CONNECTED';
+        (window as any).whatsappConnected = isConnected;
+        setWaConnected(isConnected);
+      }).catch(() => {});
+    }
+    return () => window.removeEventListener('whatsapp-status-update', handleStatus);
+  }, []);
 
   useEffect(() => {
     const rawList = [imageUrl, ...extraImages].filter((img): img is string => Boolean(img && img.trim() !== ''));
@@ -96,19 +117,20 @@ export const PosItemThumbnail: React.FC<PosItemThumbnailProps> = ({
   const currentSrc = srcList[activeIdx] || srcList[0] || '';
 
   const handleSendWhatsapp = async () => {
-    if (!clientPhone.trim()) return;
-    await sendProductByWhatsapp(clientPhone, {
+    const digitsOnly = clientPhone.replace(/\D/g, '');
+    if (!digitsOnly || digitsOnly.length < 10) return;
+    await sendProductByWhatsapp(digitsOnly, {
       name,
       code,
       category,
       price,
       imageUrl: currentSrc
-    });
+    }, undefined, countryCode);
     setShowWaInput(false);
     setClientPhone('');
   };
 
-  const modalMarkup = showModal && currentSrc ? (
+  const modalMarkup = showModal ? (
     <div
       style={{
         position: 'fixed',
@@ -208,19 +230,41 @@ export const PosItemThumbnail: React.FC<PosItemThumbnailProps> = ({
             </button>
           )}
 
-          <img
-            src={currentSrc}
-            alt={name}
-            style={{
-              maxWidth: '100%',
-              maxHeight: '48vh',
-              objectFit: 'contain',
-              borderRadius: 8,
-              boxShadow: '0 6px 18px rgba(0,0,0,0.1)',
-              border: '1px solid #cbd5e1',
-              backgroundColor: '#ffffff'
-            }}
-          />
+          {currentSrc ? (
+            <img
+              src={currentSrc}
+              alt={name}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '48vh',
+                objectFit: 'contain',
+                borderRadius: 8,
+                boxShadow: '0 6px 18px rgba(0,0,0,0.1)',
+                border: '1px solid #cbd5e1',
+                backgroundColor: '#ffffff'
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: 140,
+                height: 140,
+                borderRadius: '50%',
+                backgroundColor: placeholderBg,
+                color: '#ffffff',
+                fontWeight: 900,
+                fontSize: 64,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                textTransform: 'uppercase',
+                userSelect: 'none'
+              }}
+            >
+              {firstLetter}
+            </div>
+          )}
 
           {srcList.length > 1 && (
             <button
@@ -296,23 +340,31 @@ export const PosItemThumbnail: React.FC<PosItemThumbnailProps> = ({
               )}
               <button
                 type="button"
-                onClick={() => setShowWaInput(!showWaInput)}
+                onClick={() => {
+                  if (!waConnected) {
+                    window.alert('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.');
+                    return;
+                  }
+                  setShowWaInput(!showWaInput);
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
-                  backgroundColor: '#25D366',
-                  color: '#ffffff',
+                  backgroundColor: !waConnected ? '#71717a' : '#25D366',
+                  color: !waConnected ? '#d4d4d8' : '#ffffff',
                   fontWeight: 800,
                   fontSize: 11,
                   padding: '6px 12px',
                   borderRadius: 8,
-                  border: 'none',
-                  boxShadow: '0 2px 6px rgba(37, 211, 102, 0.3)',
+                  border: !waConnected ? '1px solid #52525b' : 'none',
+                  boxShadow: !waConnected ? 'none' : '0 2px 6px rgba(37, 211, 102, 0.3)',
                   cursor: 'pointer',
+                  opacity: !waConnected ? 0.7 : 1,
+                  filter: !waConnected ? 'grayscale(1)' : 'none',
                   transition: 'all 0.15s'
                 }}
-                title="Enviar fotografía y cotización por WhatsApp al cliente"
+                title={!waConnected ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : "Enviar fotografía y cotización por WhatsApp al cliente"}
               >
                 <MessageCircle style={{ width: 14, height: 14 }} />
                 <span>Enviar por WhatsApp</span>
@@ -322,18 +374,42 @@ export const PosItemThumbnail: React.FC<PosItemThumbnailProps> = ({
 
           {/* Formulario para ingresar número de WhatsApp */}
           {showWaInput && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, marginTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, marginTop: 2 }}>
               <span style={{ fontSize: 11, fontWeight: 800, color: '#166534', flexShrink: 0 }}>📱 WhatsApp Cliente:</span>
+              {/* Selector de código de país */}
+              <select
+                value={countryCode}
+                onChange={e => setCountryCode(e.target.value)}
+                style={{
+                  padding: '5px 6px',
+                  borderRadius: 6,
+                  border: '1px solid #86efac',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  backgroundColor: '#f0fdf4',
+                  color: '#166534',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  outline: 'none',
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                }}
+              >
+                <option value="+52">🇲🇽 +52</option>
+                <option value="+1">🇺🇸 +1</option>
+              </select>
+              {/* Input con formato automático */}
               <input
                 type="tel"
-                placeholder="Ej. 5512345678"
+                placeholder="(351) 000-0000"
                 value={clientPhone}
-                onChange={(e) => setClientPhone(e.target.value)}
+                onChange={(e) => setClientPhone(formatPhoneNumber(e.target.value))}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSendWhatsapp();
                 }}
-                style={{ flex: 1, padding: '5px 10px', borderRadius: 6, border: '1px solid #86efac', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                style={{ flex: 1, padding: '5px 10px', borderRadius: 6, border: '1px solid #86efac', fontSize: 12, outline: 'none', fontFamily: 'monospace', fontWeight: 700 }}
                 autoFocus
+                maxLength={14}
               />
               <button
                 type="button"
@@ -353,14 +429,12 @@ export const PosItemThumbnail: React.FC<PosItemThumbnailProps> = ({
     <>
       <div
         className={`relative flex items-center justify-center shrink-0 group ${className}`}
-        style={{ width: size, height: size, cursor: currentSrc ? 'zoom-in' : 'default' }}
+        style={{ width: size, height: size, cursor: 'zoom-in' }}
         onClick={(e) => {
-          if (currentSrc) {
-            e.stopPropagation();
-            setShowModal(true);
-          }
+          e.stopPropagation();
+          setShowModal(true);
         }}
-        title={currentSrc ? 'Haz clic para ampliar la imagen del producto' : name}
+        title="Haz clic para consultar detalles o compartir por WhatsApp"
       >
         {currentSrc ? (
           <>

@@ -823,7 +823,7 @@ const EvidenceModal: React.FC<EvidenceModalProps> = ({ order, config, onClose, o
 
 interface OrdenesViewProps {
   orders: RepairOrder[];
-  onUpdateStatus: (id: string, state: RepairOrder['status']) => void;
+  onUpdateStatus: (id: string, state: RepairOrder['status'], skipWhatsapp?: boolean) => void;
   onUpdateDiagnose: (id: string, note: string) => void;
   onUpdateOrder: (order: RepairOrder) => void;
   onDeliverOrder: (id: string, cashPaid?: number, cardPaid?: number) => void;
@@ -936,7 +936,7 @@ export default function OrdenesView({
     };
   }, []);
 
-  const isWaIntegratedOffline = config.whatsappMode === 'integrated' && !waConnected;
+  const isWaIntegratedOffline = !waConnected;
 
   const getFormattedPhone = (phone: string, countryCode?: string) => {
     const cc = countryCode ? countryCode.replace(/\D/g, '') : '52';
@@ -1172,7 +1172,7 @@ export default function OrdenesView({
   const renderFinanceBox = (
     title: string,
     value: string,
-    variant: 'gray' | 'violet' | 'emerald' | 'rose',
+    variant: 'gray' | 'violet' | 'emerald' | 'rose' | 'amber',
     isLiquidado: boolean = false,
     options?: { lineThrough?: boolean; pulsing?: boolean; subText?: string }
   ) => {
@@ -1220,6 +1220,16 @@ export default function OrdenesView({
         : 'bg-rose-950/20 border-rose-900/30 text-rose-400 shadow-xs';
       titleClass = isLight ? 'text-rose-700' : 'text-rose-400';
       valClass = isLight ? 'text-rose-800' : 'text-rose-300';
+    } else if (variant === 'amber') {
+      bgBorderClass = isRetro
+        ? (isLight
+            ? 'bg-amber-50/50 border-zinc-400 text-amber-850 shadow-sm'
+            : 'bg-[#78350f]/30 border-[#d97706]/40 text-amber-300 shadow-sm')
+        : isLight
+        ? 'bg-amber-100/60 border-amber-200 text-amber-850 shadow-sm'
+        : 'bg-amber-950/10 border-zinc-800 text-amber-300 shadow-xs';
+      titleClass = isLight ? 'text-amber-700' : 'text-amber-400';
+      valClass = isLight ? 'text-amber-800' : 'text-amber-300';
     }
 
     if (options?.pulsing) {
@@ -1309,6 +1319,7 @@ export default function OrdenesView({
     diagnosticsNote: string;
     returnToBatchId?: string;
   } | null>(null);
+  const [sendWhatsappOnStatusChange, setSendWhatsappOnStatusChange] = useState(true);
 
   const triggerStatusChangeConfirmation = (
     orderId: string,
@@ -1319,6 +1330,7 @@ export default function OrdenesView({
     diagnosticsNote: string,
     returnToBatchId?: string
   ) => {
+    setSendWhatsappOnStatusChange(true);
     setPendingStatusChange({
       orderId,
       customerName,
@@ -1334,7 +1346,7 @@ export default function OrdenesView({
     if (!pendingStatusChange) return;
     const { orderId, newStatus, diagnosticsNote, returnToBatchId } = pendingStatusChange;
 
-    onUpdateStatus(orderId, newStatus);
+    onUpdateStatus(orderId, newStatus, !sendWhatsappOnStatusChange);
     onUpdateDiagnose(orderId, diagnosticsNote);
 
     // Buscar si es una garantía fallida/cancelada
@@ -1683,6 +1695,10 @@ export default function OrdenesView({
       (detailDraft.serviceType || '') !== (detailOrder.serviceType || '') ||
       (detailDraft.assignedTechnician || '') !== (detailOrder.assignedTechnician || '') ||
       (detailDraft.diagnosticsNote || '') !== (detailOrder.diagnosticsNote || '') ||
+      (detailDraft.ticketNote || '') !== (detailOrder.ticketNote || '') ||
+      (detailDraft.labelNote || '') !== (detailOrder.labelNote || '') ||
+      !!detailDraft.showNotesOnLabel !== !!detailOrder.showNotesOnLabel ||
+      !!detailDraft.hidePriceOnLabel !== !!detailOrder.hidePriceOnLabel ||
       detailDraft.cost !== detailOrder.cost ||
       (detailDraft.serviceCost || 0) !== (detailOrder.serviceCost || 0) ||
       detailDraft.advancePayment !== detailOrder.advancePayment ||
@@ -1915,6 +1931,11 @@ export default function OrdenesView({
 
   // State for print confirmation dialog
   const [printConfirmOrder, setPrintConfirmOrder] = useState<RepairOrder | null>(null);
+  const [printHoverPreview, setPrintHoverPreview] = useState<'ticket' | 'label' | 'warranty' | 'delivery' | null>(null);
+  const [iframeHeight, setIframeHeight] = useState(900);
+  const printHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [printConfirmBatch, setPrintConfirmBatch] = useState<{ batchId: string; batchOrders: RepairOrder[] } | null>(null);
   const [printStatus, setPrintStatus] = useState<'idle' | 'printing' | 'success' | 'error'>('idle');
   const [printLabelStatus, setPrintLabelStatus] = useState<'idle' | 'printing' | 'success' | 'error'>('idle');
@@ -1925,6 +1946,40 @@ export default function OrdenesView({
   // batchId para regresar al modal de grupo tras imprimir
   const [printReturnBatchId, setPrintReturnBatchId] = useState<string | null>(null);
   const [printLabelBatchPos, setPrintLabelBatchPos] = useState<{ position: number; total: number } | null>(null);
+
+  const handlePrintHoverStart = (type: 'ticket' | 'label' | 'warranty' | 'delivery') => {
+    if (printHoverTimeoutRef.current) clearTimeout(printHoverTimeoutRef.current);
+    printHoverTimeoutRef.current = setTimeout(() => {
+      setIframeHeight(900);
+      setPrintHoverPreview(type);
+    }, 450);
+  };
+
+  const handlePrintHoverEnd = () => {
+    if (printHoverTimeoutRef.current) clearTimeout(printHoverTimeoutRef.current);
+    setPrintHoverPreview(null);
+  };
+
+  const handleIframeLoad = () => {
+    if (previewIframeRef.current && previewIframeRef.current.contentWindow) {
+      try {
+        const doc = previewIframeRef.current.contentWindow.document;
+        const height = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+        if (height > 50) {
+          setIframeHeight(height + 25);
+        }
+      } catch (e) {
+        console.warn('[handleIframeLoad] Couldn\'t calculate dynamic height:', e);
+      }
+    }
+  };
+
+  const handleWheelOnButton = (e: React.WheelEvent) => {
+    if (previewContainerRef.current) {
+      e.preventDefault();
+      previewContainerRef.current.scrollBy(0, e.deltaY);
+    }
+  };
 
   const handleFinalizeCheckout = async () => {
     if (!checkoutOrder) return;
@@ -2346,13 +2401,19 @@ ${isMediaCartaDuplicado ? `
   }, [orders, selectedOrderIdLocal]);
 
   const filteredOrders = orders.filter((order) => {
-    const cleanSearch = searchTerm.replace(/,(?!\s)/g, '-');
+    const cleanSearch = searchTerm.replace(/,(?!\s)/g, '-').toLowerCase().trim();
+    const searchDigits = searchTerm.replace(/\D/g, '');
+    const phoneDigits = (order.customerPhone || '').replace(/\D/g, '');
+    const phoneMatch = (order.customerPhone && order.customerPhone.toLowerCase().includes(cleanSearch)) ||
+      (searchDigits.length > 0 && phoneDigits.includes(searchDigits));
+
     const textMatch =
-      order.id.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-      order.customerName.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-      order.deviceBrand.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-      order.deviceModel.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-      order.faultDescription.toLowerCase().includes(cleanSearch.toLowerCase());
+      order.id.toLowerCase().includes(cleanSearch) ||
+      order.customerName.toLowerCase().includes(cleanSearch) ||
+      phoneMatch ||
+      order.deviceBrand.toLowerCase().includes(cleanSearch) ||
+      order.deviceModel.toLowerCase().includes(cleanSearch) ||
+      order.faultDescription.toLowerCase().includes(cleanSearch);
 
     const isDeliveredStatus = order.status === 'Entregado' || order.status === 'Entregado y Pagado' || order.status === 'Cancelado';
     if (hideDelivered && isDeliveredStatus && activeFilter === 'todos') return false;
@@ -3327,13 +3388,19 @@ ${isMediaCartaDuplicado ? `
   const getTabCount = (tabId: string) => {
     return orders.filter((order) => {
       // 1. Text search matching
-      const cleanSearch = searchTerm.replace(/,(?!\s)/g, '-');
+      const cleanSearch = searchTerm.replace(/,(?!\s)/g, '-').toLowerCase().trim();
+      const searchDigits = searchTerm.replace(/\D/g, '');
+      const phoneDigits = (order.customerPhone || '').replace(/\D/g, '');
+      const phoneMatch = (order.customerPhone && order.customerPhone.toLowerCase().includes(cleanSearch)) ||
+        (searchDigits.length > 0 && phoneDigits.includes(searchDigits));
+
       const textMatch =
-        order.id.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-        order.customerName.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-        order.deviceBrand.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-        order.deviceModel.toLowerCase().includes(cleanSearch.toLowerCase()) ||
-        order.faultDescription.toLowerCase().includes(cleanSearch.toLowerCase());
+        order.id.toLowerCase().includes(cleanSearch) ||
+        order.customerName.toLowerCase().includes(cleanSearch) ||
+        phoneMatch ||
+        order.deviceBrand.toLowerCase().includes(cleanSearch) ||
+        order.deviceModel.toLowerCase().includes(cleanSearch) ||
+        order.faultDescription.toLowerCase().includes(cleanSearch);
 
       if (!textMatch) return false;
 
@@ -3787,7 +3854,7 @@ ${isMediaCartaDuplicado ? `
                   }>
                     <th className="p-3 pl-4">Ticket</th>
                     <th className="p-3">Cliente / Cel</th>
-                    <th className="p-3">Dispositivo / Falla</th>
+                    <th className="p-3">Dispositivo / Servicio</th>
                     {!selectedOrderIdLocal && (
                       <>
                         <th className="p-3 text-center">Acceso</th>
@@ -3947,7 +4014,7 @@ ${isMediaCartaDuplicado ? `
                             );
                           })()}
                         </td>
-                        {/* Columna DISPOSITIVO / FALLA — lista comprimida */}
+                        {/* Columna DISPOSITIVO / SERVICIO — lista comprimida */}
                         <td className={`px-3 py-2.5 ${allDelivered ? 'opacity-40' : ''}`}>
                           <div className="flex flex-col gap-1">
                             {batchOrders.slice(0, 3).map(o => (
@@ -3958,8 +4025,8 @@ ${isMediaCartaDuplicado ? `
                                     {o.deviceBrand} {o.deviceModel}
                                   </span>
                                 </div>
-                                <p className={`text-[8.5px] pl-3 truncate max-w-[165px] ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`} title={cleanFault(o.faultDescription || '')}>
-                                  {cleanFault(o.faultDescription || 'Sin reporte de falla')}
+                                <p className={`text-[8.5px] pl-3 truncate max-w-[165px] ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`} title={o.serviceType || 'Sin servicio'}>
+                                  {o.serviceType || 'Sin servicio'}
                                 </p>
                               </div>
                             ))}
@@ -4036,21 +4103,22 @@ ${isMediaCartaDuplicado ? `
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (isWaIntegratedOffline) {
+                                    const isOffline = typeof isWaIntegratedOffline !== 'undefined' ? isWaIntegratedOffline : false;
+                                    if (isOffline) {
                                       window.alert('⚠️ WhatsApp desvinculado. Escanea el código QR en el menú de chat para continuar.');
                                     } else {
                                       handleSendWhatsAppBatchFromHistory(item.batchId, batchOrders);
                                     }
                                   }}
-                                  title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : "Enviar ticket consolidado por WhatsApp"}
+                                  title={(typeof isWaIntegratedOffline !== 'undefined' && isWaIntegratedOffline) ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : "Enviar ticket consolidado por WhatsApp"}
                                   className={`whatsapp-green-btn w-full h-8 flex items-center justify-center gap-1.5 text-[9.5px] font-black uppercase cursor-pointer transition-all active:scale-95 rounded-lg border ${
-                                    isWaIntegratedOffline
-                                      ? 'border-[#71717a] grayscale opacity-45'
+                                    (typeof isWaIntegratedOffline !== 'undefined' && isWaIntegratedOffline)
+                                      ? 'wa-offline border-[#71717a] grayscale opacity-45'
                                       : isRetro
                                         ? 'border-2 border-t-emerald-300 border-l-emerald-300 border-b-emerald-800 border-r-emerald-800 font-mono font-bold text-white'
                                         : 'border-[#20ba5a] text-white hover:opacity-90'
                                   }`}
-                                  style={isWaIntegratedOffline ? { backgroundColor: '#71717a', color: '#d4d4d8' } : { backgroundColor: '#25D366', color: '#ffffff' }}
+                                  style={(typeof isWaIntegratedOffline !== 'undefined' && isWaIntegratedOffline) ? { backgroundColor: '#71717a', color: '#d4d4d8' } : { backgroundColor: '#25D366', color: '#ffffff' }}
                                 >
                                   💬 WhatsApp
                                 </button>
@@ -4221,8 +4289,8 @@ ${isMediaCartaDuplicado ? `
                           isCancelledOrFailed
                             ? 'text-zinc-500 line-through'
                             : (isLight) ? 'text-zinc-800' : 'text-gray-400'
-                        }`} title={cleanFault(order.faultDescription)}>
-                          {cleanFault(order.faultDescription)}
+                        }`} title={order.serviceType || 'Sin servicio asignado'}>
+                          {order.serviceType || 'Sin servicio asignado'}
                         </p>
                       </td>
 
@@ -4284,21 +4352,6 @@ ${isMediaCartaDuplicado ? `
                           <div className="flex flex-col gap-1.5 justify-center w-full">
                             <button
                               type="button"
-                              onClick={() => handlePreviewOrder(order)}
-                              title="Ticket Digital"
-                              className={`w-full h-8 flex items-center justify-center gap-1.5 text-[9.5px] font-black uppercase cursor-pointer transition-all active:scale-95 rounded-lg ${
-                                isRetro 
-                                  ? 'bg-zinc-200 text-black border-2 border-t-white border-l-white border-b-zinc-400 border-r-zinc-400 active:border-t-zinc-400 active:border-l-zinc-400 active:border-b-white active:border-r-white font-mono font-bold' 
-                                  : isLight 
-                                    ? 'bg-sky-50 hover:bg-sky-100 text-sky-850 border border-sky-200 hover:border-sky-300' 
-                                    : 'bg-sky-500/10 hover:bg-sky-500 hover:text-black text-sky-350 border border-sky-500/35'
-                              }`}
-                            >
-                              <Eye className="w-3.5 h-3.5 shrink-0" />
-                              Ticket Digital
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => handlePrint(order)}
                               title="Imprimir comprobante"
                               className={`w-full h-8 flex items-center justify-center gap-1.5 text-[9.5px] font-black uppercase cursor-pointer transition-all active:scale-95 rounded-lg ${
@@ -4310,7 +4363,7 @@ ${isMediaCartaDuplicado ? `
                               }`}
                             >
                               <Printer className="w-3.5 h-3.5 shrink-0" />
-                              Ticket
+                              Imprimir
                             </button>
                              {config.whatsappMode && config.whatsappMode !== 'disabled' && (
                               <button
@@ -4325,7 +4378,7 @@ ${isMediaCartaDuplicado ? `
                                 title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : "Enviar comprobante por WhatsApp"}
                                 className={`whatsapp-green-btn w-full h-8 flex items-center justify-center gap-1.5 text-[9.5px] font-black uppercase cursor-pointer transition-all active:scale-95 rounded-lg border ${
                                   isWaIntegratedOffline
-                                    ? 'border-[#71717a] grayscale opacity-45'
+                                    ? 'wa-offline border-[#71717a] grayscale opacity-45'
                                     : isRetro
                                       ? 'border-2 border-t-emerald-300 border-l-emerald-300 border-b-emerald-800 border-r-emerald-800 font-mono font-bold text-white'
                                       : 'border-[#20ba5a] text-white hover:opacity-90'
@@ -4387,6 +4440,24 @@ ${isMediaCartaDuplicado ? `
         isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-800'
         : isLight ? 'bg-white border border-zinc-300 text-zinc-800'
         : 'bg-zinc-800 border border-zinc-600 text-zinc-100'
+      }`;
+
+      const ticketTextareaCls = `w-full text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 border resize-none ${
+        isRetro ? 'bg-amber-50/60 border-amber-300 text-zinc-900 font-sans'
+        : isLight ? 'bg-amber-50/40 border-amber-200 text-zinc-800 font-sans'
+        : 'bg-amber-950/10 border-amber-900/40 text-zinc-200 font-sans'
+      }`;
+
+      const diagTextareaCls = `w-full text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 border resize-none ${
+        isRetro ? 'bg-blue-50/40 border-blue-300 text-zinc-900 font-sans'
+        : isLight ? 'bg-blue-50/30 border-blue-200 text-zinc-800 font-sans'
+        : 'bg-blue-950/10 border-blue-900/40 text-zinc-200 font-sans'
+      }`;
+
+      const labelTextareaCls = `w-full text-xs font-semibold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 border resize-none ${
+        isRetro ? 'bg-emerald-50/40 border-emerald-300 text-zinc-900 font-sans'
+        : isLight ? 'bg-emerald-50/30 border-emerald-200 text-zinc-800 font-sans'
+        : 'bg-emerald-950/10 border-emerald-900/40 text-zinc-200 font-sans'
       }`;
 
       const labelCls = `text-[9px] font-black uppercase tracking-widest mb-1.5 block ${
@@ -4687,6 +4758,20 @@ ${isMediaCartaDuplicado ? `
 
       return (
         <>
+          <style>{`
+            #ticket-note-textarea {
+              background-color: ${isRetro ? '#fefcbf' : isLight ? '#fef8e7' : 'rgba(251, 191, 36, 0.08)'} !important;
+              border-color: ${isRetro ? '#f59e0b' : isLight ? '#fcd34d' : 'rgba(251, 191, 36, 0.3)'} !important;
+            }
+            #diag-note-textarea {
+              background-color: ${isRetro ? '#eff6ff' : isLight ? '#eef4ff' : 'rgba(59, 130, 246, 0.08)'} !important;
+              border-color: ${isRetro ? '#3b82f6' : isLight ? '#93c5fd' : 'rgba(59, 130, 246, 0.3)'} !important;
+            }
+            #label-note-textarea {
+              background-color: ${isRetro ? '#ecfdf5' : isLight ? '#ecfdf5' : 'rgba(16, 185, 129, 0.08)'} !important;
+              border-color: ${isRetro ? '#10b981' : isLight ? '#6ee7b7' : 'rgba(16, 185, 129, 0.3)'} !important;
+            }
+          `}</style>
           <div className={`w-full lg:w-[calc(35%-12px)] transition-all duration-300 shrink-0 flex flex-col rounded-xl force-rounded-xl border overflow-hidden ${cardHeightCls} ${
           isRetro ? 'bg-white border border-zinc-350 text-black shadow-md'
           : isLight ? 'bg-white border-zinc-200 text-zinc-800 shadow-lg'
@@ -4695,7 +4780,7 @@ ${isMediaCartaDuplicado ? `
           {/* Panel Header */}
           <div className={`px-4 py-3 flex items-center justify-between border-b shrink-0 ${
             isRetro ? 'bg-[#000080] text-white border-b-[#808080]'
-            : isLight ? 'bg-[#1a3a6b] text-white border-zinc-200'
+            : isLight ? 'bg-[#1a3a6b] text-white-important border-zinc-200'
             : 'bg-[#0f1013] text-zinc-100 border-[#1c1d22]'
           }`}>
             <div className="flex items-center gap-2">
@@ -4765,7 +4850,9 @@ ${isMediaCartaDuplicado ? `
                   onClick={handlePrintGroup}
                   title="Imprimir Ticket Grupal"
                   className={`p-1 rounded transition-colors active:scale-95 cursor-pointer ${
-                    isRetro ? 'hover:bg-white/20 text-white' : 'hover:bg-white/10 text-zinc-300 hover:text-white'
+                    isRetro ? 'hover:bg-white/20 text-white' 
+                    : isLight ? 'hover:bg-white/10 text-white-important'
+                    : 'hover:bg-white/10 text-zinc-300 hover:text-white'
                   }`}
                 >
                   <Printer className="w-4 h-4" />
@@ -4778,7 +4865,9 @@ ${isMediaCartaDuplicado ? `
                   onClick={() => setShowEvidenceModal(o!)}
                   title="Evidencias Multimedia (Foto/Video)"
                   className={`p-1 rounded transition-colors active:scale-95 cursor-pointer ${
-                    isRetro ? 'hover:bg-white/20 text-white' : 'hover:bg-white/10 text-zinc-300 hover:text-white'
+                    isRetro ? 'hover:bg-white/20 text-white' 
+                    : isLight ? 'hover:bg-white/10 text-white-important'
+                    : 'hover:bg-white/10 text-zinc-300 hover:text-white'
                   }`}
                 >
                   <Camera className="w-4 h-4" />
@@ -4788,7 +4877,9 @@ ${isMediaCartaDuplicado ? `
                   onClick={() => handlePreviewOrder(o!)}
                   title="Ticket Digital"
                   className={`p-1 rounded transition-colors active:scale-95 cursor-pointer ${
-                    isRetro ? 'hover:bg-white/20 text-white' : 'hover:bg-white/10 text-zinc-300 hover:text-white'
+                    isRetro ? 'hover:bg-white/20 text-white' 
+                    : isLight ? 'hover:bg-white/10 text-white-important'
+                    : 'hover:bg-white/10 text-zinc-300 hover:text-white'
                   }`}
                 >
                   <Eye className="w-4 h-4" />
@@ -4798,7 +4889,9 @@ ${isMediaCartaDuplicado ? `
                   onClick={() => handlePrint(o!)}
                   title="Imprimir Comprobante"
                   className={`p-1 rounded transition-colors active:scale-95 cursor-pointer ${
-                    isRetro ? 'hover:bg-white/20 text-white' : 'hover:bg-white/10 text-zinc-300 hover:text-white'
+                    isRetro ? 'hover:bg-white/20 text-white' 
+                    : isLight ? 'hover:bg-white/10 text-white-important'
+                    : 'hover:bg-white/10 text-zinc-300 hover:text-white'
                   }`}
                 >
                   <Printer className="w-4 h-4" />
@@ -4811,7 +4904,9 @@ ${isMediaCartaDuplicado ? `
                   onClick={handleStartEdit}
                   title="Editar información de esta orden"
                   className={`p-1 rounded transition-colors active:scale-95 cursor-pointer ${
-                    isRetro ? 'hover:bg-white/20 text-white' : 'hover:bg-white/10 text-zinc-300 hover:text-white'
+                    isRetro ? 'hover:bg-white/20 text-white' 
+                    : isLight ? 'hover:bg-white/10 text-white-important'
+                    : 'hover:bg-white/10 text-zinc-300 hover:text-white'
                   }`}
                 >
                   <Edit3 className="w-4 h-4" />
@@ -4832,7 +4927,9 @@ ${isMediaCartaDuplicado ? `
                 onClick={handleClosePanel}
                 title="Cerrar panel de detalle"
                 className={`p-1 rounded transition-colors active:scale-95 cursor-pointer ${
-                  isRetro ? 'hover:bg-white/20 text-white font-black' : 'hover:bg-white/10 text-zinc-300 hover:text-white'
+                  isRetro ? 'hover:bg-white/20 text-white font-black' 
+                  : isLight ? 'hover:bg-white/10 text-white-important'
+                  : 'hover:bg-white/10 text-zinc-300 hover:text-white'
                 }`}
               >
                 <X className="w-4 h-4" />
@@ -4990,8 +5087,8 @@ ${isMediaCartaDuplicado ? `
                               <p className={`text-xs font-black truncate leading-snug ${isOrderDelivered ? 'line-through text-zinc-400' : isLight ? 'text-zinc-800' : 'text-zinc-200'}`}>
                                 {order.deviceBrand} {order.deviceModel}
                               </p>
-                              <p className={`text-[10.5px] truncate mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                                {order.faultDescription || 'Sin falla reportada'}
+                              <p className={`text-[10.5px] truncate mt-0.5 ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`} title={order.serviceType || 'Sin servicio asignado'}>
+                                {order.serviceType || 'Sin servicio asignado'}
                               </p>
                             </div>
                             
@@ -5361,11 +5458,18 @@ ${isMediaCartaDuplicado ? `
                     <p className="text-[9px] font-black uppercase text-zinc-400 tracking-wider">Técnico Asignado</p>
                     {detailEditMode ? (
                       <select
-                        value={o.assignedTechnician || ''}
+                        value={(() => {
+                          if (!o.assignedTechnician) return '';
+                          const match = users.find(u => u.name.toUpperCase() === o.assignedTechnician?.toUpperCase());
+                          return match ? match.name : o.assignedTechnician;
+                        })()}
                         onChange={e => setField('assignedTechnician', e.target.value)}
                         className={inputCls + " mt-1"}
                       >
                         <option value="">— Sin Asignar —</option>
+                        {o.assignedTechnician && !users.some(u => u.name.toUpperCase() === o.assignedTechnician?.toUpperCase()) && (
+                          <option value={o.assignedTechnician}>{o.assignedTechnician.toUpperCase()}</option>
+                        )}
                         {users.filter(u => u.role === 'tecnico' || u.role === 'admin').map(u => (
                           <option key={u.id} value={u.name}>{u.name} ({u.role === 'admin' ? 'Admin' : 'Técnico'})</option>
                         ))}
@@ -5540,11 +5644,76 @@ ${isMediaCartaDuplicado ? `
                   )}
                 </div>
 
-                {/* Notas de Diagnóstico (si existen y son personalizadas, o si se está editando) */}
-                {(hasCustomNote(o.diagnosticsNote) || detailEditMode) && (
+                {/* Notas del Ticket (Cliente) */}
+                {(hasCustomNote(o.ticketNote !== undefined ? o.ticketNote : o.diagnosticsNote) || detailEditMode) && (
                   <div>
                     <div className="flex justify-between items-center mb-1.5">
-                      <span className={labelCls}>Notas de Diagnóstico</span>
+                      <span className={labelCls}>Notas del Ticket (Cliente)</span>
+                    </div>
+                    {detailEditMode ? (
+                      <div className="flex flex-col gap-1.5">
+                        <textarea
+                          id="ticket-note-textarea"
+                          value={o.ticketNote !== undefined ? o.ticketNote : o.diagnosticsNote || ''}
+                          onChange={e => handleCaretPreservingChange(e, (val) => setField('ticketNote', val))}
+                          onKeyDown={e => e.stopPropagation()}
+                          rows={3}
+                          placeholder="Sin notas en el ticket..."
+                          className={ticketTextareaCls}
+                        />
+                        {!config.hybridPrintMode && (
+                          <label className={`flex items-center gap-1.5 cursor-pointer select-none text-[9.5px] font-extrabold uppercase mt-1 ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'}`}>
+                            <input
+                              type="checkbox"
+                              checked={!!o.showNotesOnLabel}
+                              onChange={e => setField('showNotesOnLabel', e.target.checked)}
+                              className="w-3.5 h-3.5 rounded cursor-pointer accent-emerald-500"
+                            />
+                            <span>Imprimir notas en el ticket de servicio</span>
+                          </label>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className={`p-3 rounded-xl border ${
+                          isRetro ? 'bg-amber-50/60 border-amber-200/80 text-zinc-900 font-sans'
+                          : isLight ? 'bg-amber-50/40 border-amber-100 text-zinc-800 font-sans'
+                          : 'bg-amber-950/10 border-amber-900/40 text-zinc-200 font-sans'
+                        }`}>
+                          <p className="text-xs font-semibold leading-relaxed whitespace-pre-wrap">{o.ticketNote !== undefined ? o.ticketNote : o.diagnosticsNote}</p>
+                        </div>
+                        {!config.hybridPrintMode && (
+                          <div className="flex">
+                            <span
+                              onClick={() => {
+                                if (!canManage) return;
+                                onUpdateOrder({
+                                  ...o,
+                                  showNotesOnLabel: !o.showNotesOnLabel
+                                });
+                              }}
+                              className={`text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wide border select-none transition-all ${
+                                canManage ? 'cursor-pointer hover:opacity-90 active:scale-95' : 'opacity-70'
+                              } ${
+                                o.showNotesOnLabel
+                                  ? (isRetro ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-emerald-950/20 border-emerald-900/60 text-emerald-400')
+                                  : (isRetro ? 'bg-zinc-100 border-zinc-300 text-zinc-600' : 'bg-zinc-900/40 border-zinc-800 text-zinc-500')
+                              }`}
+                            >
+                              📝 Imprimir en Ticket: {o.showNotesOnLabel ? 'Sí' : 'No'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Notas de Diagnóstico Técnico (Internas) */}
+                {(hasCustomNote(o.diagnosticsNote) || detailEditMode) && (
+                  <div className="mt-3">
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className={labelCls}>Notas de Diagnóstico Técnico (Internas)</span>
                       {!detailEditMode && canManage && (
                         <button
                           type="button"
@@ -5559,20 +5728,158 @@ ${isMediaCartaDuplicado ? `
                     </div>
                     {detailEditMode ? (
                        <textarea
+                        id="diag-note-textarea"
                         value={o.diagnosticsNote || ''}
                         onChange={e => handleCaretPreservingChange(e, (val) => setField('diagnosticsNote', val))}
                         onKeyDown={e => e.stopPropagation()}
                         rows={3}
-                        placeholder="Sin notas de diagnóstico..."
-                        className={textareaCls}
+                        placeholder="Sin notas de diagnóstico técnico..."
+                        className={diagTextareaCls}
                       />
                     ) : (
                       <div className={`p-3 rounded-xl border ${
-                        isRetro ? 'bg-amber-50/60 border-zinc-400 text-zinc-900 font-sans'
-                        : isLight ? 'bg-amber-50/40 border-zinc-200 text-zinc-800 font-sans'
-                        : 'bg-amber-950/10 border-zinc-800/80 text-zinc-200 font-sans'
+                        isRetro ? 'bg-blue-50/40 border-blue-200/80 text-zinc-900 font-sans'
+                        : isLight ? 'bg-blue-50/30 border-blue-100 text-zinc-800 font-sans'
+                        : 'bg-blue-950/10 border-blue-900/40 text-zinc-200 font-sans'
                       }`}>
                         <p className="text-xs font-semibold leading-relaxed whitespace-pre-wrap">{o.diagnosticsNote}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Configuración y Notas de la Etiqueta */}
+                {((o.labelNote !== undefined && o.labelNote !== '') || o.showNotesOnLabel || o.hidePriceOnLabel || detailEditMode) && (
+                  <div className="mt-3">
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className={labelCls}>Configuración y Notas de la Etiqueta</span>
+                    </div>
+                    {detailEditMode ? (
+                      <div className="space-y-2">
+                        {/* Textarea for labelNote */}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex justify-between items-center text-[10px] font-bold text-zinc-400">
+                            <span>Texto de la etiqueta</span>
+                            {(() => {
+                              const getLabelNoteMaxLength = (paperSize: string): number => {
+                                const size = paperSize || '51x25mm';
+                                const [w, h] = size.replace('mm', '').split('x').map(Number);
+                                if (!w || !h) return 80;
+                                if (h <= 16) return 0;
+                                if (h <= 20) {
+                                  if (w <= 40) return 30;
+                                  if (w <= 60) return 45;
+                                  return 60;
+                                }
+                                if (h <= 35) {
+                                  if (w <= 30) return 35;
+                                  if (w <= 40) return 60;
+                                  if (w <= 60) return 85;
+                                  return 120;
+                                }
+                                if (w >= 80) return 200;
+                                return 150;
+                              };
+                              const paperSize = o.labelPaperSize || config.labelPaperSize || '51x25mm';
+                              const maxLen = getLabelNoteMaxLength(paperSize);
+                              const noteLen = (o.labelNote || '').length;
+                              return (
+                                <span className={noteLen >= maxLen ? 'text-rose-500 font-black' : 'text-zinc-500'}>
+                                  {noteLen} / {maxLen}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                          <textarea
+                            id="label-note-textarea"
+                            value={o.labelNote || ''}
+                            placeholder="Escribe notas cortas para el adhesivo térmico..."
+                            onKeyDown={e => e.stopPropagation()}
+                            onChange={e => {
+                              const text = e.target.value;
+                              const paperSize = o.labelPaperSize || config.labelPaperSize || '51x25mm';
+                              const getLabelNoteMaxLength = (ps: string): number => {
+                                const [w, h] = ps.replace('mm', '').split('x').map(Number);
+                                if (!w || !h) return 80;
+                                if (h <= 16) return 0;
+                                if (h <= 20) {
+                                  if (w <= 40) return 30;
+                                  if (w <= 60) return 45;
+                                  return 60;
+                                }
+                                if (h <= 35) {
+                                  if (w <= 30) return 35;
+                                  if (w <= 40) return 60;
+                                  if (w <= 60) return 85;
+                                  return 120;
+                                }
+                                if (w >= 80) return 200;
+                                return 150;
+                              };
+                              const getLabelNoteMaxLines = (ps: string): number => {
+                                const [, h] = ps.replace('mm', '').split('x').map(Number);
+                                if (!h) return 3;
+                                return h <= 22 ? 1 : 3;
+                              };
+                              const maxLen = getLabelNoteMaxLength(paperSize);
+                              const maxLines = getLabelNoteMaxLines(paperSize);
+                              const lines = text.split('\n');
+                              if (lines.length > maxLines) return;
+                              if (maxLen > 0 && text.length > maxLen) return;
+                              setField('labelNote', text);
+                            }}
+                            rows={2}
+                            className={labelTextareaCls}
+                          />
+                        </div>
+                        {/* Checkboxes */}
+                        <div className="flex flex-col gap-1.5 mt-1">
+                          {config.hybridPrintMode && (
+                            <label className={`flex items-center gap-1.5 cursor-pointer select-none text-[9.5px] font-extrabold uppercase mt-1 ${isRetro ? 'text-[#424f63]' : 'text-zinc-400'}`}>
+                              <input
+                                type="checkbox"
+                                checked={!!o.showNotesOnLabel}
+                                onChange={e => setField('showNotesOnLabel', e.target.checked)}
+                                className="w-3.5 h-3.5 rounded cursor-pointer accent-emerald-500"
+                              />
+                              <span>Imprimir notas en la etiqueta de servicio</span>
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {o.labelNote && (
+                          <div className={`p-3 rounded-xl border ${
+                            isRetro ? 'bg-emerald-50/40 border-emerald-200/80 text-zinc-900 font-sans'
+                            : isLight ? 'bg-emerald-50/30 border-emerald-100 text-zinc-800 font-sans'
+                            : 'bg-emerald-950/10 border-emerald-900/40 text-zinc-200 font-sans'
+                          }`}>
+                            <p className="text-xs font-semibold leading-relaxed whitespace-pre-wrap">{o.labelNote}</p>
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          {config.hybridPrintMode && (
+                            <span
+                              onClick={() => {
+                                if (!canManage) return;
+                                onUpdateOrder({
+                                  ...o,
+                                  showNotesOnLabel: !o.showNotesOnLabel
+                                });
+                              }}
+                              className={`text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wide border select-none transition-all ${
+                                canManage ? 'cursor-pointer hover:opacity-90 active:scale-95' : 'opacity-70'
+                              } ${
+                                o.showNotesOnLabel
+                                  ? (isRetro ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-emerald-950/20 border-emerald-900/60 text-emerald-400')
+                                  : (isRetro ? 'bg-zinc-100 border-zinc-300 text-zinc-600' : 'bg-zinc-900/40 border-zinc-800 text-zinc-500')
+                              }`}
+                            >
+                              📝 Notas en etiqueta: {o.showNotesOnLabel ? 'Sí' : 'No'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -5585,19 +5892,21 @@ ${isMediaCartaDuplicado ? `
                     const totalPartsCost = o.parts ? o.parts.reduce((sum, part) => sum + (part.cost || 0), 0) : 0;
                     const totalCostOfParts = totalPartsCost + (o.serviceCost || 0);
                     const showCostoCompra = detailEditMode || (o.parts && o.parts.length > 0) || (o.serviceCost && o.serviceCost > 0);
+                    const showCostoCompraEdit = !!((o.parts && o.parts.length > 0) || (o.serviceCost && o.serviceCost > 0));
+                    const showCostoBox = detailEditMode ? showCostoCompraEdit : showCostoCompra;
                     return (
-                      <div className={`grid gap-3 ${showCostoCompra ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-3'}`}>
+                      <div className={`grid gap-3 ${showCostoBox ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-3'}`}>
                         {detailEditMode ? (
                           /* Costo Equipo Input */
                           (() => {
                             const bgBorderClass = isRetro
-                              ? 'bg-white border-zinc-400 text-black shadow-xs'
+                              ? 'bg-emerald-50/50 border-zinc-400 text-emerald-850 shadow-sm'
                               : isLight
-                              ? 'bg-zinc-100 border-zinc-300 text-zinc-800 shadow-xs'
-                              : 'bg-zinc-900/30 border-zinc-800 text-zinc-100 shadow-xs';
-                            const titleClass = isLight ? 'text-zinc-650' : 'text-zinc-400';
+                              ? 'bg-emerald-100/60 border-emerald-200 text-emerald-850 shadow-sm'
+                              : 'bg-emerald-950/10 border-zinc-800 text-emerald-300 shadow-xs';
+                            const titleClass = isLight ? 'text-emerald-700' : 'text-emerald-400';
                             const inputFieldClass = `w-full text-center text-sm font-black font-mono mt-1 bg-transparent border-0 focus:ring-0 focus:outline-none p-0 ${
-                              isLight ? 'text-zinc-950' : 'text-zinc-100'
+                              isLight ? 'text-emerald-800' : 'text-emerald-300'
                             }`;
                             return (
                               <div className={`p-3 rounded-xl border flex flex-col items-center justify-center text-center ${bgBorderClass}`}>
@@ -5610,45 +5919,49 @@ ${isMediaCartaDuplicado ? `
                                   onChange={e => setField('cost', Number(e.target.value) || 0)}
                                   className={inputFieldClass}
                                   style={{ width: '100%' }}
+                                  onKeyDown={e => e.stopPropagation()}
                                 />
                               </div>
                             );
                           })()
                         ) : (
-                          renderFinanceBox("Total", sym + o.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), "gray")
+                          renderFinanceBox("Total", sym + o.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), "emerald")
                         )}
 
                         {detailEditMode ? (
                           /* Costo Compra Input */
-                          (() => {
-                            const bgBorderClass = isRetro
-                              ? 'bg-white border-zinc-400 text-black shadow-xs'
-                              : isLight
-                              ? 'bg-zinc-100 border-zinc-300 text-zinc-800 shadow-xs'
-                              : 'bg-zinc-900/30 border-zinc-800 text-zinc-100 shadow-xs';
-                            const titleClass = isLight ? 'text-zinc-650' : 'text-zinc-400';
-                            const inputFieldClass = `w-full text-center text-sm font-black font-mono mt-1 bg-transparent border-0 focus:ring-0 focus:outline-none p-0 ${
-                              isLight ? 'text-zinc-950' : 'text-zinc-100'
-                            }`;
-                            return (
-                              <div className={`p-3 rounded-xl border flex flex-col items-center justify-center text-center ${bgBorderClass}`}>
-                                <span className={`text-[9px] font-extrabold uppercase tracking-wider ${titleClass}`}>
-                                  Costo Pieza ({sym})
-                                </span>
-                                <input
-                                  type="number"
-                                  value={o.serviceCost || 0}
-                                  onChange={e => setField('serviceCost', Number(e.target.value) || 0)}
-                                  className={inputFieldClass}
-                                  style={{ width: '100%' }}
-                                />
-                              </div>
-                            );
-                          })()
+                          showCostoCompraEdit ? (
+                            (() => {
+                              const bgBorderClass = isRetro
+                                ? 'bg-amber-50/50 border-zinc-400 text-amber-850 shadow-sm'
+                                : isLight
+                                ? 'bg-amber-100/60 border-amber-200 text-amber-850 shadow-sm'
+                                : 'bg-amber-950/10 border-zinc-800 text-amber-300 shadow-xs';
+                              const titleClass = isLight ? 'text-amber-700' : 'text-amber-405';
+                              const inputFieldClass = `w-full text-center text-sm font-black font-mono mt-1 bg-transparent border-0 focus:ring-0 focus:outline-none p-0 ${
+                                isLight ? 'text-amber-800' : 'text-amber-300'
+                              }`;
+                              return (
+                                <div className={`p-3 rounded-xl border flex flex-col items-center justify-center text-center ${bgBorderClass}`}>
+                                  <span className={`text-[9px] font-extrabold uppercase tracking-wider ${titleClass}`}>
+                                    Costo Pieza ({sym})
+                                  </span>
+                                  <input
+                                    type="number"
+                                    value={o.serviceCost || 0}
+                                    onChange={e => setField('serviceCost', Number(e.target.value) || 0)}
+                                    className={inputFieldClass}
+                                    style={{ width: '100%' }}
+                                    onKeyDown={e => e.stopPropagation()}
+                                  />
+                                </div>
+                              );
+                            })()
+                          ) : null
                         ) : (
                           // Ocultar si no hay refacciones asignadas Y el costo de compra es 0
                           showCostoCompra ? (
-                            renderFinanceBox("Costo Pieza", sym + totalCostOfParts.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), "gray")
+                            renderFinanceBox("Costo Pieza", sym + totalCostOfParts.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), "amber")
                           ) : null
                         )}
 
@@ -7125,6 +7438,25 @@ ${isMediaCartaDuplicado ? `
                 </div>
                 {/* Note */}
                 <p className="text-[10px] italic px-1">"{pendingStatusChange.diagnosticsNote}"</p>
+                {/* WhatsApp Checkbox */}
+                {config.whatsappMode && config.whatsappMode !== 'disabled' && (
+                  <div 
+                    className={`flex items-center gap-2 px-1 ${isWaIntegratedOffline ? 'opacity-60 grayscale' : ''}`}
+                    title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
+                  >
+                    <input
+                      type="checkbox"
+                      id="retro-status-send-whatsapp"
+                      checked={!isWaIntegratedOffline && sendWhatsappOnStatusChange}
+                      disabled={isWaIntegratedOffline}
+                      onChange={(e) => setSendWhatsappOnStatusChange(e.target.checked)}
+                      className="cursor-pointer"
+                    />
+                    <label htmlFor="retro-status-send-whatsapp" className="font-mono text-[10px] font-bold cursor-pointer select-none">
+                      Enviar notificación por WhatsApp {isWaIntegratedOffline && '(Desvinculado)'}
+                    </label>
+                  </div>
+                )}
               </div>
               {/* Footer */}
               <div className="flex justify-end gap-2 px-4 py-3" style={{ borderTop: '1px solid #808080' }}>
@@ -7181,6 +7513,29 @@ ${isMediaCartaDuplicado ? `
                     "{pendingStatusChange.diagnosticsNote}"
                   </p>
                 </div>
+                {/* WhatsApp Checkbox */}
+                {config.whatsappMode && config.whatsappMode !== 'disabled' && (
+                  <div 
+                    title={isWaIntegratedOffline ? "WhatsApp desvinculado. Escanea el código QR en el menú de chat" : undefined}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border ${
+                      isWaIntegratedOffline 
+                        ? 'bg-zinc-500/10 border-zinc-500/30 opacity-60 grayscale' 
+                        : isLight ? 'bg-zinc-50 border-zinc-200' : 'bg-zinc-900/60 border-zinc-800'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      id="status-send-whatsapp"
+                      checked={!isWaIntegratedOffline && sendWhatsappOnStatusChange}
+                      disabled={isWaIntegratedOffline}
+                      onChange={(e) => setSendWhatsappOnStatusChange(e.target.checked)}
+                      className="w-4 h-4 cursor-pointer rounded border-zinc-350 focus:ring-amber-500"
+                    />
+                    <label htmlFor="status-send-whatsapp" className={`text-xs font-black cursor-pointer select-none ${isWaIntegratedOffline ? 'text-zinc-500' : isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
+                      Enviar notificación de cambio de estado por WhatsApp {isWaIntegratedOffline && '(Desvinculado)'}
+                    </label>
+                  </div>
+                )}
               </div>
               {/* Footer */}
               <div className={`flex gap-3 px-5 py-4 border-t ${isLight ? 'border-zinc-200' : 'border-zinc-800'}`}>
@@ -7203,195 +7558,303 @@ ${isMediaCartaDuplicado ? `
       {/* ── CONFIRMACIÓN DE IMPRESIÓN DE TICKET ─────────────────────────── */}
       {printConfirmOrder && (
         <div className="fixed inset-0 z-[60000] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
-          <div className={`w-full max-w-md rounded-xl shadow-2xl overflow-hidden ${
-            isRetro
-              ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600'
-              : isLight
-                ? 'bg-white border border-zinc-200'
-                : 'bg-[#1a1c22] border border-zinc-700/60'
-          }`}>
-            {/* Header */}
-            <div className={`modal-dark-header flex items-center gap-2.5 px-4 py-3 border-b ${
-              isRetro ? 'bg-[#000080] border-[#00006a]' : isLight ? 'bg-[#1a3a6b] border-blue-800' : 'bg-[#11131e] border-zinc-700'
+          <div className="relative">
+            <div className={`w-full max-w-md rounded-xl shadow-2xl overflow-hidden ${
+              isRetro
+                ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600'
+                : isLight
+                  ? 'bg-white border border-zinc-200'
+                  : 'bg-[#1a1c22] border border-zinc-700/60'
             }`}>
-              <Printer className="w-4 h-4 shrink-0 !text-blue-300" />
-              <span className="text-xs font-black uppercase tracking-wider !text-white">
-                Confirmar Impresión
-              </span>
-              <button
-                onClick={() => { setPrintConfirmOrder(null); setPrintStatus('idle'); setPrintLabelStatus('idle'); setPrintWarrantyStatus('idle'); }}
-                title="Cerrar ventana de impresión"
-                className="ml-auto cursor-pointer !text-zinc-300 hover:!text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Order summary */}
-            <div className="px-4 py-3 space-y-3">
-              <div className={`rounded-lg p-3 space-y-1.5 text-xs font-mono ${
-                isRetro ? 'bg-white border border-zinc-400' : isLight ? 'bg-zinc-50 border border-zinc-200' : 'bg-[#0f1115] border border-zinc-800'
+              {/* Header */}
+              <div className={`modal-dark-header flex items-center gap-2.5 px-4 py-3 border-b ${
+                isRetro ? 'bg-[#000080] border-[#00006a]' : isLight ? 'bg-[#1a3a6b] border-blue-800' : 'bg-[#11131e] border-zinc-700'
               }`}>
-                <div className="flex justify-between font-mono">
-                  <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Orden</span>
-                  <span className={`font-black ${isLight ? 'text-zinc-900' : 'text-sky-400'}`}>{printConfirmOrder.id}</span>
-                </div>
-                <div className="flex justify-between font-mono">
-                  <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Cliente</span>
-                  <span className={`font-bold ${isLight ? 'text-zinc-800' : 'text-zinc-200'}`}>{printConfirmOrder.customerName}</span>
-                </div>
-                <div className="flex justify-between font-mono">
-                  <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Equipo</span>
-                  <span className={isLight ? 'text-zinc-800' : 'text-zinc-200'}>{printConfirmOrder.deviceBrand} {printConfirmOrder.deviceModel}</span>
-                </div>
-                <div className="flex justify-between font-mono">
-                  <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Total</span>
-                  <span className={`font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>{config.currencySymbol}{printConfirmOrder.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
-              </div>
-
-              {/* Opción rápida: Ocultar precio en etiqueta */}
-              <div className="px-1 py-0.5">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={printConfirmOrder.hidePriceOnLabel ?? config.hidePriceOnLabel ?? false}
-                    onChange={(e) => {
-                      const val = e.target.checked;
-                      setPrintConfirmOrder(prev => prev ? ({ ...prev, hidePriceOnLabel: val }) : null);
-                    }}
-                    className="w-3.5 h-3.5 rounded accent-amber-500 cursor-pointer"
-                  />
-                  <span className={`text-[10px] font-bold ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
-                    🙈 Ocultar precio en etiqueta (maquila / técnico externo)
-                  </span>
-                </label>
-              </div>
-
-              {/* Three print options */}
-              <div className={`grid ${config.hybridPrintMode ? 'grid-cols-1' : 'grid-cols-3'} gap-2`}>
-                {/* Ticket de orden */}
+                <Printer className="w-4 h-4 shrink-0 !text-blue-300" />
+                <span className="text-xs font-black uppercase tracking-wider !text-white">
+                  Confirmar Impresión
+                </span>
                 <button
-                  onClick={handleConfirmPrint}
-                  disabled={printStatus === 'printing' || printStatus === 'success'}
-                  title="Imprimir el ticket completo de la orden para el cliente"
-                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
-                    printStatus === 'success'
-                      ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
-                      : isRetro
-                        ? 'bg-white border-[#000080] hover:bg-blue-50 text-[#000080]'
-                        : isLight
-                          ? 'bg-white border-sky-400 hover:bg-sky-50 text-sky-750 font-bold'
-                          : 'bg-[#0f1115] border-sky-600/60 hover:bg-sky-950/40 text-sky-400'
+                  onClick={() => { setPrintConfirmOrder(null); setPrintStatus('idle'); setPrintLabelStatus('idle'); setPrintWarrantyStatus('idle'); handlePrintHoverEnd(); }}
+                  title="Cerrar ventana de impresión"
+                  className="ml-auto cursor-pointer !text-zinc-300 hover:!text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Order summary */}
+              <div className="px-4 py-3 space-y-3">
+                <div className={`rounded-lg p-3 space-y-1.5 text-xs font-mono ${
+                  isRetro ? 'bg-white border border-zinc-400' : isLight ? 'bg-zinc-50 border border-zinc-200' : 'bg-[#0f1115] border border-zinc-800'
+                }`}>
+                  <div className="flex justify-between font-mono">
+                    <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Orden</span>
+                    <span className={`font-black ${isLight ? 'text-zinc-900' : 'text-sky-400'}`}>{printConfirmOrder.id}</span>
+                  </div>
+                  <div className="flex justify-between font-mono">
+                    <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Cliente</span>
+                    <span className={`font-bold ${isLight ? 'text-zinc-800' : 'text-zinc-200'}`}>{printConfirmOrder.customerName}</span>
+                  </div>
+                  <div className="flex justify-between font-mono">
+                    <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Equipo</span>
+                    <span className={isLight ? 'text-zinc-800' : 'text-zinc-200'}>{printConfirmOrder.deviceBrand} {printConfirmOrder.deviceModel}</span>
+                  </div>
+                  <div className="flex justify-between font-mono">
+                    <span className={isLight ? 'text-zinc-500' : 'text-zinc-400'}>Total</span>
+                    <span className={`font-black ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>{config.currencySymbol}{printConfirmOrder.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+
+                {/* Opción rápida: Ocultar precio en etiqueta */}
+                <div className="px-1 py-0.5">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={printConfirmOrder.hidePriceOnLabel ?? config.hidePriceOnLabel ?? false}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setPrintConfirmOrder(prev => prev ? ({ ...prev, hidePriceOnLabel: val }) : null);
+                      }}
+                      className="w-3.5 h-3.5 rounded accent-amber-500 cursor-pointer"
+                    />
+                    <span className={`text-[10px] font-bold ${isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
+                      🙈 Ocultar precio y teléfono en etiqueta (maquila / técnico externo)
+                    </span>
+                  </label>
+                </div>
+
+                {/* Three print options */}
+                <div className={`grid ${config.hybridPrintMode ? 'grid-cols-1' : 'grid-cols-3'} gap-2`}>
+                  {/* Ticket de orden */}
+                  <button
+                    onClick={handleConfirmPrint}
+                    onMouseEnter={() => handlePrintHoverStart('ticket')}
+                    onMouseLeave={handlePrintHoverEnd}
+                    onWheel={handleWheelOnButton}
+                    disabled={printStatus === 'printing' || printStatus === 'success'}
+                    title="Imprimir el ticket completo de la orden para el cliente (desliza la vista previa usando la rueda del mouse o trackpad sobre este botón)"
+                    className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
+                      printStatus === 'success'
+                        ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
+                        : isRetro
+                          ? 'bg-white border-[#000080] hover:bg-blue-50 text-[#000080]'
+                          : isLight
+                            ? 'bg-white border-sky-400 hover:bg-sky-50 text-sky-750 font-bold'
+                            : 'bg-[#0f1115] border-sky-600/60 hover:bg-sky-950/40 text-sky-400'
+                    }`}
+                  >
+                    <span className="text-2xl">🧾</span>
+                    <div className="text-center">
+                      <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-[#000080]' : isLight ? 'text-sky-700' : 'text-sky-400'}`}>
+                        {printStatus === 'printing' ? 'Imprimiendo…' : printStatus === 'success' ? '✓ Enviado' : 'Ticket de Orden'}
+                      </div>
+                      <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Hoja completa de servicio</div>
+                    </div>
+                  </button>
+
+                  {/* Etiqueta adhesiva */}
+                  {!config.hybridPrintMode && (
+                    <button
+                      onClick={handleConfirmPrintLabel}
+                      onMouseEnter={() => handlePrintHoverStart('label')}
+                      onMouseLeave={handlePrintHoverEnd}
+                      onWheel={handleWheelOnButton}
+                      disabled={printLabelStatus === 'printing' || printLabelStatus === 'success'}
+                      title="Imprimir etiqueta de servicio para el equipo"
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
+                        printLabelStatus === 'success'
+                          ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
+                          : isRetro
+                            ? 'bg-white border-amber-600 hover:bg-amber-50 text-amber-750'
+                            : isLight
+                              ? 'bg-white border-amber-400 hover:bg-amber-50 text-amber-700'
+                              : 'bg-[#0f1115] border-amber-600/60 hover:bg-amber-950/40 text-amber-400'
+                      }`}
+                    >
+                      <span className="text-2xl">🏷️</span>
+                      <div className="text-center">
+                        <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-amber-700' : isLight ? 'text-amber-700' : 'text-amber-400'}`}>
+                          {printLabelStatus === 'printing' ? 'Imprimiendo…' : printLabelStatus === 'success' ? '✓ Enviada' : 'Etiqueta de Servicio'}
+                        </div>
+                        <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Sticker para el equipo</div>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Sello de Garantía */}
+                  {!config.hybridPrintMode && (
+                    <button
+                      onClick={handleConfirmPrintWarrantyLabel}
+                      onMouseEnter={() => handlePrintHoverStart('warranty')}
+                      onMouseLeave={handlePrintHoverEnd}
+                      onWheel={handleWheelOnButton}
+                      disabled={printWarrantyStatus === 'printing' || printWarrantyStatus === 'success'}
+                      title="Imprimir sello adhesivo de garantía y control para el equipo"
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
+                        printWarrantyStatus === 'success'
+                          ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
+                          : isRetro
+                            ? 'bg-white border-indigo-600 hover:bg-indigo-50 text-indigo-750'
+                            : isLight
+                              ? 'bg-white border-indigo-400 hover:bg-indigo-50 text-indigo-750 font-bold'
+                              : 'bg-[#0f1115] border-indigo-600/60 hover:bg-indigo-950/40 text-indigo-400'
+                      }`}
+                    >
+                      <span className="text-2xl">🛡️</span>
+                      <div className="text-center">
+                        <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-indigo-700' : isLight ? 'text-indigo-700' : 'text-indigo-400'}`}>
+                          {printWarrantyStatus === 'printing' ? 'Imprimiendo…' : printWarrantyStatus === 'success' ? '✓ Enviado' : 'Sello Garantía'}
+                        </div>
+                        <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Sello de seguridad</div>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Ticket de Entrega (solo si la orden está finalizada / entregada) */}
+                  {(printConfirmOrder.status === 'Entregado' || printConfirmOrder.status === 'Entregado y Pagado') && (
+                    <button
+                      onClick={handleConfirmPrintDeliveryTicket}
+                      onMouseEnter={() => handlePrintHoverStart('delivery')}
+                      onMouseLeave={handlePrintHoverEnd}
+                      onWheel={handleWheelOnButton}
+                      disabled={printDeliveryStatus === 'printing' || printDeliveryStatus === 'success'}
+                      title="Reimprimir comprobante de entrega oficial de la orden (desliza la vista previa usando la rueda del mouse o trackpad sobre este botón)"
+                      className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
+                        printDeliveryStatus === 'success'
+                          ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
+                          : isRetro
+                            ? 'bg-white border-blue-600 hover:bg-blue-50 text-blue-800'
+                            : isLight
+                              ? 'bg-white border-blue-500 hover:bg-blue-50 text-blue-700 font-bold'
+                              : 'bg-[#0f1115] border-blue-600/60 hover:bg-blue-950/40 text-blue-400'
+                      }`}
+                    >
+                      <span className="text-2xl">🤝</span>
+                      <div className="text-center">
+                        <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-blue-800' : isLight ? 'text-blue-700' : 'text-blue-400'}`}>
+                          {printDeliveryStatus === 'printing' ? 'Imprimiendo…' : printDeliveryStatus === 'success' ? '✓ Enviado' : 'Ticket Entrega'}
+                        </div>
+                        <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Comprobante de entrega</div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className={`flex px-4 py-3 border-t ${
+                isRetro ? 'border-zinc-400 bg-[#d4d0c8]' : isLight ? 'border-zinc-200 bg-zinc-50' : 'border-zinc-700/60 bg-[#13151a]'
+              }`}>
+                <button
+                  onClick={() => { setPrintConfirmOrder(null); setPrintStatus('idle'); setPrintLabelStatus('idle'); setPrintWarrantyStatus('idle'); handlePrintHoverEnd(); }}
+                  title="Cerrar ventana de impresión"
+                  className={`flex-1 py-2 text-xs font-bold rounded cursor-pointer transition-all active:scale-95 ${
+                    isRetro
+                      ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 text-zinc-800'
+                      : isLight
+                        ? 'bg-zinc-200 hover:bg-zinc-300 text-zinc-700'
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
                   }`}
                 >
-                  <span className="text-2xl">🧾</span>
-                  <div className="text-center">
-                    <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-[#000080]' : isLight ? 'text-sky-700' : 'text-sky-400'}`}>
-                      {printStatus === 'printing' ? 'Imprimiendo…' : printStatus === 'success' ? '✓ Enviado' : 'Ticket de Orden'}
-                    </div>
-                    <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Hoja completa de servicio</div>
-                  </div>
+                  Cerrar
                 </button>
-
-                {/* Etiqueta adhesiva */}
-                {!config.hybridPrintMode && (
-                  <button
-                    onClick={handleConfirmPrintLabel}
-                    disabled={printLabelStatus === 'printing' || printLabelStatus === 'success'}
-                    title="Imprimir etiqueta adhesiva de código de barras para el equipo"
-                    className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
-                      printLabelStatus === 'success'
-                        ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
-                        : isRetro
-                          ? 'bg-white border-amber-600 hover:bg-amber-50 text-amber-750'
-                          : isLight
-                            ? 'bg-white border-amber-400 hover:bg-amber-50 text-amber-700'
-                            : 'bg-[#0f1115] border-amber-600/60 hover:bg-amber-950/40 text-amber-400'
-                    }`}
-                  >
-                    <span className="text-2xl">🏷️</span>
-                    <div className="text-center">
-                      <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-amber-700' : isLight ? 'text-amber-700' : 'text-amber-400'}`}>
-                        {printLabelStatus === 'printing' ? 'Imprimiendo…' : printLabelStatus === 'success' ? '✓ Enviada' : 'Etiqueta Adhesiva'}
-                      </div>
-                      <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Sticker para el equipo</div>
-                    </div>
-                  </button>
-                )}
-
-                {/* Sello de Garantía */}
-                {!config.hybridPrintMode && (
-                  <button
-                    onClick={handleConfirmPrintWarrantyLabel}
-                    disabled={printWarrantyStatus === 'printing' || printWarrantyStatus === 'success'}
-                    title="Imprimir sello adhesivo de garantía y control para el equipo"
-                    className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
-                      printWarrantyStatus === 'success'
-                        ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
-                        : isRetro
-                          ? 'bg-white border-indigo-600 hover:bg-indigo-50 text-indigo-750'
-                          : isLight
-                            ? 'bg-white border-indigo-400 hover:bg-indigo-50 text-indigo-750 font-bold'
-                            : 'bg-[#0f1115] border-indigo-600/60 hover:bg-indigo-950/40 text-indigo-400'
-                    }`}
-                  >
-                    <span className="text-2xl">🛡️</span>
-                    <div className="text-center">
-                      <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-indigo-700' : isLight ? 'text-indigo-700' : 'text-indigo-400'}`}>
-                        {printWarrantyStatus === 'printing' ? 'Imprimiendo…' : printWarrantyStatus === 'success' ? '✓ Enviado' : 'Sello Garantía'}
-                      </div>
-                      <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Sello de seguridad</div>
-                    </div>
-                  </button>
-                )}
-
-                {/* Ticket de Entrega (solo si la orden está finalizada / entregada) */}
-                {(printConfirmOrder.status === 'Entregado' || printConfirmOrder.status === 'Entregado y Pagado') && (
-                  <button
-                    onClick={handleConfirmPrintDeliveryTicket}
-                    disabled={printDeliveryStatus === 'printing' || printDeliveryStatus === 'success'}
-                    title="Reimprimir comprobante de entrega oficial de la orden"
-                    className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60 ${
-                      printDeliveryStatus === 'success'
-                        ? isRetro ? (isLight ? 'bg-emerald-100 border-emerald-500 text-emerald-800' : 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300') : 'bg-emerald-600/20 border-emerald-500 text-emerald-400'
-                        : isRetro
-                          ? 'bg-white border-blue-600 hover:bg-blue-50 text-blue-800'
-                          : isLight
-                            ? 'bg-white border-blue-500 hover:bg-blue-50 text-blue-700 font-bold'
-                            : 'bg-[#0f1115] border-blue-600/60 hover:bg-blue-950/40 text-blue-400'
-                    }`}
-                  >
-                    <span className="text-2xl">🤝</span>
-                    <div className="text-center">
-                      <div className={`text-[10px] font-black uppercase tracking-wider ${isRetro ? 'text-blue-800' : isLight ? 'text-blue-700' : 'text-blue-400'}`}>
-                        {printDeliveryStatus === 'printing' ? 'Imprimiendo…' : printDeliveryStatus === 'success' ? '✓ Enviado' : 'Ticket Entrega'}
-                      </div>
-                      <div className={`text-[9px] mt-0.5 ${isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>Comprobante de entrega</div>
-                    </div>
-                  </button>
-                )}
               </div>
             </div>
 
-            {/* Footer */}
-            <div className={`flex px-4 py-3 border-t ${
-              isRetro ? 'border-zinc-400 bg-[#d4d0c8]' : isLight ? 'border-zinc-200 bg-zinc-50' : 'border-zinc-700/60 bg-[#13151a]'
-            }`}>
-              <button
-                onClick={() => { setPrintConfirmOrder(null); setPrintStatus('idle'); setPrintLabelStatus('idle'); setPrintWarrantyStatus('idle'); }}
-                title="Cerrar ventana de impresión"
-                className={`flex-1 py-2 text-xs font-bold rounded cursor-pointer transition-all active:scale-95 ${
-                  isRetro
-                    ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-600 border-r-zinc-600 text-zinc-800'
-                    : isLight
-                      ? 'bg-zinc-200 hover:bg-zinc-300 text-zinc-700'
-                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                }`}
-              >
-                Cerrar
-              </button>
-            </div>
+            {/* Live floating preview next to the modal */}
+            {printHoverPreview && (
+              <div className={`hidden md:flex flex-col w-[400px] h-[520px] rounded-xl border shadow-2xl overflow-hidden transition-all duration-300 absolute left-full top-0 ml-4 animate-in fade-in slide-in-from-left-4 ${
+                isRetro ? 'bg-white border-zinc-400 text-black shadow-md' : isLight ? 'bg-white border-zinc-200 text-zinc-800 shadow-lg' : 'bg-[#1b1c22]/95 border-zinc-700/60 text-zinc-150'
+              }`}>
+                <div className={`px-3 py-2 border-b text-[10px] font-black uppercase tracking-wider flex items-center justify-between ${
+                  isRetro ? 'bg-zinc-200 border-b-zinc-400 text-black' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-[#0f1013] border-zinc-800 text-zinc-300'
+                }`}>
+                  <span>👁️ Vista Previa En Vivo</span>
+                  <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded ml-2 border ${
+                    isRetro
+                      ? 'bg-zinc-300 border-zinc-500 text-zinc-800'
+                      : isLight
+                        ? 'bg-zinc-100 border-zinc-300 text-zinc-650'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                  }`}>
+                    {(() => {
+                      if (printHoverPreview === 'ticket') {
+                        return `Ticket (${config.ticketPaperWidth || '80mm'})`;
+                      }
+                      if (printHoverPreview === 'label') {
+                        return `Etiqueta (${config.labelPaperSize || '51x25mm'})`;
+                      }
+                      if (printHoverPreview === 'warranty') {
+                        return `Garantía (${config.labelPaperSize || '51x25mm'})`;
+                      }
+                      if (printHoverPreview === 'delivery') {
+                        const ticketWidth = config.hybridPrintMode ? 'media-carta-duplicado' : (config.ticketPaperWidth || '80mm');
+                        const formattedWidth = ticketWidth === 'media-carta-duplicado' ? 'Media Carta Dup.' : ticketWidth === 'media-carta' ? 'Media Carta' : ticketWidth;
+                        return `Comprobante (${formattedWidth})`;
+                      }
+                      return '';
+                    })()}
+                  </span>
+                </div>
+                <div ref={previewContainerRef} className="flex-1 bg-white p-4 flex justify-center items-start overflow-y-auto scrollbar-thin relative">
+                  {printHoverPreview === 'ticket' || printHoverPreview === 'delivery' ? (
+                    <div style={{ height: `${iframeHeight * 0.85}px`, width: `${380 * 0.85}px` }} className="relative shrink-0 my-1">
+                      <iframe
+                        ref={previewIframeRef}
+                        onLoad={handleIframeLoad}
+                        title="Print Live Preview"
+                        className="w-[380px] origin-top-left border-0 absolute top-0 left-0 scale-[0.85]"
+                        style={{ height: `${iframeHeight}px` }}
+                        srcDoc={(() => {
+                          if (printHoverPreview === 'ticket') {
+                            return buildTicketHtml(printConfirmOrder, config);
+                          } else {
+                            return buildDeliveryTicketHtmlForOrder(printConfirmOrder, config);
+                          }
+                        })()}
+                      />
+                    </div>
+                  ) : (() => {
+                    const sizeKey = config.labelPaperSize || '51x25mm';
+                    const [labelWmm, labelHmm] = sizeKey.replace(/mm/g, '').split('x').map(Number);
+                    const labelPixelWidth = (labelWmm || 51) * 3.78;
+                    const labelPixelHeight = (labelHmm || 25) * 3.78;
+                    const labelScale = 320 / labelPixelWidth;
+                    return (
+                      <div className="flex flex-col items-center justify-center h-full w-full bg-white select-none shrink-0 my-1">
+                        <div className="border border-zinc-300 shadow-sm overflow-hidden bg-white rounded-lg relative" style={{ width: `${labelPixelWidth * labelScale}px`, height: `${labelPixelHeight * labelScale}px` }}>
+                          <iframe
+                            ref={previewIframeRef}
+                            title="Print Live Preview"
+                            className="absolute top-0 left-0"
+                            style={{
+                              width: `${labelPixelWidth}px`,
+                              height: `${labelPixelHeight}px`,
+                              transform: `scale(${labelScale})`,
+                              transformOrigin: 'top left',
+                              border: 'none',
+                              overflow: 'hidden'
+                            }}
+                            srcDoc={(() => {
+                              const hidePrice = printConfirmOrder.hidePriceOnLabel ?? config.hidePriceOnLabel ?? false;
+                              if (printHoverPreview === 'label') {
+                                return buildServiceLabelHtml(printConfirmOrder, config, hidePrice);
+                              } else {
+                                return buildWarrantyLabelHtml(printConfirmOrder, config);
+                              }
+                            })()}
+                          />
+                        </div>
+                        <span className="text-[9px] text-zinc-400 font-extrabold uppercase tracking-wider mt-4">
+                          Medida Configurada: {sizeKey}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

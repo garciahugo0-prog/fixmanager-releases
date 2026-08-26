@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Package,
   Search,
@@ -24,6 +24,7 @@ import {
 import { InventoryItem, WorkshopConfig, Expense, AppUser } from '../types';
 import { formatPhoneNumber } from '../utils/phoneFormatter';
 import { handleCaretPreservingChange } from '../utils/domHelpers';
+import { PosItemThumbnail } from './pos/PosItemThumbnail';
 
 interface ReabastecerViewProps {
   inventory: InventoryItem[];
@@ -43,6 +44,12 @@ interface ReplenishItem {
   cost: number;
   suggestedProvider?: string;
   isSuggested?: boolean;
+  imageUrl?: string;
+  extraImages?: string[];
+  category?: string;
+  price?: number;
+  wholesalePrice?: number;
+  originalCost?: number;
 }
 
 interface ReplenishHistoryLog {
@@ -143,28 +150,71 @@ export default function ReabastecerView({
     setInlineSelectedIndex(0);
   }, [searchTerm]);
 
-  const [autoRegisterExpense, setAutoRegisterExpense] = useState<boolean>(true);
+  const [autoRegisterExpense, setAutoRegisterExpense] = useState<boolean>(false);
   const [showConfirmReplenish, setShowConfirmReplenish] = useState<boolean>(false);
   
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Intermediary add product modal state
+  const [pendingAddItem, setPendingAddItem] = useState<InventoryItem | null>(null);
+  const [pendingAddQty, setPendingAddQty] = useState<string>('5');
+  const [pendingAddCost, setPendingAddCost] = useState<string>('0');
+  const [pendingAddIsSuggested, setPendingAddIsSuggested] = useState<boolean>(false);
+  const [pendingAddSuggestedProvider, setPendingAddSuggestedProvider] = useState<string>('');
+
+  const qtyInputRef = useRef<HTMLInputElement>(null);
+  const costInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (pendingAddItem) {
+      setTimeout(() => {
+        qtyInputRef.current?.focus();
+        qtyInputRef.current?.select();
+      }, 50);
+    }
+  }, [pendingAddItem]);
+
+  const confirmAddProduct = () => {
+    if (!pendingAddItem) return;
+    const qty = Math.max(1, parseInt(pendingAddQty) || 1);
+    const costVal = Math.max(0, parseFloat(pendingAddCost) || 0);
+
+    const newItem: ReplenishItem = {
+      id: pendingAddItem.id,
+      name: pendingAddItem.name,
+      code: pendingAddItem.code,
+      brand: pendingAddItem.brand,
+      currentStock: pendingAddItem.stock,
+      addedQty: qty,
+      cost: costVal,
+      isSuggested: pendingAddIsSuggested,
+      suggestedProvider: pendingAddSuggestedProvider,
+      imageUrl: pendingAddItem.imageUrl,
+      extraImages: pendingAddItem.extraImages,
+      category: pendingAddItem.category,
+      price: pendingAddItem.price,
+      wholesalePrice: pendingAddItem.wholesalePrice,
+      originalCost: pendingAddItem.cost
+    };
+
+    setReplenishList([...replenishList, newItem]);
+    setSearchTerm('');
+    setPendingAddItem(null);
+  };
+
   // Persistence of historic replenishment logs
   const [historyLogs, setHistoryLogs] = useState<ReplenishHistoryLog[]>(() => {
     const saved = localStorage.getItem('fixmanager_replenishment_logs');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
+    try {
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
     }
-    return [];
   });
 
-  // Proveedores únicos extraídos del historial (orden de uso más reciente primero)
   const recentProviders: string[] = (historyLogs
-    .map(l => l.provider)
+    .map(log => log.provider)
     .filter((p): p is string => Boolean(p))
     .reduce<string[]>((acc, p) => acc.includes(p) ? acc : [...acc, p], []))
     .slice(0, 8);
@@ -180,15 +230,19 @@ export default function ReabastecerView({
 
   // ── Mini-form: nuevo producto desde Abasto ──────────────────────────────
   const [showNewProduct, setShowNewProduct] = useState(false);
-  const emptyNewProd = () => ({
-    name: searchTerm.toUpperCase(),
-    code: `7500${Math.floor(Math.random() * 9000 + 1000)}`,
-    category: 'Accesorio',
-    cost: 0,
-    price: 0,
-    stock: 0,
-    minStock: 3,
-  });
+  const emptyNewProd = () => {
+    const isBarcode = /^\d+$/.test(searchTerm.trim()) && searchTerm.trim().length >= 5;
+    return {
+      name: isBarcode ? '' : searchTerm.toUpperCase(),
+      code: isBarcode ? searchTerm.trim() : `7500${Math.floor(Math.random() * 9000 + 1000)}`,
+      category: 'Accesorio',
+      cost: 0,
+      price: 0,
+      wholesalePrice: 0,
+      stock: 0,
+      minStock: 3,
+    };
+  };
   const [newProd, setNewProd] = useState(emptyNewProd);
   const refNPName  = useRef<HTMLInputElement>(null);
   const refNPCode  = useRef<HTMLInputElement>(null);
@@ -196,12 +250,21 @@ export default function ReabastecerView({
   const refNPMin   = useRef<HTMLInputElement>(null);
   const refNPCost  = useRef<HTMLInputElement>(null);
   const refNPPrice = useRef<HTMLInputElement>(null);
+  const refNPWholesale = useRef<HTMLInputElement>(null);
 
   const openNewProduct = () => {
+    const isBarcode = /^\d+$/.test(searchTerm.trim()) && searchTerm.trim().length >= 5;
     setNewProd(emptyNewProd());
     setNewProdError(null);
     setShowNewProduct(true);
-    setTimeout(() => refNPName.current?.focus(), 80);
+    setTimeout(() => {
+      if (isBarcode) {
+        refNPName.current?.focus();
+      } else {
+        refNPStock.current?.focus();
+        refNPStock.current?.select();
+      }
+    }, 80);
   };
 
   const [newProdError, setNewProdError] = useState<string | null>(null);
@@ -212,8 +275,10 @@ export default function ReabastecerView({
     if (!Number(newProd.stock)) { setNewProdError('Las unidades en almacén no pueden ser 0.'); focusAfter(refNPStock); return; }
     if (newProd.minStock === '' || isNaN(Number(newProd.minStock)) || Number(newProd.minStock) < 0) { setNewProdError('El stock mínimo debe ser un número válido mayor o igual a 0.'); focusAfter(refNPMin); return; }
     if (!Number(newProd.cost)) { setNewProdError('El costo de compra es obligatorio. Se necesita para calcular utilidades.'); focusAfter(refNPCost); return; }
-    if (!Number(newProd.price)) { setNewProdError('El precio no puede ser 0.'); focusAfter(refNPPrice); return; }
-    if (Number(newProd.price) < Number(newProd.cost)) { setNewProdError(`El precio ($${Number(newProd.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) no puede ser menor que el costo ($${Number(newProd.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Estarías vendiendo a pérdida.`); focusAfter(refNPPrice); return; }
+    if (!Number(newProd.price)) { setNewProdError('El precio de venta es obligatorio.'); focusAfter(refNPPrice); return; }
+    if (Number(newProd.price) < Number(newProd.cost)) { setNewProdError(`El precio de venta ($${Number(newProd.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) no puede ser menor que el costo ($${Number(newProd.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Estarías vendiendo a pérdida.`); focusAfter(refNPPrice); return; }
+    if (!Number(newProd.wholesalePrice)) { setNewProdError('El precio de mayoreo es obligatorio.'); focusAfter(refNPWholesale); return; }
+    if (Number(newProd.wholesalePrice) < Number(newProd.cost)) { setNewProdError(`El precio de mayoreo ($${Number(newProd.wholesalePrice).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) no puede ser menor que el costo ($${Number(newProd.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Estarías vendiendo a pérdida.`); focusAfter(refNPWholesale); return; }
     setNewProdError(null);
     const item: InventoryItem = {
       id: `ACC-${Date.now().toString().slice(-6)}`,
@@ -223,14 +288,29 @@ export default function ReabastecerView({
       category: newProd.category || 'Accesorio',
       cost: Number(newProd.cost) || 0,
       price: Number(newProd.price) || 0,
-      stock: Number(newProd.stock) || 0,
+      wholesalePrice: Number(newProd.wholesalePrice) || 0,
+      stock: 0, // Inicia en 0 y se suma al procesar el abasto
       minStock: (newProd.minStock === '' || isNaN(Number(newProd.minStock))) ? 3 : Number(newProd.minStock),
       favorite: false,
     };
     const newInventory = [item, ...inventory];
     onUpdateInventory(newInventory);
-    // Auto-agregar al reabasto con qty 1
-    setReplenishList(prev => [...prev, { id: item.id, name: item.name, code: item.code, brand: item.brand, currentStock: item.stock, addedQty: 1, cost: item.cost }]);
+    // Auto-agregar al reabasto con la cantidad ingresada como nueva cantidad
+    setReplenishList(prev => [...prev, {
+      id: item.id,
+      name: item.name,
+      code: item.code,
+      brand: item.brand,
+      currentStock: 0,
+      addedQty: Number(newProd.stock) || 1,
+      cost: item.cost,
+      imageUrl: item.imageUrl,
+      extraImages: item.extraImages,
+      category: item.category,
+      price: item.price,
+      wholesalePrice: item.wholesalePrice,
+      originalCost: item.cost
+    }]);
     setSearchTerm('');
     setShowNewProduct(false);
     setSuccessMessage(`✅ "${item.name}" agregado al inventario y a la lista de reabasto.`);
@@ -242,16 +322,25 @@ export default function ReabastecerView({
   };
 
   // Filter inventory for search selection using robust text normalization (e.g. ignoring accents/Mac formatting)
-  const filteredProducts = inventory.filter(item => {
-    const cleanSearch = normalizeSearchText(searchTerm);
-    if (!cleanSearch) return false;
-    return (
-      normalizeSearchText(item.name).includes(cleanSearch) ||
-      (item.code && normalizeSearchText(item.code).includes(cleanSearch)) ||
-      (item.brand && normalizeSearchText(item.brand).includes(cleanSearch)) ||
-      (item.category && normalizeSearchText(item.category).includes(cleanSearch))
-    );
-  }); // Show all matching results for complete catalog search
+  const filteredProducts = useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    
+    // Normalizar texto eliminando acentos y diacríticos de manera robusta
+    const normalize = (text: string) => 
+      text.normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .trim();
+
+    const q = normalize(searchTerm);
+    return inventory.filter(item => 
+      item.active !== false &&
+      !item.deletedAt &&
+      item.manageStock !== false &&
+      (normalize(item.name).includes(q) || 
+      (item.code && normalize(item.code).includes(q)))
+    ).slice(0, 10);
+  }, [searchTerm, inventory]);
 
   // Append product to the current list
   const addProductToList = (item: InventoryItem) => {
@@ -284,20 +373,11 @@ export default function ReabastecerView({
       }
     }
 
-    const newItem: ReplenishItem = {
-      id: item.id,
-      name: item.name,
-      code: item.code,
-      brand: item.brand,
-      currentStock: item.stock,
-      addedQty: 5, // Default amount to replenish
-      cost: suggestedCost,
-      isSuggested,
-      suggestedProvider: suggestedProviderName
-    };
-
-    setReplenishList([...replenishList, newItem]);
-    setSearchTerm('');
+    setPendingAddItem(item);
+    setPendingAddQty('5');
+    setPendingAddCost(suggestedCost.toString());
+    setPendingAddIsSuggested(isSuggested);
+    setPendingAddSuggestedProvider(suggestedProviderName);
   };
 
   const handleUpdateQty = (id: string, qty: number) => {
@@ -309,6 +389,18 @@ export default function ReabastecerView({
   const handleUpdateCost = (id: string, costVal: number) => {
     setReplenishList(
       replenishList.map(item => item.id === id ? { ...item, cost: Math.max(0, costVal) } : item)
+    );
+  };
+
+  const handleUpdatePrice = (id: string, priceVal: number) => {
+    setReplenishList(
+      replenishList.map(item => item.id === id ? { ...item, price: Math.max(0, priceVal) } : item)
+    );
+  };
+
+  const handleUpdateWholesalePrice = (id: string, wholesalePriceVal: number) => {
+    setReplenishList(
+      replenishList.map(item => item.id === id ? { ...item, wholesalePrice: Math.max(0, wholesalePriceVal) } : item)
     );
   };
 
@@ -414,12 +506,18 @@ export default function ReabastecerView({
   }
 
   return (
-    <div className={`p-4 md:p-6 overflow-y-auto flex-1 h-full ${isRetro ? 'bg-[#eaeef3] text-zinc-900 border-t border-white' : 'bg-[#0a0b0d] text-gray-250'}`}>
+    <div className={`p-4 md:p-6 overflow-y-auto flex-1 h-full ${
+      isRetro 
+        ? 'bg-[#eaeef3] text-zinc-900 border-t border-white' 
+        : isLight 
+          ? 'bg-zinc-50 text-zinc-800' 
+          : 'bg-[#0a0b0d] text-gray-250'
+    }`}>
       
       {/* View Header */}
-      <div className={`mb-5 pb-3 border-b ${isRetro ? 'border-zinc-300' : 'border-zinc-800/80'} flex flex-col md:flex-row md:items-center justify-between gap-3`}>
+      <div className={`mb-5 pb-3 border-b ${isRetro ? 'border-zinc-300' : isLight ? 'border-zinc-200' : 'border-zinc-800/80'} flex flex-col md:flex-row md:items-center justify-between gap-3`}>
         <div>
-          <h2 className={`text-xl font-display font-black flex items-center gap-2 ${isRetro ? 'text-blue-900' : 'text-amber-500'}`}>
+          <h2 className={`text-xl font-display font-black flex items-center gap-2 ${isRetro ? 'text-blue-900' : isLight ? 'text-indigo-750' : 'text-amber-500'}`}>
             <Truck className="w-5 h-5 antialiased" /> REABASTECER POR PROVEEDOR
           </h2>
           <p className="text-[11px] text-zinc-500 mt-0.5">
@@ -447,13 +545,19 @@ export default function ReabastecerView({
         <div className="xl:col-span-2 space-y-5">
           
           {/* STEP 1: SELECT SUPPLIER/PROVIDER */}
-          <div className={`p-4 rounded border transition-all ${isRetro ? 'bg-white border-zinc-300 shadow-sm' : 'bg-[#121316] border-[#1e2025]'}`}>
-            <h3 className={`text-xs font-black uppercase tracking-wider mb-3 flex items-center gap-1.5 ${isRetro ? 'text-zinc-700' : 'text-zinc-300'}`}>
+          <div className={`p-4 rounded border transition-all ${
+            isRetro 
+              ? 'bg-white border-zinc-300 shadow-sm' 
+              : isLight 
+                ? 'bg-white border-zinc-200 shadow-sm text-zinc-800' 
+                : 'bg-[#121316] border-[#1e2025]'
+          }`}>
+            <h3 className={`text-xs font-black uppercase tracking-wider mb-3 flex items-center gap-1.5 ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
               <span className={`w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-black ${provider.trim() ? 'bg-emerald-500' : 'bg-blue-500'}`}>
                 {provider.trim() ? '✓' : '1'}
               </span>
               Seleccione el Proveedor
-              {provider.trim() && <span className={`ml-1 text-[10px] font-bold ${isRetro ? 'text-emerald-700' : 'text-emerald-400'}`}>— {provider}</span>}
+              {provider.trim() && <span className={`ml-1 text-[10px] font-bold ${isRetro ? 'text-emerald-700' : isLight ? 'text-emerald-700' : 'text-emerald-450'}`}>— {provider}</span>}
             </h3>
 
             {!customProviderActive && (
@@ -468,8 +572,16 @@ export default function ReabastecerView({
                         onClick={() => handleSelectProvider(prov)}
                         className={`px-2.5 py-1 text-[10px] rounded border transition-all truncate max-w-[200px] cursor-pointer ${
                           provider === prov
-                            ? `${isRetro ? 'bg-blue-600 text-white border-blue-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/60 font-bold shadow-md'}`
-                            : `${isRetro ? 'bg-zinc-100 border-zinc-200 hover:bg-zinc-200 text-zinc-700' : 'bg-[#090a0d] border-zinc-800 text-zinc-400 hover:text-white'}`
+                            ? isRetro
+                              ? 'bg-blue-600 text-white border-blue-700'
+                              : isLight
+                                ? 'bg-indigo-50 border-indigo-250 text-indigo-700 font-black shadow-sm'
+                                : 'bg-amber-500/10 text-amber-300 border-amber-500/60 font-bold shadow-md'
+                            : isRetro
+                              ? 'bg-zinc-100 border-zinc-200 hover:bg-zinc-200 text-zinc-700'
+                              : isLight
+                                ? 'bg-zinc-100 border-zinc-300 hover:bg-zinc-200 text-zinc-700 hover:border-zinc-400'
+                                : 'bg-[#090a0d] border-zinc-800 text-zinc-400 hover:text-white'
                         }`}
                       >
                         {prov}
@@ -477,15 +589,17 @@ export default function ReabastecerView({
                     ))}
                   </div>
                 ) : (
-                  <p className={`text-[10px] mb-3 italic ${isRetro ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                  <p className={`text-[10px] mb-3 italic ${isRetro ? 'text-zinc-400' : 'text-zinc-650'}`}>
                     Aún no hay proveedores recientes. Registra uno nuevo para empezar.
                   </p>
                 )}
 
                 <div className="flex items-center justify-between">
                   {provider.trim() && (
-                    <span className={`text-[11px] font-mono font-bold ${isRetro ? 'text-zinc-700' : 'text-zinc-300'} mr-2`}>
-                      Proveedor actual: <strong className="text-amber-500">{provider}</strong>
+                    <span className={`text-[11px] font-mono font-bold mr-2 ${
+                      isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-800-important' : 'text-zinc-300'
+                    }`}>
+                      Proveedor actual: <strong className={isLight ? 'text-amber-700 font-black' : 'text-amber-500'}>{provider}</strong>
                     </span>
                   )}
                   <button
@@ -504,15 +618,23 @@ export default function ReabastecerView({
           {/* STEP 2: SEARCH & ADD ARTICLES */}
           <div className={`p-4 rounded border transition-all ${
             !provider.trim()
-              ? isRetro ? 'bg-zinc-100 border-zinc-200 opacity-50' : 'bg-[#0e0f12] border-[#1a1b20] opacity-40'
-              : isRetro ? 'bg-white border-zinc-300 shadow-sm' : 'bg-[#121316] border-[#1e2025]'
+              ? isRetro 
+                ? 'bg-zinc-100 border-zinc-200 opacity-50' 
+                : isLight
+                  ? 'bg-zinc-50 border-zinc-200 opacity-50'
+                  : 'bg-[#0e0f12] border-[#1a1b20] opacity-40'
+              : isRetro 
+                ? 'bg-white border-zinc-300 shadow-sm' 
+                : isLight
+                  ? 'bg-white border-zinc-250 shadow-sm'
+                  : 'bg-[#121316] border-[#1e2025]'
           }`}>
-            <h3 className={`text-xs font-black uppercase tracking-wider mb-2 flex items-center gap-1.5 ${isRetro ? 'text-zinc-700' : 'text-zinc-300'}`}>
+            <h3 className={`text-xs font-black uppercase tracking-wider mb-2 flex items-center gap-1.5 ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-750' : 'text-zinc-300'}`}>
               <span className={`w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-black ${replenishList.length > 0 ? 'bg-emerald-500' : provider.trim() ? 'bg-blue-500' : 'bg-zinc-400'}`}>
                 {replenishList.length > 0 ? '✓' : '2'}
               </span>
               Añadir Repuestos o Accesorios al Surtido
-              {!provider.trim() && <span className={`ml-1 text-[9px] font-bold ${isRetro ? 'text-zinc-400' : 'text-zinc-600'}`}>— Primero elige un proveedor</span>}
+              {!provider.trim() && <span className={`ml-1 text-[9px] font-bold ${isRetro ? 'text-zinc-400' : 'text-zinc-500'}`}>— Primero elige un proveedor</span>}
             </h3>
             <p className="text-[10.5px] text-zinc-500 mb-3">
               Use el buscador para filtrar su inventario y agréguelos a la tabla para editar sus cantidades masivamente
@@ -545,7 +667,7 @@ export default function ReabastecerView({
               </div>
 
               {/* Vertical divider line */}
-              <div className="w-[1px] h-6 bg-zinc-200 mx-4 shrink-0"></div>
+              <div className={`w-[1px] h-6 mx-4 shrink-0 ${isLight ? 'bg-zinc-300' : 'bg-zinc-700'}`}></div>
 
               {/* Main search text input */}
               <div className="relative flex-1 flex items-center h-full">
@@ -608,16 +730,22 @@ export default function ReabastecerView({
               <div className={`rounded-xl border shadow-xl overflow-hidden mb-4 ${
                 isRetro 
                   ? 'bg-white border-zinc-300 shadow-md divide-y divide-zinc-150' 
-                  : 'bg-[#16171d] border-[#22242a] shadow-black/40 divide-y divide-[#1e2025]'
+                  : isLight 
+                    ? 'bg-white border-zinc-200 shadow-md divide-y divide-zinc-200 text-zinc-800' 
+                    : 'bg-[#16171d] border-[#22242a] shadow-black/40 divide-y divide-[#1e2025]'
               }`}>
                 <div className={`px-4 py-2 text-[10px] uppercase font-black tracking-wider ${
-                  isRetro ? 'bg-zinc-100 text-zinc-500' : 'bg-black/40 text-amber-500 border-b border-zinc-800/25'
+                  isRetro 
+                    ? 'bg-zinc-100 text-zinc-500' 
+                    : isLight 
+                      ? 'bg-zinc-50 text-indigo-700 border-b border-zinc-200' 
+                      : 'bg-black/40 text-amber-500 border-b border-zinc-800/25'
                 }`}>
                   🔍 Coincidencias en Inventario ({filteredProducts.length}) — Use ↑ ↓ y Enter
                 </div>
                 {filteredProducts.length === 0 ? (
                   <div className="p-4 text-center flex flex-col items-center gap-2">
-                    <p className={`text-xs font-bold ${isRetro ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    <p className={`text-xs font-bold ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>
                       Sin coincidencias para "<span className="font-black">{searchTerm}</span>"
                     </p>
                     {!showNewProduct ? (
@@ -627,16 +755,18 @@ export default function ReabastecerView({
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer active:scale-95 ${
                           isRetro
                             ? 'bg-[#000080] text-white hover:bg-blue-900 border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700'
-                            : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                            : isLight 
+                              ? 'bg-indigo-600 hover:bg-indigo-750 text-white-important shadow-sm'
+                              : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
                         }`}
                       >
                         <PackagePlus className="w-3.5 h-3.5" />
                         Agregar como nuevo producto
                       </button>
                     ) : (
-                      <div className={`w-full text-left mt-1 rounded-lg border p-3 space-y-2.5 ${isRetro ? 'bg-[#eaeef3] border-zinc-400' : 'bg-[#1a1b20] border-[#2d2f36]'}`}>
+                      <div className={`w-full text-left mt-1 rounded-lg border p-3 space-y-2.5 ${isRetro ? 'bg-[#eaeef3] border-zinc-400' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-[#1a1b20] border-[#2d2f36]'}`}>
                         <div className="flex items-center justify-between mb-1">
-                          <span className={`text-[10px] font-black uppercase tracking-wide flex items-center gap-1 ${isRetro ? 'text-zinc-700' : 'text-zinc-300'}`}>
+                          <span className={`text-[10px] font-black uppercase tracking-wide flex items-center gap-1 ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-700' : 'text-zinc-300'}`}>
                             <PackagePlus className="w-3 h-3" /> Nuevo Producto
                           </span>
                           <button type="button" onClick={() => setShowNewProduct(false)} className={`p-0.5 rounded ${isRetro ? 'hover:bg-zinc-300 text-zinc-600' : 'hover:bg-white/10 text-zinc-400'}`}><X className="w-3.5 h-3.5" /></button>
@@ -644,66 +774,77 @@ export default function ReabastecerView({
 
                         {/* Nombre */}
                         <div>
-                          <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Nombre *</label>
+                          <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-600' : 'text-zinc-500'}`}>Nombre *</label>
                           <input ref={refNPName} type="text" autoFocus value={newProd.name}
                             onChange={e => handleCaretPreservingChange(e, (val) => setNewProd(p => ({ ...p, name: val })), val => val.toUpperCase())}
                             onKeyDown={npEnter(refNPStock)}
-                            className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-bold ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
+                            className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-bold ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : isLight ? 'bg-white border border-zinc-300 text-zinc-900 focus:border-indigo-500' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
                             placeholder="Nombre del producto..."
                           />
                         </div>
 
                         {/* Código */}
                         <div>
-                          <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Código de Barras</label>
+                          <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-600' : 'text-zinc-500'}`}>Código de Barras</label>
                           <input ref={refNPCode} type="text" value={newProd.code}
                             onChange={e => setNewProd(p => ({ ...p, code: e.target.value }))}
                             onKeyDown={npEnter(refNPStock)}
-                            className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
+                            className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : isLight ? 'bg-white border border-zinc-300 text-zinc-900 focus:border-indigo-500' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
                           />
                         </div>
 
                         {/* Stock + Mínimo */}
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Unidades</label>
+                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-600' : 'text-zinc-500'}`}>Unidades</label>
                             <input ref={refNPStock} type="number" min={0} value={newProd.stock || ''}
                               onChange={e => setNewProd(p => ({ ...p, stock: Math.max(0, parseInt(e.target.value) || 0) }))}
                               onFocus={e => e.target.select()} onKeyDown={npEnter(refNPMin)}
-                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
+                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : isLight ? 'bg-white border border-zinc-300 text-zinc-900 focus:border-indigo-500' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
                               placeholder="0"
                             />
                           </div>
                           <div>
-                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Mínimo</label>
+                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-600' : 'text-zinc-500'}`}>Mínimo</label>
                             <input ref={refNPMin} type="number" min={0} value={newProd.minStock}
                               onChange={e => setNewProd(p => ({ ...p, minStock: Math.max(0, parseInt(e.target.value) || 0) }))}
                               onFocus={e => e.target.select()} onKeyDown={npEnter(refNPCost)}
-                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
+                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : isLight ? 'bg-white border border-zinc-300 text-zinc-900 focus:border-indigo-500' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
                             />
                           </div>
                         </div>
 
-                        {/* Costo + Precio */}
-                        <div className="grid grid-cols-2 gap-2">
+                        {/* Costo + Precio + Mayoreo */}
+                        <div className="grid grid-cols-3 gap-2">
                           <div>
-                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Costo ({config.currencySymbol})</label>
+                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-600' : 'text-zinc-500'}`}>Costo ({config.currencySymbol})</label>
                             <input ref={refNPCost} type="number" min={0} step="0.01" value={newProd.cost === 0 ? '' : newProd.cost}
                               onChange={e => setNewProd(p => ({ ...p, cost: Math.max(0, parseFloat(e.target.value) || 0) }))}
                               onBlur={e => { const v = parseFloat(e.target.value) || 0; e.target.value = v > 0 ? String(v) : ''; setNewProd(p => ({ ...p, cost: v })); }}
                               onFocus={e => e.target.select()} onKeyDown={npEnter(refNPPrice)}
-                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
+                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : isLight ? 'bg-white border border-zinc-300 text-zinc-900 focus:border-indigo-500' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
                               placeholder="0.00"
                             />
                           </div>
                           <div>
-                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Precio ({config.currencySymbol})</label>
+                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-600' : 'text-zinc-500'}`}>Precio ({config.currencySymbol})</label>
                             <input ref={refNPPrice} type="number" min={0} step="0.01" value={newProd.price === 0 ? '' : newProd.price}
                               onChange={e => setNewProd(p => ({ ...p, price: Math.max(0, parseFloat(e.target.value) || 0) }))}
                               onBlur={e => { const v = parseFloat(e.target.value) || 0; e.target.value = v > 0 ? String(v) : ''; setNewProd(p => ({ ...p, price: v })); }}
                               onFocus={e => e.target.select()}
+                              onKeyDown={npEnter(refNPWholesale)}
+                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : isLight ? 'bg-white border border-zinc-300 text-zinc-900 focus:border-indigo-500' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
+                              placeholder="0.00"
+                            />
+                          </div>
+                          <div>
+                            <label className={`text-[9px] uppercase font-bold block mb-0.5 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-600' : 'text-zinc-500'}`}>Mayoreo ({config.currencySymbol})</label>
+                            <input ref={refNPWholesale} type="number" min={0} step="0.01" value={newProd.wholesalePrice === 0 ? '' : newProd.wholesalePrice}
+                              onChange={e => setNewProd(p => ({ ...p, wholesalePrice: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                              onBlur={e => { const v = parseFloat(e.target.value) || 0; e.target.value = v > 0 ? String(v) : ''; setNewProd(p => ({ ...p, wholesalePrice: v })); }}
+                              onFocus={e => e.target.select()}
                               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveNewProduct(); } }}
-                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
+                              className={`w-full text-xs px-2.5 py-1.5 rounded focus:outline-none font-mono ${isRetro ? 'bg-white border border-zinc-400 text-zinc-900' : isLight ? 'bg-white border border-zinc-300 text-zinc-900 focus:border-indigo-500' : 'bg-[#111215] border border-[#2d2f36] text-zinc-100 focus:border-amber-500'}`}
                               placeholder="0.00"
                             />
                           </div>
@@ -711,7 +852,13 @@ export default function ReabastecerView({
 
                         {Number(newProd.price) > 0 && Number(newProd.cost) > 0 && Number(newProd.price) < Number(newProd.cost) && (
                           <p className="text-[10px] font-bold text-red-500 bg-red-500/10 border border-red-500/20 rounded px-2 py-1.5">
-                            🚫 El precio (${Number(newProd.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) es menor que el costo (${Number(newProd.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Estarías vendiendo a pérdida.
+                            🚫 El precio de venta (${Number(newProd.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) es menor que el costo (${Number(newProd.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Estarías vendiendo a pérdida.
+                          </p>
+                        )}
+
+                        {Number(newProd.wholesalePrice) > 0 && Number(newProd.cost) > 0 && Number(newProd.wholesalePrice) < Number(newProd.cost) && (
+                          <p className="text-[10px] font-bold text-red-500 bg-red-500/10 border border-red-500/20 rounded px-2 py-1.5">
+                            🚫 El precio de mayoreo (${Number(newProd.wholesalePrice).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) es menor que el costo (${Number(newProd.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Estarías vendiendo a pérdida.
                           </p>
                         )}
 
@@ -727,7 +874,9 @@ export default function ReabastecerView({
                           className={`w-full py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer active:scale-[0.98] ${
                             isRetro
                               ? 'bg-[#000080] text-white hover:bg-blue-900 border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700'
-                              : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                              : isLight 
+                                ? 'bg-indigo-650 hover:bg-indigo-750 text-white-important font-bold shadow-sm'
+                                : 'bg-emerald-500 hover:bg-emerald-600 text-white'
                           }`}
                         >
                           ✓ Guardar y agregar al reabasto
@@ -736,7 +885,7 @@ export default function ReabastecerView({
                     )}
                   </div>
                 ) : (
-                  <div className={`max-h-80 overflow-y-auto ${isRetro ? 'divide-y divide-zinc-150' : 'divide-y divide-[#1e2025]'}`}>
+                  <div className={`max-h-80 overflow-y-auto ${isRetro ? 'divide-y divide-zinc-150' : isLight ? 'divide-y divide-zinc-200' : 'divide-y divide-[#1e2025]'}`}>
                     {filteredProducts.map((item, idx) => {
                       const isSelected = idx === inlineSelectedIndex;
                       return (
@@ -748,25 +897,50 @@ export default function ReabastecerView({
                             isSelected
                               ? isRetro
                                 ? 'bg-blue-100 text-blue-950 border-l-4 border-blue-600 shadow-inner'
-                                : 'bg-amber-500/20 text-white border-l-4 border-amber-500 shadow-inner'
+                                : isLight 
+                                  ? 'bg-indigo-50 text-indigo-950 border-l-4 border-indigo-500 shadow-inner'
+                                  : 'bg-amber-500/20 text-white border-l-4 border-amber-500 shadow-inner'
                               : isRetro 
                                 ? 'hover:bg-blue-50 text-zinc-900 border-l-4 border-transparent' 
-                                : 'hover:bg-amber-500/5 text-zinc-200 border-l-4 border-transparent'
+                                : isLight 
+                                  ? 'hover:bg-zinc-100 text-zinc-700 border-l-4 border-transparent'
+                                  : 'hover:bg-amber-500/5 text-zinc-200 border-l-4 border-transparent'
                           }`}
                         >
-                          <div className="leading-tight text-left">
-                            <span className={`text-xs font-black block uppercase ${
-                              isSelected
-                                ? isRetro ? 'text-blue-900' : 'text-amber-300'
-                                : isRetro ? 'text-zinc-900' : 'text-zinc-300'
-                            }`}>
-                              {item.name}
-                            </span>
-                            <span className="text-[10px] font-mono text-zinc-500 uppercase mt-0.5 block">
-                              Marca: <strong className={isRetro ? 'text-zinc-700' : 'text-zinc-300'}>{item.brand || 'S/M'}</strong> | 
-                              Código: <strong className={`${isRetro ? 'text-zinc-700' : 'text-zinc-300'} font-bold`}>{item.code || 'S/C'}</strong> | 
-                              Stock: <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-extrabold ${item.stock > 0 ? 'text-emerald-500 bg-emerald-500/10' : 'text-red-500 bg-red-500/10'}`}>{item.stock} pz</span>
-                            </span>
+                          <div className="flex items-center gap-3">
+                            <div className="flex-shrink-0">
+                              <PosItemThumbnail
+                                imageUrl={item.imageUrl}
+                                name={item.name}
+                                code={item.code}
+                                category={item.category}
+                                price={item.price}
+                                currencySymbol={config.currencySymbol}
+                                size={32}
+                              />
+                            </div>
+                            <div className="leading-tight text-left min-w-0">
+                              <span className={`text-xs font-black block uppercase truncate max-w-[320px] ${
+                                isSelected
+                                  ? isRetro ? 'text-blue-900' : isLight ? 'text-indigo-900' : 'text-amber-300'
+                                  : isRetro ? 'text-zinc-900' : isLight ? 'text-zinc-800' : 'text-zinc-300'
+                              }`}>
+                                {item.name}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-500 uppercase mt-0.5 block truncate">
+                                Marca: <strong className={isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-700' : 'text-zinc-300'}>{item.brand || 'S/M'}</strong> | 
+                                Código: <strong className={`${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-700' : 'text-zinc-300'} font-bold`}>{item.code || 'S/C'}</strong> | 
+                                Stock: <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-extrabold ${
+                                  item.stock > 0 
+                                    ? isLight 
+                                      ? 'text-emerald-700 bg-emerald-100/70 border border-emerald-200' 
+                                      : 'text-emerald-500 bg-emerald-500/10' 
+                                    : isLight 
+                                      ? 'text-rose-700 bg-rose-100/70 border border-rose-200' 
+                                      : 'text-red-500 bg-red-500/10'
+                                }`}>{item.stock} pz</span>
+                              </span>
+                            </div>
                           </div>
                           <button
                             type="button"
@@ -774,10 +948,14 @@ export default function ReabastecerView({
                               isSelected
                                 ? isRetro
                                   ? 'bg-blue-600 text-white border border-blue-700 scale-105'
-                                  : 'bg-amber-500 text-zinc-950 border border-amber-600 scale-105'
+                                  : isLight 
+                                    ? 'bg-indigo-600 text-white-important border border-indigo-750 scale-105'
+                                    : 'bg-amber-500 text-zinc-950 border border-amber-600 scale-105'
                                 : isRetro 
                                   ? 'bg-blue-100 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white' 
-                                  : 'bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-500 hover:text-zinc-950'
+                                  : isLight 
+                                    ? 'bg-zinc-100 border border-zinc-300 text-zinc-700 hover:bg-indigo-650 hover:text-white-important'
+                                    : 'bg-amber-500/10 border border-amber-500/25 text-amber-400 hover:bg-amber-50 hover:text-zinc-950'
                             }`}
                           >
                             <Plus className="w-4 h-4 text-current stroke-[3px]" />
@@ -792,8 +970,14 @@ export default function ReabastecerView({
           </div>
 
           {/* STEP 3: REPLENISH TABLES GRID */}
-          <div className={`p-4 rounded border ${isRetro ? 'bg-white border-zinc-300 shadow-sm' : 'bg-[#121316] border-[#1e2025]'}`}>
-            <h3 className={`text-xs font-black uppercase tracking-wider mb-3 flex items-center gap-1.5 ${isRetro ? 'text-zinc-700' : 'text-zinc-300'}`}>
+          <div className={`p-4 rounded border ${
+            isRetro 
+              ? 'bg-white border-zinc-300 shadow-sm' 
+              : isLight 
+                ? 'bg-white border-zinc-200 shadow-sm' 
+                : 'bg-[#121316] border-[#1e2025]'
+          }`}>
+            <h3 className={`text-xs font-black uppercase tracking-wider mb-3 flex items-center gap-1.5 ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-750' : 'text-zinc-300'}`}>
               <span className="w-4 h-4 rounded-full bg-blue-500 text-white flex items-center justify-center text-[9px] font-black">3</span>
               Surtido actual del Pedido ({replenishList.length} artículos)
             </h3>
@@ -808,86 +992,170 @@ export default function ReabastecerView({
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[500px]">
                   <thead>
-                    <tr className={`text-[10px] uppercase font-black tracking-wider border-b ${isRetro ? 'border-zinc-300 text-zinc-500 bg-zinc-100' : 'border-zinc-800 text-zinc-400 bg-black/30'}`}>
+                    <tr className={`text-[10px] uppercase font-black tracking-wider border-b ${
+                      isRetro 
+                        ? 'border-zinc-300 text-zinc-500 bg-zinc-100' 
+                        : isLight 
+                          ? 'border-zinc-200 text-zinc-500 bg-zinc-50' 
+                          : 'border-zinc-800 text-zinc-400 bg-black/30'
+                    }`}>
                       <th className="py-2 px-3">Artículo</th>
                       <th className="py-2 px-2 text-center">Stock Actual</th>
                       <th className="py-2 px-2 text-center w-24">Nueva Cantidad</th>
                       <th className="py-2 px-2 text-center">Stock Final</th>
-                      <th className="py-2 px-2 text-center w-28">Costo Compra Unitario</th>
+                      <th className="py-2 px-2 text-center w-24">Costo Compra</th>
+                      <th className="py-2 px-2 text-center w-28">Nuevo Costo Compra</th>
+                      <th className="py-2 px-2 text-center w-28">Nuevo P. Venta</th>
+                      <th className="py-2 px-2 text-center w-28">Nuevo P. Mayoreo</th>
                       <th className="py-2 px-2 text-right">Subtotal</th>
                       <th className="py-2 px-1 text-center w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-700">
-                    {replenishList.map((item) => (
-                      <tr 
-                        key={item.id} 
-                        className={`text-xs ${isRetro ? 'hover:bg-zinc-50 text-zinc-800' : 'hover:bg-[#15161b] text-zinc-300'}`}
-                      >
-                        <td className="py-3 px-3 leading-tight font-sans">
-                          <span className="font-extrabold block text-amber-550 truncate max-w-[240px]">{item.name}</span>
-                          <span className="text-[9px] font-mono text-zinc-500 uppercase">{item.brand} | {item.code}</span>
-                        </td>
-                        <td className="py-3 px-2 text-center font-mono font-bold">
-                          {item.currentStock}
-                        </td>
-                        <td className="py-2 px-2 text-center">
-                          <input
-                            type="number"
-                            min="1"
-                            value={item.addedQty}
-                            onChange={(e) => handleUpdateQty(item.id, parseInt(e.target.value, 10))}
-                            className={`w-full text-center font-bold px-1.5 py-1 text-xs rounded border focus:outline-none focus:ring-1 ${
-                              isRetro 
-                                ? 'bg-zinc-50 border-zinc-300 text-blue-900 focus:ring-blue-500' 
-                                : 'bg-[#090a0d] border-zinc-800 text-amber-300 focus:ring-amber-500'
-                            }`}
-                          />
-                        </td>
-                        <td className="py-3 px-2 text-center">
-                          <span className="font-sans font-extrabold text-[12px] text-emerald-500">
-                            {item.currentStock + item.addedQty}
-                          </span>
-                        </td>
-                        <td className="py-2 px-2 text-center">
-                          <div className="relative">
-                            <span className="absolute left-2 top-1.5 text-zinc-500 font-mono text-[10px]">{config.currencySymbol}</span>
+                    {replenishList.map((item) => {
+                      const isStockControlled = item.manageStock !== false;
+                      const currentStock = item.currentStock;
+                      const isAgotado = isStockControlled && currentStock === 0;
+                      return (
+                        <tr 
+                          key={item.id} 
+                          className={`text-xs ${
+                            isRetro 
+                              ? 'hover:bg-zinc-50 text-zinc-800' 
+                              : isLight 
+                                ? 'hover:bg-zinc-50 text-zinc-800' 
+                                : 'hover:bg-[#15161b] text-zinc-300'
+                          }`}
+                        >
+                          <td className="py-3 px-3 leading-tight font-sans">
+                            <div className="flex items-center gap-3.5">
+                              <div className="flex-shrink-0">
+                                <PosItemThumbnail
+                                  imageUrl={item.imageUrl}
+                                  name={item.name}
+                                  code={item.code}
+                                  category={item.category}
+                                  price={item.price}
+                                  currencySymbol={config.currencySymbol}
+                                  size={32}
+                                />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span className={`font-extrabold block truncate max-w-[240px] ${isRetro ? 'text-blue-900 font-black' : isLight ? 'text-zinc-800-important font-black' : 'text-amber-500'}`}>{item.name}</span>
+                                <span className="text-[9.5px] font-mono text-zinc-500 uppercase block truncate">
+                                  {item.brand || 'S/M'} | {item.code || 'S/C'}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className={`py-3 px-2 text-center font-mono font-bold ${isLight ? 'text-zinc-850' : 'text-zinc-300'}`}>
+                            {item.currentStock}
+                          </td>
+                          <td className="py-2 px-2 text-center">
                             <input
                               type="number"
-                              min="0"
-                              step="0.01"
-                              value={item.cost}
-                              onChange={(e) => handleUpdateCost(item.id, parseFloat(e.target.value))}
-                              className={`w-full text-right pr-2 pl-4 py-1 text-xs font-mono rounded border focus:outline-none focus:ring-1 ${
+                              min="1"
+                              value={item.addedQty}
+                              onChange={(e) => handleUpdateQty(item.id, parseInt(e.target.value, 10))}
+                              className={`w-full text-center font-bold px-1.5 py-1 text-xs rounded border focus:outline-none focus:ring-1 ${
                                 isRetro 
-                                  ? 'bg-zinc-50 border-zinc-300 text-zinc-950 focus:ring-blue-500' 
-                                  : 'bg-[#090a0d] border-zinc-800 text-white focus:ring-amber-500'
+                                  ? 'bg-zinc-50 border-zinc-300 text-blue-900 focus:ring-blue-500' 
+                                  : isLight 
+                                    ? 'bg-zinc-50 border-zinc-300 text-zinc-800 focus:ring-indigo-500' 
+                                    : 'bg-[#090a0d] border-zinc-800 text-amber-300 focus:ring-amber-500'
                               }`}
                             />
-                          </div>
-                          {item.isSuggested && (
-                            <div className={`text-[8.5px] leading-tight font-extrabold mt-0.5 select-none text-left pl-1 truncate max-w-[110px] ${
-                              isRetro ? 'text-emerald-700' : 'text-emerald-400'
-                            }`} title={`Sugerido por historial de ${item.suggestedProvider}`}>
-                              💡 Historial: {item.suggestedProvider}
+                          </td>
+                          <td className="py-3 px-2 text-center">
+                            <span className={`font-sans font-extrabold text-[12px] ${isLight ? 'text-emerald-700' : 'text-emerald-500'}`}>
+                              {item.currentStock + item.addedQty}
+                            </span>
+                          </td>
+                          <td className={`py-3 px-2 text-center font-mono font-bold ${isLight ? 'text-zinc-650' : 'text-zinc-400'}`}>
+                            {config.currencySymbol || '$'}{(item.originalCost ?? item.cost ?? 0).toFixed(2)}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <div className="relative">
+                              <span className="absolute left-2 top-1.5 text-zinc-500 font-mono text-[10px]">{config.currencySymbol}</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.cost}
+                                onChange={(e) => handleUpdateCost(item.id, parseFloat(e.target.value) || 0)}
+                                className={`w-full text-right pr-2 pl-4 py-1 text-xs font-mono rounded border focus:outline-none focus:ring-1 ${
+                                  isRetro 
+                                    ? 'bg-zinc-50 border-zinc-300 text-zinc-950 focus:ring-blue-500' 
+                                    : isLight 
+                                      ? 'bg-zinc-50 border-zinc-300 text-zinc-950 focus:ring-indigo-500' 
+                                      : 'bg-[#090a0d] border-zinc-800 text-white focus:ring-amber-500'
+                                }`}
+                              />
                             </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-2 text-right font-mono font-bold text-zinc-400">
-                          {config.currencySymbol}{(item.addedQty * item.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-3 px-1 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(item.id)}
-                            className="p-1 text-zinc-500 hover:text-red-500 transition-colors cursor-pointer rounded"
-                            title="Remover de la carga masiva"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                            {item.isSuggested && (
+                              <div className={`text-[8.5px] leading-tight font-extrabold mt-0.5 select-none text-left pl-1 truncate max-w-[110px] ${
+                                isRetro ? 'text-emerald-700' : isLight ? 'text-emerald-700 font-bold' : 'text-emerald-400'
+                              }`} title={`Sugerido por historial de ${item.suggestedProvider}`}>
+                                💡 Historial: {item.suggestedProvider}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <div className="relative">
+                              <span className="absolute left-2 top-1.5 text-zinc-500 font-mono text-[10px]">{config.currencySymbol}</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.price === undefined || isNaN(Number(item.price)) ? '' : item.price}
+                                onChange={(e) => handleUpdatePrice(item.id, parseFloat(e.target.value) || 0)}
+                                placeholder="0.00"
+                                className={`w-full text-right pr-2 pl-4 py-1 text-xs font-mono rounded border focus:outline-none focus:ring-1 ${
+                                  isRetro 
+                                    ? 'bg-zinc-50 border-zinc-300 text-zinc-950 focus:ring-blue-500' 
+                                    : isLight 
+                                      ? 'bg-zinc-50 border-zinc-300 text-zinc-950 focus:ring-indigo-500' 
+                                      : 'bg-[#090a0d] border-zinc-800 text-white focus:ring-amber-500'
+                                }`}
+                              />
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <div className="relative">
+                              <span className="absolute left-2 top-1.5 text-zinc-500 font-mono text-[10px]">{config.currencySymbol}</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.wholesalePrice === undefined || isNaN(Number(item.wholesalePrice)) ? '' : item.wholesalePrice}
+                                onChange={(e) => handleUpdateWholesalePrice(item.id, parseFloat(e.target.value) || 0)}
+                                placeholder="0.00"
+                                className={`w-full text-right pr-2 pl-4 py-1 text-xs font-mono rounded border focus:outline-none focus:ring-1 ${
+                                  isRetro 
+                                    ? 'bg-zinc-50 border-zinc-300 text-zinc-950 focus:ring-blue-500' 
+                                    : isLight 
+                                      ? 'bg-zinc-50 border-zinc-300 text-zinc-950 focus:ring-indigo-500' 
+                                      : 'bg-[#090a0d] border-zinc-800 text-white focus:ring-amber-500'
+                                }`}
+                              />
+                            </div>
+                          </td>
+                          <td className={`py-3 px-2 text-right font-mono font-bold ${isLight ? 'text-zinc-800' : 'text-zinc-400'}`}>
+                            {config.currencySymbol}{(item.addedQty * item.cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3 px-1 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveItem(item.id)}
+                              className="p-1 text-zinc-500 hover:text-red-500 transition-colors cursor-pointer rounded"
+                              title="Remover de la carga masiva"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -897,25 +1165,35 @@ export default function ReabastecerView({
 
         {/* COL 3: SUMMARY & FINALIZE PROCESS */}
         <div className="space-y-6">
-          <form onSubmit={handleProcessReplenish} className={`p-4 rounded border ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-900 shadow-sm' : 'bg-[#121316] border-[#1e2025]'}`}>
-            <h3 className={`text-xs font-black uppercase tracking-widest border-b pb-2 mb-3 ${isRetro ? 'text-blue-900 border-[#808080]' : 'text-zinc-300 border-zinc-800'}`}>
+          <form onSubmit={handleProcessReplenish} className={`p-4 rounded border ${
+            isRetro 
+              ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-900 shadow-sm' 
+              : isLight 
+                ? 'bg-white border-zinc-200 text-zinc-800 shadow-sm' 
+                : 'bg-[#121316] border-[#1e2025]'
+          }`}>
+            <h3 className={`text-xs font-black uppercase tracking-widest border-b pb-2 mb-3 ${
+              isRetro ? 'text-blue-900 border-[#808080]' : isLight ? 'text-indigo-750 border-zinc-200' : 'text-zinc-300 border-zinc-800'
+            }`}>
               Resumen del Reabastecimiento
             </h3>
 
             <div className="space-y-3 mt-1.5">
               <div className="flex justify-between text-xs">
-                <span className={isRetro ? 'text-zinc-800 font-bold' : 'text-zinc-500'}>Proveedor:</span>
-                <span className={`font-extrabold uppercase text-right max-w-[150px] truncate block ${isRetro ? 'text-blue-900 font-black' : 'text-amber-455 text-white'}`}>
+                <span className={isRetro ? 'text-zinc-800 font-bold' : isLight ? 'text-zinc-650' : 'text-zinc-500'}>Proveedor:</span>
+                <span className={`font-extrabold uppercase text-right max-w-[150px] truncate block ${
+                  isRetro ? 'text-blue-900 font-black' : isLight ? 'text-amber-700 font-black' : 'text-amber-455 text-white'
+                }`}>
                   {provider || 'POR ASIGNAR'}
                 </span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className={isRetro ? 'text-zinc-800 font-bold' : 'text-zinc-500'}>Artículos únicos:</span>
-                <span className={`font-bold ${isRetro ? 'text-zinc-900 font-black' : 'text-white'}`}>{replenishList.length}</span>
+                <span className={isRetro ? 'text-zinc-800 font-bold' : isLight ? 'text-zinc-650' : 'text-zinc-500'}>Artículos únicos:</span>
+                <span className={`font-bold ${isRetro ? 'text-zinc-900 font-black' : isLight ? 'text-zinc-850' : 'text-white'}`}>{replenishList.length}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className={isRetro ? 'text-zinc-800 font-bold' : 'text-zinc-500'}>Unidades Totales:</span>
-                <span className={`font-mono font-bold ${isRetro ? 'text-blue-720 font-extrabold' : 'text-blue-400'}`}>{totalQtyDraft} px</span>
+                <span className={isRetro ? 'text-zinc-800 font-bold' : isLight ? 'text-zinc-650' : 'text-zinc-500'}>Unidades Totales:</span>
+                <span className={`font-mono font-bold ${isRetro ? 'text-blue-720 font-extrabold' : isLight ? 'text-indigo-700 font-bold' : 'text-blue-400'}`}>{totalQtyDraft} px</span>
               </div>
 
               {/* Expense connection toggle */}
@@ -951,7 +1229,7 @@ export default function ReabastecerView({
 
               {/* Notes block */}
               <div>
-                <label className={`text-[10px] font-bold block mb-1 ${isRetro ? 'text-zinc-800' : 'text-zinc-400'}`}>Notas del Cargamento / Referencia de Factura</label>
+                <label className={`text-[10px] font-bold block mb-1 ${isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>Notas del Cargamento / Referencia de Factura</label>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
@@ -959,19 +1237,21 @@ export default function ReabastecerView({
                   className={`w-full rounded p-2 text-xs h-16 resize-none focus:outline-none focus:ring-1 ${
                     isRetro 
                       ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-950 focus:ring-blue-500' 
-                      : 'bg-[#08090b] border border-zinc-700 text-white focus:ring-amber-500'
+                      : isLight 
+                        ? 'bg-zinc-50 border border-zinc-300 text-zinc-800 focus:ring-indigo-500' 
+                        : 'bg-[#08090b] border border-zinc-700 text-white focus:ring-amber-500'
                   }`}
                 />
               </div>
 
-              <div className={`border-t pt-3 my-2 ${isRetro ? 'border-[#808080]' : 'border-zinc-700'}`}>
+              <div className={`border-t pt-3 my-2 ${isRetro ? 'border-[#808080]' : isLight ? 'border-zinc-200' : 'border-zinc-700'}`}>
                 <div className="flex items-center gap-1.5 mb-3">
                   <span className={`w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-black shrink-0 ${replenishList.length > 0 && provider.trim() ? 'bg-blue-500' : 'bg-zinc-400'}`}>3</span>
-                  <span className={`text-[10px] font-black uppercase tracking-wide ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Procesar Entrada</span>
+                  <span className={`text-[10px] font-black uppercase tracking-wide ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-700' : 'text-zinc-500'}`}>Procesar Entrada</span>
                 </div>
                 <div className="flex justify-between items-center mb-4">
-                  <span className={`text-xs uppercase font-black tracking-wider ${isRetro ? 'text-zinc-600' : 'text-zinc-500'}`}>Costo de Inversión:</span>
-                  <span className={`text-lg font-mono font-black ${isRetro ? 'text-rose-700' : 'text-rose-500'}`}>
+                  <span className={`text-xs uppercase font-black tracking-wider ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-650' : 'text-zinc-500'}`}>Costo de Inversión:</span>
+                  <span className={`text-lg font-mono font-black ${isRetro ? 'text-rose-700' : isLight ? 'text-rose-700' : 'text-rose-500'}`}>
                     {config.currencySymbol}{totalCostDraft.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
@@ -983,8 +1263,12 @@ export default function ReabastecerView({
                   className={`w-full py-2.5 text-xs uppercase font-black tracking-widest rounded flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] ${
                     replenishList.length === 0 || !provider.trim()
                       ? 'bg-zinc-600/50 text-zinc-500 cursor-not-allowed border border-transparent'
-                      : `${isRetro ? 'bg-[#113a7c] text-white hover:bg-blue-800 border-2 border-t-[#1d5fb9] border-l-[#1d5fb9] border-r-[#081e42] border-b-[#081e42]' : 'bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold'} cursor-pointer`
-                  }`}
+                      : isRetro 
+                        ? 'bg-[#113a7c] text-white hover:bg-blue-800 border-2 border-t-[#1d5fb9] border-l-[#1d5fb9] border-r-[#081e42] border-b-[#081e42]' 
+                        : isLight 
+                          ? 'bg-indigo-650 hover:bg-indigo-750 text-white-important font-bold' 
+                          : 'bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold'
+                  } cursor-pointer`}
                 >
                   <Check className="w-4 h-4 text-current" />
                   <span>Procesar Entrada Masiva</span>
@@ -994,8 +1278,14 @@ export default function ReabastecerView({
           </form>
 
           {/* HISTORIAL RECIBIDO RECIENTE */}
-          <div className={`p-4 rounded border ${isRetro ? 'bg-white border-zinc-300 shadow-sm' : 'bg-[#121316] border-[#1e2025]'}`}>
-            <h3 className={`text-xs font-black uppercase tracking-wider mb-2 flex items-center gap-1 opacity-80 ${isRetro ? 'text-zinc-700' : 'text-zinc-300'}`}>
+          <div className={`p-4 rounded border ${
+            isRetro 
+              ? 'bg-white border-zinc-300 shadow-sm' 
+              : isLight 
+                ? 'bg-white border-zinc-200 shadow-sm' 
+                : 'bg-[#121316] border-[#1e2025]'
+          }`}>
+            <h3 className={`text-xs font-black uppercase tracking-wider mb-2 flex items-center gap-1 opacity-80 ${isRetro ? 'text-zinc-700' : isLight ? 'text-zinc-750' : 'text-zinc-300'}`}>
               <Receipt className="w-4 h-4" /> Historial de Reabastecimientos
             </h3>
             <p className="text-[9.5px] text-zinc-500 mb-3">
@@ -1010,20 +1300,32 @@ export default function ReabastecerView({
                   <div 
                     key={log.id} 
                     className={`p-2.5 rounded border text-xs leading-normal ${
-                      isRetro ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-black/30 border-zinc-700 text-zinc-300'
+                      isRetro 
+                        ? 'bg-zinc-50 border-zinc-200 text-zinc-800' 
+                        : isLight 
+                          ? 'bg-zinc-50 border-zinc-200 text-zinc-850' 
+                          : 'bg-black/30 border-zinc-700 text-zinc-300'
                     }`}
                   >
-                    <div className="flex items-center justify-between font-mono font-bold text-[9.5px] text-zinc-500 mb-1 border-b border-zinc-800/20 pb-1">
+                    <div className={`flex items-center justify-between font-mono font-bold text-[9.5px] text-zinc-500 mb-1 border-b pb-1 ${
+                      isLight ? 'border-zinc-200' : 'border-zinc-800/20'
+                    }`}>
                       <span>{log.id}</span>
                       <span>{new Date(log.date).toLocaleDateString('es-MX', { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
 
-                    <div className="font-extrabold uppercase text-amber-500 text-[10.5px]">
+                    <div className={`font-extrabold uppercase text-[10.5px] ${isLight ? 'text-amber-700 font-black' : 'text-amber-500'}`}>
                       {log.provider}
                     </div>
 
                     {log.note && (
-                      <p className={`p-1.5 rounded my-1 font-sans text-[10px] italic ${isRetro ? 'bg-white text-zinc-500' : 'bg-[#1b1c21] text-zinc-400'}`}>
+                      <p className={`p-1.5 rounded my-1 font-sans text-[10px] italic ${
+                        isRetro 
+                          ? 'bg-white text-zinc-500' 
+                          : isLight 
+                            ? 'bg-zinc-100 text-zinc-650 border border-zinc-200' 
+                            : 'bg-[#1b1c21] text-zinc-400'
+                      }`}>
                         "{log.note}"
                       </p>
                     )}
@@ -1035,7 +1337,7 @@ export default function ReabastecerView({
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Monto Invertido:</span>
-                        <span className="font-bold font-mono text-rose-400">{config.currencySymbol}{log.totalCost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span className={`font-bold font-mono ${isLight ? 'text-rose-700 font-extrabold' : 'text-rose-400'}`}>{config.currencySymbol}{log.totalCost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     </div>
                   </div>
@@ -1050,33 +1352,59 @@ export default function ReabastecerView({
 
       {showConfirmReplenish && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
-          <div className={`${isRetro ? 'bg-[#dfdfdf] border-2 border-white rounded shadow-2xl text-zinc-900' : 'bg-[#121316] border border-[#1e2025] rounded-xl text-zinc-100'} max-w-md w-full overflow-hidden animate-scaleUp`}>
+          <div className={`${
+            isRetro 
+              ? 'bg-[#dfdfdf] border-2 border-white rounded shadow-2xl text-zinc-900' 
+              : isLight 
+                ? 'bg-white border border-zinc-200 rounded-xl text-zinc-800 shadow-2xl' 
+                : 'bg-[#121316] border border-[#1e2025] rounded-xl text-zinc-100'
+          } max-w-md w-full overflow-hidden animate-scaleUp`}>
             <div className="p-5 flex flex-col items-center text-center space-y-4">
-              <div className={`p-3 rounded-full ${isRetro ? 'bg-blue-100 border border-blue-300 text-blue-700' : 'bg-[#24252a] border border-[#3f424b] text-[#f59e0b]'}`}>
+              <div className={`p-3 rounded-full ${
+                isRetro 
+                  ? 'bg-blue-100 border border-blue-300 text-blue-700' 
+                  : isLight 
+                    ? 'bg-indigo-50 border border-indigo-200 text-indigo-750' 
+                    : 'bg-[#24252a] border border-[#3f424b] text-[#f59e0b]'
+              }`}>
                 <Truck className="w-8 h-8" />
               </div>
               <div className="space-y-1.5">
-                <h4 className={`font-display font-black uppercase tracking-widest text-sm ${isRetro ? 'text-[#113a7c]' : 'text-[#f59e0b]'}`}>¿Registrar Entrada Masiva?</h4>
-                <p className={`text-xs ${isRetro ? 'text-zinc-800' : 'text-zinc-300'} leading-relaxed`}>
-                  Esto ingresará un total de <strong className={isRetro ? 'text-blue-700 font-extrabold' : 'text-amber-500 font-extrabold'}>{totalQtyDraft} piezas</strong> para <strong className={isRetro ? 'text-blue-700 font-extrabold' : 'text-amber-500 font-extrabold'}>{replenishList.length} productos</strong> al inventario del taller.
+                <h4 className={`font-display font-black uppercase tracking-widest text-sm ${
+                  isRetro ? 'text-[#113a7c]' : isLight ? 'text-indigo-750' : 'text-[#f59e0b]'
+                }`}>¿Registrar Entrada Masiva?</h4>
+                <p className={`text-xs leading-relaxed ${isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-650' : 'text-zinc-300'}`}>
+                  Esto ingresará un total de <strong className={isRetro ? 'text-blue-700 font-extrabold' : isLight ? 'text-indigo-700 font-bold' : 'text-amber-500 font-extrabold'}>{totalQtyDraft} piezas</strong> para <strong className={isRetro ? 'text-blue-700 font-extrabold' : isLight ? 'text-indigo-700 font-bold' : 'text-amber-500 font-extrabold'}>{replenishList.length} productos</strong> al inventario del taller.
                 </p>
                 {autoRegisterExpense && onAddExpense && (
                   <p className={`p-2 rounded text-[11px] font-medium border leading-tight ${
-                    isRetro ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-emerald-950/15 border-emerald-900/40 text-emerald-300'
+                    isRetro 
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800' 
+                      : isLight 
+                        ? 'bg-emerald-50 border-emerald-250 text-emerald-800' 
+                        : 'bg-emerald-950/15 border-emerald-900/40 text-emerald-300'
                   }`}>
                     <strong>Nota:</strong> Se registrará de forma automática un <strong>egreso de caja por {config.currencySymbol}{totalCostDraft.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> del proveedor "{provider.toUpperCase()}".
                   </p>
                 )}
               </div>
             </div>
-            <div className={`p-4 border-t flex items-center justify-end gap-2.5 ${isRetro ? 'bg-[#dfdfdf] border-zinc-400' : 'bg-[#0f1013] border-[#1a1c22]'}`}>
+            <div className={`p-4 border-t flex items-center justify-end gap-2.5 ${
+              isRetro 
+                ? 'bg-[#dfdfdf] border-zinc-400' 
+                : isLight 
+                  ? 'bg-zinc-50 border-zinc-200' 
+                  : 'bg-[#0f1013] border-[#1a1c22]'
+            }`}>
               <button
                 type="button"
                 onClick={() => setShowConfirmReplenish(false)}
                 className={`px-3.5 py-1.5 text-xs rounded transition-colors ${
                   isRetro 
                     ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080] text-black font-semibold' 
-                    : 'text-gray-400 hover:text-white bg-transparent border border-zinc-800'
+                    : isLight 
+                      ? 'text-zinc-550 hover:text-zinc-800 bg-transparent border border-zinc-300' 
+                      : 'text-gray-400 hover:text-white bg-transparent border border-zinc-800'
                 }`}
               >
                 Cancelar
@@ -1087,10 +1415,195 @@ export default function ReabastecerView({
                 className={`px-4 py-1.5 text-xs font-black rounded uppercase tracking-wider transition-colors ${
                   isRetro 
                     ? 'bg-[#113a7c] text-white hover:bg-blue-800 border-2 border-t-[#216cd3] border-l-[#216cd3]' 
-                    : 'bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold'
+                    : isLight 
+                      ? 'bg-indigo-650 hover:bg-indigo-750 text-white-important font-bold shadow-sm' 
+                      : 'bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold'
                 }`}
               >
                 Sí, Confirmar Entrada
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingAddItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+          <div className={`${
+            isRetro 
+              ? 'bg-[#dfdfdf] border-2 border-white rounded shadow-2xl text-zinc-900' 
+              : isLight 
+                ? 'bg-white border border-zinc-200 rounded-xl text-zinc-800 shadow-2xl' 
+                : 'bg-[#121316] border border-[#1e2025] rounded-xl text-zinc-100'
+          } max-w-md w-full overflow-hidden animate-scaleUp`}>
+            <div className="p-5 space-y-4">
+              <div className={`flex items-center justify-between pb-2 border-b ${
+                isLight ? 'border-zinc-200' : 'border-zinc-800/60'
+              }`}>
+                <h4 className={`font-display font-black uppercase tracking-widest text-sm ${
+                  isRetro ? 'text-[#113a7c]' : isLight ? 'text-indigo-750' : 'text-amber-500'
+                } flex items-center gap-1.5`}>
+                  <PackagePlus className="w-5 h-5 text-current" /> AGREGAR A ABASTO
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setPendingAddItem(null)}
+                  className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className={`p-3 rounded border text-xs space-y-1.5 ${
+                isRetro 
+                  ? 'bg-white border-zinc-300' 
+                  : isLight 
+                    ? 'bg-zinc-50 border-zinc-200' 
+                    : 'bg-[#181a1f] border-zinc-800'
+              }`}>
+                <div>
+                  <span className="text-zinc-500 font-bold">Producto:</span>{' '}
+                  <span className="font-extrabold uppercase">{pendingAddItem.name}</span>
+                </div>
+                {pendingAddItem.code && (
+                  <div>
+                    <span className="text-zinc-500 font-bold">Código/SKU:</span>{' '}
+                    <span className={`font-mono ${isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>{pendingAddItem.code}</span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-zinc-500 font-bold">Stock Actual:</span>{' '}
+                  <span className={`font-extrabold px-1.5 py-0.5 rounded text-[10px] ${
+                    pendingAddItem.stock <= pendingAddItem.minStock
+                      ? isLight 
+                        ? 'bg-rose-105 text-rose-700 border border-rose-200' 
+                        : 'bg-red-500/20 text-red-400'
+                      : isLight 
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-250' 
+                        : 'bg-emerald-500/20 text-emerald-400'
+                  }`}>
+                    {pendingAddItem.stock} pz (Mín: {pendingAddItem.minStock})
+                  </span>
+                </div>
+                <div>
+                  <span className="text-zinc-500 font-bold">Costo en Catálogo:</span>{' '}
+                  <span className={`font-extrabold ${isRetro ? 'text-zinc-900' : isLight ? 'text-amber-700 font-black' : 'text-amber-500'}`}>
+                    {config.currencySymbol || '$'}{(pendingAddItem.cost || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-zinc-500 font-bold">Precio de Venta:</span>{' '}
+                  <span className={`font-extrabold ${isRetro ? 'text-zinc-900' : isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                    {config.currencySymbol || '$'}{(pendingAddItem.price || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-zinc-500 font-bold">Precio de Mayoreo:</span>{' '}
+                  <span className={`font-extrabold ${isRetro ? 'text-zinc-900' : isLight ? 'text-blue-700' : 'text-sky-400'}`}>
+                    {config.currencySymbol || '$'}{(pendingAddItem.wholesalePrice || 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {pendingAddIsSuggested && (
+                <div className={`p-2 rounded text-[10px] flex items-center gap-1.5 border ${
+                  isRetro 
+                    ? 'bg-blue-50 border-blue-200 text-blue-800' 
+                    : isLight 
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-750 font-medium' 
+                      : 'bg-[#1b253b] border-blue-900/30 text-blue-300'
+                }`}>
+                  <HelpCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>Costo unitario sugerido del último abasto con <strong>{pendingAddSuggestedProvider}</strong>.</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className={`text-[11px] font-bold block ${isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>CANTIDAD A AGREGAR</label>
+                  <input
+                    ref={qtyInputRef}
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={pendingAddQty}
+                    onChange={(e) => setPendingAddQty(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        costInputRef.current?.focus();
+                        costInputRef.current?.select();
+                      }
+                    }}
+                    className={`w-full text-sm font-bold p-2 text-center rounded border ${
+                      isRetro
+                        ? 'bg-white border-zinc-300 text-black'
+                        : isLight 
+                          ? 'bg-zinc-50 border-zinc-300 text-zinc-900 focus:border-indigo-500 focus:outline-none'
+                          : 'bg-[#1b1c21] border-[#292b35] text-white focus:border-amber-500 focus:outline-none'
+                    }`}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className={`text-[11px] font-bold block ${isLight ? 'text-zinc-700' : 'text-zinc-400'}`}>COSTO UNITARIO ({config.currencySymbol || '$'})</label>
+                  <input
+                    ref={costInputRef}
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={pendingAddCost}
+                    onChange={(e) => setPendingAddCost(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        confirmAddProduct();
+                      }
+                    }}
+                    className={`w-full text-sm font-bold p-2 text-center rounded border ${
+                      isRetro
+                        ? 'bg-white border-zinc-300 text-black'
+                        : isLight 
+                          ? 'bg-zinc-50 border-zinc-300 text-zinc-900 focus:border-indigo-500 focus:outline-none'
+                          : 'bg-[#1b1c21] border-[#292b35] text-white focus:border-amber-500 focus:outline-none'
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className={`p-4 border-t flex items-center justify-end gap-2.5 ${
+              isRetro 
+                ? 'bg-[#dfdfdf] border-zinc-400' 
+                : isLight 
+                  ? 'bg-zinc-50 border-zinc-200' 
+                  : 'bg-[#0f1013] border-[#1a1c22]'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setPendingAddItem(null)}
+                className={`px-3.5 py-1.5 text-xs rounded transition-colors ${
+                  isRetro 
+                    ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080] text-black font-semibold' 
+                    : isLight 
+                      ? 'text-zinc-550 hover:text-zinc-800 bg-transparent border border-zinc-300' 
+                      : 'text-gray-400 hover:text-white bg-transparent border border-zinc-800'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmAddProduct}
+                className={`px-4 py-1.5 text-xs font-black rounded uppercase tracking-wider transition-colors ${
+                  isRetro 
+                    ? 'bg-[#113a7c] text-white hover:bg-blue-800 border-2 border-t-[#216cd3] border-l-[#216cd3]' 
+                    : isLight 
+                      ? 'bg-indigo-650 hover:bg-indigo-750 text-white-important font-bold shadow-sm' 
+                      : 'bg-amber-600 hover:bg-amber-500 text-zinc-950 font-bold'
+                }`}
+              >
+                Agregar al Surtido
               </button>
             </div>
           </div>

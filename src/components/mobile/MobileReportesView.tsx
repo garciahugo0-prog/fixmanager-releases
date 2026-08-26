@@ -59,6 +59,7 @@ interface MobileReportesViewProps {
   onClose: () => void;
   onUpdateOrder?: (order: RepairOrder) => void | Promise<void>;
   printMobileHtml?: (html: string, isLabel?: boolean) => void;
+  warehouses?: any[];
 }
 
 type ReportCategory =
@@ -173,7 +174,8 @@ export default function MobileReportesView({
   inventory = [],
   refacciones = [],
   onClose,
-  printMobileHtml
+  printMobileHtml,
+  warehouses = []
 }: MobileReportesViewProps) {
   const isLight = config?.themeMode === 'light';
   const currencySymbol = config?.currencySymbol || '$';
@@ -447,7 +449,8 @@ export default function MobileReportesView({
       return inventory
         .filter(item => {
           if (!showHidden && item.active === false) return false;
-          return item.manageStock !== false && ((item.minStock > 0 && item.stock <= item.minStock) || item.stock === 0);
+          const totalStock = (item.stock || 0) + Object.values(item.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+          return item.manageStock !== false && ((item.minStock > 0 && totalStock <= item.minStock) || totalStock === 0);
         })
         .filter(item => {
           if (!query) return true;
@@ -460,7 +463,8 @@ export default function MobileReportesView({
       return refacciones
         .filter(item => {
           if (!showHidden && item.active === false) return false;
-          return item.manageStock !== false && ((item.minStock > 0 && item.stock <= item.minStock) || item.stock === 0);
+          const totalStock = (item.stock || 0) + Object.values(item.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+          return item.manageStock !== false && ((item.minStock > 0 && totalStock <= item.minStock) || totalStock === 0);
         })
         .filter(item => {
           if (!query) return true;
@@ -720,12 +724,12 @@ export default function MobileReportesView({
     } else if (activeCategory === 'stock-critico-tienda') {
       const rows = filteredData as InventoryItem[];
       thead = `<thead><tr><th>Código</th><th>Producto</th><th>Categoría</th><th>Marca</th><th>Mínimo</th><th>Existencia</th><th style="text-align:right">Costo</th><th style="text-align:right">Precio</th></tr></thead>`;
-      tbody = `<tbody>${rows.map(x => `<tr><td>${x.code || '—'}</td><td>${x.name}</td><td>${x.category || 'Accesorios'}</td><td>${x.brand || '—'}</td><td>${x.minStock}</td><td style="color:#d9534f;font-weight:bold">${x.stock}</td><td>${sym}${x.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>${sym}${x.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}</tbody>`;
+      tbody = `<tbody>${rows.map(x => `<tr><td>${x.code || '—'}</td><td>${x.name}</td><td>${x.category || 'Accesorios'}</td><td>${x.brand || '—'}</td><td>${x.minStock}</td><td style="color:#d9534f;font-weight:bold">${(x.stock || 0) + Object.values(x.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)}</td><td>${sym}${x.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>${sym}${x.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}</tbody>`;
       summaryHtml = `<div class="si"><label>Inversión Crítica</label><span>${sym}${(summary.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div><div class="si"><label>Artículos en Alerta</label><span>${rows.length}</span></div>`;
     } else if (activeCategory === 'refacciones-criticas') {
       const rows = filteredData as RefaccionItem[];
       thead = `<thead><tr><th>Código</th><th>Refacción</th><th>Celular Compatible</th><th>Marca Ref</th><th>Mínimo</th><th>Existencia</th><th style="text-align:right">Costo</th><th style="text-align:right">Precio Rep.</th></tr></thead>`;
-      tbody = `<tbody>${rows.map(x => `<tr><td>${x.code || '—'}</td><td>${x.name}</td><td>${x.deviceBrand} ${x.deviceModel}</td><td>${x.brand || 'GENERICO'}</td><td>${x.minStock}</td><td style="color:#d9534f;font-weight:bold">${x.stock}</td><td>${sym}${x.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>${sym}${x.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}</tbody>`;
+      tbody = `<tbody>${rows.map(x => `<tr><td>${x.code || '—'}</td><td>${x.name}</td><td>${x.deviceBrand} ${x.deviceModel}</td><td>${x.brand || 'GENERICO'}</td><td>${x.minStock}</td><td style="color:#d9534f;font-weight:bold">${(x.stock || 0) + Object.values(x.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)}</td><td>${sym}${x.cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>${sym}${x.price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}</tbody>`;
       summaryHtml = `<div class="si"><label>Inversión Crítica</label><span>${sym}${(summary.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div><div class="si"><label>Refacciones en Alerta</label><span>${rows.length}</span></div>`;
     }
 
@@ -1377,7 +1381,10 @@ export default function MobileReportesView({
                     </div>
                     <span className="text-xs font-black text-rose-500 font-mono">{formatMoney(Number(l.totalCost))}</span>
                   </div>
-                  <p className="text-xs text-zinc-400">Artículos: {l.itemsCount} · Nota: {l.note || '—'}</p>
+                  <p className="text-xs text-zinc-400">
+                    Artículos: {l.itemsCount} ({(l.items || []).map((it: any) => `${it.name} x${it.addedQty}`).join(', ')})
+                    {l.note ? ` · Nota: ${l.note}` : ''}
+                  </p>
                 </div>
               ))
             )}
@@ -1750,9 +1757,21 @@ export default function MobileReportesView({
                       <span className="text-[9px] font-mono text-zinc-500">CÓD: {x.code || '—'}</span>
                       <h4 className="text-xs font-black uppercase">{x.name}</h4>
                     </div>
-                    <span className="text-xs font-black text-rose-500 font-mono">{x.stock} pz</span>
+                    <span className="text-xs font-black text-rose-500 font-mono">
+                      {(x.stock || 0) + Object.values(x.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)} pz
+                    </span>
                   </div>
                   <p className="text-xs text-zinc-400">Mínimo: {x.minStock} · Marca: {x.brand || '—'}</p>
+                  {x.warehouseStock && Object.entries(x.warehouseStock).some(([_, qty]) => Number(qty) > 0) && (
+                    <p className="text-[10px] text-zinc-400 font-semibold leading-tight mt-1">
+                      Tienda: {x.stock}
+                      {Object.entries(x.warehouseStock).map(([whId, qty]) => {
+                        if (Number(qty) <= 0) return null;
+                        const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                        return ` • ${whName}: ${qty}`;
+                      })}
+                    </p>
+                  )}
                   <div className="flex justify-between items-center text-[9px] font-bold text-zinc-400 uppercase mt-2">
                     <span>Costo: {formatMoney(x.cost)}</span>
                     <span className="text-emerald-500">Venta: {formatMoney(x.price)}</span>
@@ -1784,10 +1803,22 @@ export default function MobileReportesView({
                       <span className="text-[9px] font-mono text-zinc-500">CÓD: {x.code || '—'}</span>
                       <h4 className="text-xs font-black uppercase">{x.name}</h4>
                     </div>
-                    <span className="text-xs font-black text-rose-500 font-mono">{x.stock} pz</span>
+                    <span className="text-xs font-black text-rose-500 font-mono">
+                      {(x.stock || 0) + Object.values(x.warehouseStock || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)} pz
+                    </span>
                   </div>
                   <p className="text-xs text-zinc-400">Compatible: {x.deviceBrand} {x.deviceModel}</p>
                   <p className="text-xs text-zinc-500">Mínimo: {x.minStock} · Marca ref.: {x.brand || 'GENÉRICO'}</p>
+                  {x.warehouseStock && Object.entries(x.warehouseStock).some(([_, qty]) => Number(qty) > 0) && (
+                    <p className="text-[10px] text-zinc-400 font-semibold leading-tight mt-1">
+                      Tienda: {x.stock}
+                      {Object.entries(x.warehouseStock).map(([whId, qty]) => {
+                        if (Number(qty) <= 0) return null;
+                        const whName = warehouses.find(w => w.id === whId)?.name || 'Bodega';
+                        return ` • ${whName}: ${qty}`;
+                      })}
+                    </p>
+                  )}
                   <div className="flex justify-between items-center text-[9px] font-bold text-zinc-400 uppercase mt-2">
                     <span>Costo: {formatMoney(x.cost)}</span>
                     <span className="font-black text-emerald-500 font-black">Reparación: {formatMoney(x.price)}</span>

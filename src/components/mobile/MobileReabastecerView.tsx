@@ -17,6 +17,7 @@ import {
 import { InventoryItem, WorkshopConfig, Expense, AppUser } from '../../types';
 import { DRAFT_KEY, clearReabastoDraft } from '../../utils/reabastoDraft';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
+import { PosItemThumbnail } from '../pos/PosItemThumbnail';
 
 interface ReplenishItem {
   id: string;
@@ -28,6 +29,12 @@ interface ReplenishItem {
   cost: number;
   suggestedProvider?: string;
   isSuggested?: boolean;
+  imageUrl?: string;
+  extraImages?: string[];
+  category?: string;
+  price?: number;
+  wholesalePrice?: number;
+  originalCost?: number;
 }
 
 interface ReplenishHistoryLog {
@@ -73,7 +80,7 @@ export default function MobileReabastecerView({
   const [note, setNote] = useState<string>(draft?.note || '');
   const [replenishList, setReplenishList] = useState<ReplenishItem[]>(draft?.replenishList || []);
   const [search, setSearch] = useState('');
-  const [autoRegisterExpense, setAutoRegisterExpense] = useState<boolean>(true);
+  const [autoRegisterExpense, setAutoRegisterExpense] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
 
@@ -81,6 +88,55 @@ export default function MobileReabastecerView({
   const [showNewProviderModal, setShowNewProviderModal] = useState<boolean>(false);
   const [newProviderName, setNewProviderName] = useState<string>('');
   const [newProviderPhone, setNewProviderPhone] = useState<string>('');
+
+  // Intermediary add product modal state
+  const [pendingAddItem, setPendingAddItem] = useState<InventoryItem | null>(null);
+  const [pendingAddQty, setPendingAddQty] = useState<string>('5');
+  const [pendingAddCost, setPendingAddCost] = useState<string>('0');
+  const [pendingAddIsSuggested, setPendingAddIsSuggested] = useState<boolean>(false);
+  const [pendingAddSuggestedProvider, setPendingAddSuggestedProvider] = useState<string>('');
+
+  const qtyInputRef = useRef<HTMLInputElement>(null);
+  const costInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (pendingAddItem) {
+      setTimeout(() => {
+        qtyInputRef.current?.focus();
+        qtyInputRef.current?.select();
+      }, 50);
+    }
+  }, [pendingAddItem]);
+
+  const confirmAddProduct = () => {
+    if (!pendingAddItem) return;
+    const qty = Math.max(1, parseInt(pendingAddQty) || 1);
+    const costVal = Math.max(0, parseFloat(pendingAddCost) || 0);
+
+    const newItem: ReplenishItem = {
+      id: pendingAddItem.id,
+      name: pendingAddItem.name,
+      code: pendingAddItem.code,
+      brand: pendingAddItem.brand,
+      currentStock: pendingAddItem.stock,
+      addedQty: qty,
+      cost: costVal,
+      isSuggested: pendingAddIsSuggested,
+      suggestedProvider: pendingAddSuggestedProvider,
+      imageUrl: pendingAddItem.imageUrl,
+      extraImages: pendingAddItem.extraImages,
+      category: pendingAddItem.category,
+      price: pendingAddItem.price,
+      wholesalePrice: pendingAddItem.wholesalePrice,
+      originalCost: pendingAddItem.cost
+    };
+
+    setReplenishList([...replenishList, newItem]);
+    setSearch('');
+    setPendingAddItem(null);
+    setFeedback(`✓ "${pendingAddItem.name}" añadido`);
+    setTimeout(() => setFeedback(null), 1500);
+  };
 
   // Historial logs
   const [historyLogs, setHistoryLogs] = useState<ReplenishHistoryLog[]>(() => {
@@ -161,8 +217,11 @@ export default function MobileReabastecerView({
     const q = search.toLowerCase().trim();
     if (!q) return [];
     return inventory.filter(item =>
-      item.name.toLowerCase().includes(q) ||
-      (item.code && item.code.toLowerCase().includes(q))
+      item.active !== false &&
+      !item.deletedAt &&
+      item.manageStock !== false &&
+      (item.name.toLowerCase().includes(q) ||
+      (item.code && item.code.toLowerCase().includes(q)))
     ).slice(0, 15);
   }, [search, inventory]);
 
@@ -199,22 +258,11 @@ export default function MobileReabastecerView({
       }
     }
 
-    const newItem: ReplenishItem = {
-      id: item.id,
-      name: item.name,
-      code: item.code,
-      brand: item.brand,
-      currentStock: item.stock,
-      addedQty: 5, // Cantidad por defecto
-      cost: suggestedCost,
-      isSuggested,
-      suggestedProvider: suggestedProviderName
-    };
-
-    setReplenishList([...replenishList, newItem]);
-    setSearch('');
-    setFeedback(`✓ "${item.name}" añadido`);
-    setTimeout(() => setFeedback(null), 1500);
+    setPendingAddItem(item);
+    setPendingAddQty('5');
+    setPendingAddCost(suggestedCost.toString());
+    setPendingAddIsSuggested(isSuggested);
+    setPendingAddSuggestedProvider(suggestedProviderName);
   };
 
   const handleProcessReplenish = () => {
@@ -236,7 +284,9 @@ export default function MobileReabastecerView({
         return {
           ...inv,
           stock: inv.stock + matchDraft.addedQty,
-          cost: matchDraft.cost
+          cost: matchDraft.cost,
+          price: typeof matchDraft.price === 'number' ? matchDraft.price : inv.price,
+          wholesalePrice: typeof matchDraft.wholesalePrice === 'number' ? matchDraft.wholesalePrice : inv.wholesalePrice
         };
       }
       return inv;
@@ -461,10 +511,23 @@ export default function MobileReabastecerView({
                         isLight ? 'bg-slate-50 hover:bg-slate-100' : 'bg-zinc-950/60 hover:bg-zinc-850'
                       }`}
                     >
-                      <div className="min-w-0 pr-2">
-                        <div className="text-xs font-black truncate">{item.name}</div>
-                        <div className="text-[10px] text-zinc-400 font-bold mt-0.5">
-                          Stock: {item.stock} pz · Costo: ${item.cost.toFixed(2)}
+                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                        <div className="flex-shrink-0">
+                          <PosItemThumbnail
+                            imageUrl={item.imageUrl}
+                            name={item.name}
+                            code={item.code}
+                            category={item.category}
+                            price={item.price}
+                            currencySymbol={config.currencySymbol}
+                            size={28}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-black truncate">{item.name}</div>
+                          <div className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                            Stock: {item.stock} pz · Costo: ${item.cost.toFixed(2)}
+                          </div>
                         </div>
                       </div>
                       <span className="text-[10px] font-black uppercase text-blue-500 tracking-wider bg-blue-500/10 px-2.5 py-1 rounded-lg">
@@ -514,10 +577,23 @@ export default function MobileReabastecerView({
                   }`}
                 >
                   <div className="flex justify-between items-start">
-                    <div className="min-w-0 pr-3">
-                      <div className="text-xs font-black truncate">{item.name}</div>
-                      <div className="text-[9px] text-zinc-400 font-bold mt-0.5">
-                        Stock general actual: {item.currentStock} pz
+                    <div className="flex items-center gap-2.5 min-w-0 pr-3">
+                      <div className="flex-shrink-0">
+                        <PosItemThumbnail
+                          imageUrl={item.imageUrl}
+                          name={item.name}
+                          code={item.code}
+                          category={item.category}
+                          price={item.price}
+                          currencySymbol={config.currencySymbol}
+                          size={28}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-black truncate">{item.name}</div>
+                        <div className="text-[9px] text-zinc-400 font-bold mt-0.5">
+                          Stock actual: {item.currentStock} pz · <span className="font-extrabold text-amber-500">Costo Compra: ${((item.originalCost ?? item.cost ?? 0).toFixed(2))}</span>
+                        </div>
                       </div>
                     </div>
                     <button
@@ -528,8 +604,8 @@ export default function MobileReabastecerView({
                     </button>
                   </div>
 
-                  {/* Campos de Cantidad y Costo de forma táctil */}
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                  {/* Campos de Cantidad, Costo y Precios de forma táctil */}
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
                     <div>
                       <label className="text-[8.5px] font-black uppercase tracking-wider text-zinc-400 block mb-1">
                         Cantidad Surtida:
@@ -578,6 +654,46 @@ export default function MobileReabastecerView({
                         onChange={e => {
                           const val = Math.max(0, parseFloat(e.target.value) || 0);
                           setReplenishList(prev => prev.map(q => q.id === item.id ? { ...q, cost: val } : q));
+                        }}
+                        placeholder="0.00"
+                        className={`w-full h-7 px-2 font-mono font-black text-xs text-right rounded-lg border focus:outline-none ${
+                          isLight ? 'bg-slate-100 border-slate-200 focus:border-blue-500' : 'bg-zinc-950 border-zinc-850 focus:border-blue-600'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[8.5px] font-black uppercase tracking-wider text-zinc-400 block mb-1">
+                        P. Venta Público ($):
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={item.price === undefined || isNaN(Number(item.price)) ? '' : item.price}
+                        onChange={e => {
+                          const val = Math.max(0, parseFloat(e.target.value) || 0);
+                          setReplenishList(prev => prev.map(q => q.id === item.id ? { ...q, price: val } : q));
+                        }}
+                        placeholder="0.00"
+                        className={`w-full h-7 px-2 font-mono font-black text-xs text-right rounded-lg border focus:outline-none ${
+                          isLight ? 'bg-slate-100 border-slate-200 focus:border-blue-500' : 'bg-zinc-950 border-zinc-850 focus:border-blue-600'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[8.5px] font-black uppercase tracking-wider text-zinc-400 block mb-1">
+                        P. Venta Mayoreo ($):
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={item.wholesalePrice === undefined || isNaN(Number(item.wholesalePrice)) ? '' : item.wholesalePrice}
+                        onChange={e => {
+                          const val = Math.max(0, parseFloat(e.target.value) || 0);
+                          setReplenishList(prev => prev.map(q => q.id === item.id ? { ...q, wholesalePrice: val } : q));
                         }}
                         placeholder="0.00"
                         className={`w-full h-7 px-2 font-mono font-black text-xs text-right rounded-lg border focus:outline-none ${
@@ -665,6 +781,142 @@ export default function MobileReabastecerView({
           <span>Confirmar y Procesar Abasto</span>
         </button>
       </footer>
+
+      {pendingAddItem && (
+        <div className="fixed inset-0 z-[100005] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className={`relative w-full max-w-sm rounded-3xl p-5 shadow-2xl z-10 flex flex-col gap-4 ${
+            isLight ? 'bg-white text-slate-800' : 'bg-[#121316] text-white border border-[#1e2025]'
+          }`}>
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-800/50">
+              <h4 className="text-xs font-black uppercase tracking-wider text-blue-500 flex items-center gap-1.5">
+                Agregar a Abasto
+              </h4>
+              <button
+                type="button"
+                onClick={() => setPendingAddItem(null)}
+                className="text-zinc-400 hover:text-zinc-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className={`p-3 rounded-2xl border text-xs space-y-1.5 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-850'
+            }`}>
+              <div>
+                <span className="text-zinc-450 font-bold">Producto:</span>{' '}
+                <span className="font-extrabold uppercase">{pendingAddItem.name}</span>
+              </div>
+              {pendingAddItem.code && (
+                <div>
+                  <span className="text-zinc-450 font-bold">Código/SKU:</span>{' '}
+                  <span className="font-mono text-zinc-400">{pendingAddItem.code}</span>
+                </div>
+              )}
+              <div>
+                <span className="text-zinc-450 font-bold">Stock Actual:</span>{' '}
+                <span className={`font-extrabold px-2 py-0.5 rounded-lg text-[10px] ${
+                  pendingAddItem.stock <= pendingAddItem.minStock
+                    ? 'bg-red-500/20 text-red-400'
+                    : 'bg-emerald-500/20 text-emerald-400'
+                }`}>
+                  {pendingAddItem.stock} pz (Mín: {pendingAddItem.minStock})
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-450 font-bold">Costo en Catálogo:</span>{' '}
+                <span className="font-extrabold text-amber-500">
+                  ${(pendingAddItem.cost || 0).toFixed(2)}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-450 font-bold">Precio de Venta:</span>{' '}
+                <span className="font-extrabold text-emerald-450">
+                  ${(pendingAddItem.price || 0).toFixed(2)}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-450 font-bold">Precio de Mayoreo:</span>{' '}
+                <span className="font-extrabold text-sky-500">
+                  ${(pendingAddItem.wholesalePrice || 0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {pendingAddIsSuggested && (
+              <div className={`p-2 rounded-xl text-[9px] flex items-center gap-1.5 border leading-tight ${
+                isLight ? 'bg-blue-50 border-blue-100 text-blue-800' : 'bg-[#1b253b] border-blue-900/30 text-blue-300'
+              }`}>
+                <span>Costo unitario sugerido del último abasto con <strong>{pendingAddSuggestedProvider}</strong>.</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3.5">
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-400 block font-bold">Cantidad:</label>
+                <input
+                  ref={qtyInputRef}
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={pendingAddQty}
+                  onChange={(e) => setPendingAddQty(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      costInputRef.current?.focus();
+                      costInputRef.current?.select();
+                    }
+                  }}
+                  className={`w-full h-10 px-3 font-extrabold text-sm text-center rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase tracking-wider text-zinc-400 block font-bold">Costo Unitario ({config.currencySymbol || '$'}):</label>
+                <input
+                  ref={costInputRef}
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={pendingAddCost}
+                  onChange={(e) => setPendingAddCost(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      confirmAddProduct();
+                    }
+                  }}
+                  className={`w-full h-10 px-3 font-extrabold text-sm text-center rounded-xl border focus:outline-none focus:border-blue-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-zinc-950 border-zinc-800 text-white'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setPendingAddItem(null)}
+                className={`flex-1 py-3 rounded-2xl font-black text-xs uppercase tracking-wider border active:scale-[0.98] transition-all ${
+                  isLight ? 'bg-white border-slate-300 text-slate-600' : 'bg-transparent border-zinc-800 text-zinc-400'
+                }`}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmAddProduct}
+                className="flex-1 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider active:scale-[0.98] transition-all"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── MODAL: REGISTRAR NUEVO PROVEEDOR INTERNO ── */}
       {showNewProviderModal && (

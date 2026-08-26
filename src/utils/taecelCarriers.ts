@@ -9,6 +9,9 @@ export interface TaecelCarrier {
   type: 'recarga' | 'paquete' | 'servicio' | 'pin';
   options?: number[]; // Valores sugeridos rápidos
   description?: string;
+  logoUrl?: string; // URL del logotipo de la API
+  fieldLabel?: string; // Etiqueta dinámica de campo (ej. Número de Servicio)
+  fieldPlaceholder?: string; // Marcador dinámico del input
 }
 
 export const TAECEL_CARRIERS: TaecelCarrier[] = [

@@ -1,0 +1,125 @@
+{
+  "name": "fixmanager",
+  "productName": "FixManager",
+  "version": "1.15.45",
+  "description": "Sistema de gestión para taller de reparaciones FixManager",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/garciahugo0-prog/fixmanager-releases.git"
+  },
+  "main": "electron/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "concurrently \"vite --port=5099 --host=0.0.0.0\" \"wait-on http://127.0.0.1:5099 && electron .\"",
+    "dev:clean": "node scripts/clean-license.js && npm run dev",
+    "build": "vite build",
+    "build:win": "npm run build && node scripts/build-protected.js --win",
+    "build:mac": "npm run build && node scripts/build-protected.js --mac && node scripts/pack-installer.js",
+    "build:all": "npm run build && node scripts/build-protected.js --all && node scripts/pack-installer.js",
+    "version:bump": "node scripts/bump-version.js",
+    "publish": "bash scripts/publish-release.sh",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "cap:sync": "capacitor sync",
+    "cap:open": "capacitor open ios",
+    "cap:run": "capacitor run ios"
+  },
+  "dependencies": {
+    "@capacitor-community/bluetooth-le": "^8.2.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/ios": "^8.4.2",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/network": "^8.0.1",
+    "@capgo/capacitor-native-biometric": "^8.6.2",
+    "@google/genai": "^1.29.0",
+    "@supabase/supabase-js": "^2.108.1",
+    "@wppconnect/wa-js": "^4.4.1",
+    "bytenode": "^1.5.7",
+    "dotenv": "^17.2.3",
+    "fdir": "^5.3.0",
+    "follow-redirects": "^1.16.0",
+    "html2canvas": "^1.4.1",
+    "html5-qrcode": "^2.3.8",
+    "lightningcss": "^1.32.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "picomatch": "^4.0.4",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^22.14.0",
+    "@types/qrcode": "^1.5.6",
+    "@vitejs/plugin-react": "^6.0.2",
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^9.0.0",
+    "electron": "^32.3.3",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.25.0",
+    "javascript-obfuscator": "^5.4.3",
+    "playwright-core": "^1.60.0",
+    "tailwindcss": "^4.3.0",
+    "terser": "^5.48.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^8.0.14",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.fixmanager.app",
+    "productName": "FixManager",
+    "copyright": "© 2025 FixManager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "icon": "electron/icon.png",
+      "category": "public.app-category.business"
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FixManager"
+    },
+    "dmg": {
+      "title": "FixManager",
+      "format": "UDZO",
+      "writeUpdateInfo": false
+    }
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "^1.32.0",
+    "lightningcss-darwin-x64": "^1.32.0"
+  }
+}
