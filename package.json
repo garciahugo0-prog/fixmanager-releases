@@ -1,7 +1,7 @@
 {
   "name": "fixmanager",
   "productName": "FixManager",
-  "version": "1.15.45",
+  "version": "1.15.46",
   "description": "Sistema de gestión para taller de reparaciones FixManager",
   "private": true,
   "repository": {

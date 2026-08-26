@@ -69,7 +69,7 @@ if (!gotTheLock) {
 // Usar siempre la misma ruta userData original para todas las versiones
 app.setPath('userData', path.join(os.homedir(), 'Library', 'Application Support', 'FixManager'));
 
-const APP_VERSION = '1.15.45';
+const APP_VERSION = '1.15.46';
 
 /** Retorna true si la versión a es estrictamente mayor que b (semver simple) */
 function semverGt(a, b) {
