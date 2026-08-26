@@ -1606,6 +1606,7 @@ export function ConfigView({
   const [unattendedSupportEnabled, setUnattendedSupportEnabled] = useState(config.unattendedSupportEnabled ?? true);
   const [enableTaller, setEnableTaller] = useState(config.enableTaller ?? true);
   const [enablePOS, setEnablePOS] = useState(config.enablePOS ?? true);
+  const [posTotalPosition, setPosTotalPosition] = useState<'bottom' | 'top'>(config.posTotalPosition ?? 'bottom');
   const [enableWarehouses, setEnableWarehouses] = useState(config.enableWarehouses ?? false);
   const [quoteSignature, setQuoteSignature] = useState(config.quoteSignature || '');
   const [hiddenModules, setHiddenModules] = useState<string[]>(config.hiddenModules || []);
@@ -4265,6 +4266,7 @@ export function ConfigView({
       appZoomLevel,
       enableTaller,
       enablePOS,
+      posTotalPosition,
       enableWarehouses,
       ...cleanOverrides
     });
@@ -4780,6 +4782,7 @@ export function ConfigView({
       appZoomLevel,
       enableTaller,
       enablePOS,
+      posTotalPosition,
       enableWarehouses,
       hiddenModules: nextHidden
     });
@@ -8786,6 +8789,50 @@ ${rowH('Anticipo pagado:', `${sym}${totalPaid.toLocaleString('es-MX', { minimumF
                           }`}>Múltiples sucursales, traspasos y stock distribuido.</span>
                         </button>
                       </div>
+
+                      {/* Ubicación del Total en POS */}
+                      {enablePOS && (
+                        <div className="pt-3 border-t border-dashed border-zinc-200 dark:border-zinc-800 flex items-center justify-between flex-wrap gap-2">
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-wide flex items-center gap-1.5">
+                              <span>↕️</span> Posición del Total en Carrito (POS)
+                            </span>
+                            <p className={`text-[9px] leading-tight ${isRetro || isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                              Muestra el monto total en la parte inferior tradicional o en la cabecera superior derecha.
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-lg border border-zinc-300 dark:border-zinc-700">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPosTotalPosition('bottom');
+                                onUpdateConfig({ ...config, posTotalPosition: 'bottom' });
+                              }}
+                              className={`px-2.5 py-1 text-[9.5px] font-bold rounded transition-all cursor-pointer select-none ${
+                                posTotalPosition !== 'top'
+                                  ? (isRetro ? 'bg-[#000080] text-white' : 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm font-black')
+                                  : (isLight ? 'text-zinc-600 hover:text-zinc-900' : 'text-zinc-400 hover:text-zinc-200')
+                              }`}
+                            >
+                              ⬇️ Abajo (Predeterminado)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPosTotalPosition('top');
+                                onUpdateConfig({ ...config, posTotalPosition: 'top' });
+                              }}
+                              className={`px-2.5 py-1 text-[9.5px] font-bold rounded transition-all cursor-pointer select-none ${
+                                posTotalPosition === 'top'
+                                  ? (isRetro ? 'bg-[#000080] text-white' : 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm font-black')
+                                  : (isLight ? 'text-zinc-600 hover:text-zinc-900' : 'text-zinc-400 hover:text-zinc-200')
+                              }`}
+                            >
+                              ↗️ Arriba a la derecha
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 

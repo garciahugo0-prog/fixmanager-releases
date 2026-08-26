@@ -6857,6 +6857,7 @@ const handleImportData = (mode: 'merge' | 'restore') => {
                     currentUser={currentUser}
                     onCreateApartado={handleCreateApartado}
                     onRegisterChipActivation={handleRegisterChipActivation}
+                    onUpdateConfig={setConfig}
                   />
                 )}
 

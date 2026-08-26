@@ -71,6 +71,7 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
     softCoinsTotal, matchedProductsForModal, exactMatch,
     paginatedModalItems, modalTotalPages,
     availableItems, inventory, getItemStock,
+    posTotalPosition, togglePosTotalPosition,
     basketTotal, basketTotalItems, saleType, setSaleType,
     triggerToast, handleCalcBtn, cancelAndCleanupFastSale, cancelAndCleanupSearchModal,
     addFastSaleItem, handleModalAddFastSaleItem,
@@ -1741,7 +1742,7 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
              ACTIVE TRANSACTION STATE: COMPACT FULL-WIDTH CART FOR RETRO-WINDOW
              ========================================================= */
           <div className="flex-1 flex flex-col min-h-0 bg-white border border-zinc-300 rounded-lg p-3 animate-fadeIn">
-            <div className="flex justify-between items-center pb-2 border-b border-zinc-200 mb-2 shrink-0 select-none">
+            <div className="flex justify-between items-center pb-2 border-b border-zinc-200 mb-2 shrink-0 select-none flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1750,7 +1751,24 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
                 <span className="text-xs font-bold text-[#0c66e4] uppercase tracking-wider flex items-center gap-1.5">
                   🛒 COMPROBANTE DE VENTA / CARRO ACTUAL ({basketTotalItems} {basketTotalItems === 1 ? 'artículo' : 'artículos'})
                 </span>
+                <button
+                  type="button"
+                  onClick={togglePosTotalPosition}
+                  title={`Cambiar posición del total (Actualmente: ${posTotalPosition === 'top' ? 'Arriba a la derecha' : 'Abajo'})`}
+                  className="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-600 border border-zinc-300 transition-all cursor-pointer flex items-center gap-1 select-none"
+                >
+                  ↕️ Total {posTotalPosition === 'top' ? 'Arriba' : 'Abajo'}
+                </button>
               </div>
+
+              {posTotalPosition === 'top' && (
+                <div className="flex items-center gap-2 bg-[#000080] text-white px-3 py-1 rounded shadow-sm border border-[#4040c0] select-none">
+                  <span className="text-[10px] font-bold tracking-widest uppercase opacity-80">TOTAL:</span>
+                  <span className="text-xl font-black font-mono tracking-tight text-white">
+                    {config.currencySymbol}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Main Basket Grid */}
@@ -2065,14 +2083,16 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
         {/* 3. Pinned bottom bar - Totalizer and Action buttons */}
         <div className="bg-white border text-xs text-zinc-800 flex items-center justify-between shadow-sm px-4 py-2.5 bg-[#fafafa] rounded-lg border-zinc-300 shrink-0 select-none">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-black text-zinc-500 uppercase tracking-widest font-sans select-none leading-none pt-0.5">
-                Total:
-              </span>
-              <span className="text-2xl md:text-3xl font-black text-[#0c66e4] font-mono tracking-tighter leading-none select-none">
-                {config.currencySymbol}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
+            {posTotalPosition !== 'top' && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-black text-zinc-500 uppercase tracking-widest font-sans select-none leading-none pt-0.5">
+                  Total:
+                </span>
+                <span className="text-2xl md:text-3xl font-black text-[#0c66e4] font-mono tracking-tighter leading-none select-none">
+                  {config.currencySymbol}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
 
             {/* Selector de Tipo de Venta (Público / Mayoreo) */}
             <div className="flex items-center gap-3 bg-[#dfdfdf] border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white p-1 text-[9.5px] uppercase font-bold shrink-0 text-black font-mono">

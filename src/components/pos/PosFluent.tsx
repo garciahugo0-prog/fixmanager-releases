@@ -63,7 +63,9 @@ export default function PosFluent({ logic, warehouses = [] }: Props) {
     modalCategoryFilter, setModalCategoryFilter,
     inlineSelectedIndex, setInlineSelectedIndex, inlineSelectedIndexRef,
     modalSelectedIndex, setModalSelectedIndex,
-    softCoinsTotal, availableItems, inventory, getItemStock, basketTotal, basketTotalItems, saleType, setSaleType,
+    softCoinsTotal, availableItems, inventory, getItemStock,
+    posTotalPosition, togglePosTotalPosition,
+    basketTotal, basketTotalItems, saleType, setSaleType,
     triggerToast, handleCalcBtn, cancelAndCleanupFastSale, cancelAndCleanupSearchModal,
     addFastSaleItem, handleModalAddFastSaleItem,
     addToBasket, updateQuantity, removeFromBasket, toggleBasketItemPriceType,
@@ -848,7 +850,7 @@ export default function PosFluent({ logic, warehouses = [] }: Props) {
         <div className={`flex-1 flex flex-col min-h-0 backdrop-blur-sm border rounded-2xl p-3 animate-fadeIn shadow-sm ${
           isLight ? 'bg-white/80 border-zinc-200' : 'bg-[#202020]/90 border-white/10'
         }`}>
-          <div className={`flex justify-between items-center pb-2 border-b mb-2 shrink-0 ${isLight ? 'border-zinc-100' : 'border-white/5'}`}>
+          <div className={`flex justify-between items-center pb-2 border-b mb-2 shrink-0 flex-wrap gap-2 ${isLight ? 'border-zinc-100' : 'border-white/5'}`}>
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
@@ -857,20 +859,46 @@ export default function PosFluent({ logic, warehouses = [] }: Props) {
               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">🛒 CARRITO ACTUAL ({basketTotalItems} {basketTotalItems === 1 ? 'artículo' : 'artículos'})</span>
             </div>
 
-            {/* TOGGLE ¿ES COTIZACIÓN? */}
-            <div className="flex items-center gap-2">
-              <input 
-                type="checkbox"
-                id="quote-active-chk-fluent-header"
-                checked={isQuoteMode}
-                onChange={(e) => setIsQuoteMode(e.target.checked)}
-                className="w-4 h-4 cursor-pointer"
-              />
-              <label htmlFor="quote-active-chk-fluent-header" className={`text-[10px] uppercase font-black tracking-wider cursor-pointer select-none ${
-                isLight ? 'text-amber-600' : 'text-amber-400'
-              }`}>
-                ¿Es Cotización?
-              </label>
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* TOGGLE ¿ES COTIZACIÓN? */}
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox"
+                  id="quote-active-chk-fluent-header"
+                  checked={isQuoteMode}
+                  onChange={(e) => setIsQuoteMode(e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <label htmlFor="quote-active-chk-fluent-header" className={`text-[10px] uppercase font-black tracking-wider cursor-pointer select-none ${
+                  isLight ? 'text-amber-600' : 'text-amber-400'
+                }`}>
+                  ¿Es Cotización?
+                </label>
+              </div>
+
+              {/* Botón de alternar posición del Total */}
+              <button
+                type="button"
+                onClick={togglePosTotalPosition}
+                title={`Cambiar posición del total (Actualmente: ${posTotalPosition === 'top' ? 'Arriba a la derecha' : 'Abajo'})`}
+                className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded-md border transition-all cursor-pointer flex items-center gap-1 select-none ${
+                  isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 border-zinc-200' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+                }`}
+              >
+                ↕️ Total {posTotalPosition === 'top' ? 'Arriba' : 'Abajo'}
+              </button>
+
+              {/* Total Card if Top */}
+              {posTotalPosition === 'top' && (
+                <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border shadow-sm select-none ${
+                  isLight ? 'bg-blue-50 border-blue-200 text-blue-900' : 'bg-blue-950/40 border-blue-700/50 text-blue-200'
+                }`}>
+                  <span className="text-[10px] font-bold uppercase opacity-70 tracking-wider">TOTAL:</span>
+                  <span className="text-xl font-black font-mono tracking-tight text-blue-600 dark:text-blue-400">
+                    {sym}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex-1 overflow-y-auto pr-1 min-h-0 scrollbar-thin">
@@ -1168,10 +1196,12 @@ export default function PosFluent({ logic, warehouses = [] }: Props) {
       {/* ── Barra inferior ─────────────────────────────────────────────────── */}
       <div className="bg-white/90 backdrop-blur-sm border border-zinc-200 flex items-center justify-between shadow-sm px-4 py-2.5 rounded-lg shrink-0 select-none">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-black text-zinc-400 uppercase tracking-widest font-sans select-none leading-none pt-0.5">Total:</span>
-            <span className="text-2xl md:text-3xl font-black text-blue-600 font-mono tracking-tighter leading-none select-none">{sym}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
+          {posTotalPosition !== 'top' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-black text-zinc-400 uppercase tracking-widest font-sans select-none leading-none pt-0.5">Total:</span>
+              <span className="text-2xl md:text-3xl font-black text-blue-600 font-mono tracking-tighter leading-none select-none">{sym}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          )}
 
           {/* Selector de Tipo de Venta (Público / Mayoreo) */}
           <div className="flex bg-zinc-100 border border-zinc-255/15 rounded-full p-0.5 font-sans select-none shrink-0">

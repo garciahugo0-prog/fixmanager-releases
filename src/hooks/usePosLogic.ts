@@ -35,6 +35,7 @@ interface UsePosLogicProps {
   warehouses?: any[];
   onSetInventory?: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
   onSetRefacciones?: React.Dispatch<React.SetStateAction<RefaccionItem[]>>;
+  onUpdateConfig?: (config: WorkshopConfig) => void;
 }
 
 export default function usePosLogic({
@@ -51,13 +52,14 @@ export default function usePosLogic({
   users = [],
   setActiveTab,
   onCancelSale,
+  currentUser,
   onCreateApartado,
   onAddItem,
   onRegisterChipActivation,
-  currentUser,
   warehouses = [],
   onSetInventory,
   onSetRefacciones,
+  onUpdateConfig,
 }: UsePosLogicProps) {
   const [basket, setBasketRaw] = React.useState<any[]>(() => {
     try {
@@ -426,6 +428,16 @@ export default function usePosLogic({
       setSelectedSaleWarehouseId('local');
     }
   }, [config?.enableWarehouses]);
+  const [posTotalPosition, setPosTotalPosition] = React.useState<'bottom' | 'top'>(() => {
+    return config?.posTotalPosition || 'bottom';
+  });
+
+  React.useEffect(() => {
+    if (config?.posTotalPosition) {
+      setPosTotalPosition(config.posTotalPosition);
+    }
+  }, [config?.posTotalPosition]);
+
   const [showAdminAuthModal, setShowAdminAuthModal] = React.useState(false);
   const [adminAuthPin, setAdminAuthPin] = React.useState('');
   const [adminAuthError, setAdminAuthError] = React.useState('');
@@ -766,6 +778,20 @@ export default function usePosLogic({
       playErrorSound();
     }
   };
+
+  const togglePosTotalPosition = React.useCallback(() => {
+    const nextPos: 'bottom' | 'top' = posTotalPosition === 'top' ? 'bottom' : 'top';
+    setPosTotalPosition(nextPos);
+    if (onUpdateConfig) {
+      onUpdateConfig({ ...config, posTotalPosition: nextPos });
+    } else {
+      try {
+        const local = JSON.parse(localStorage.getItem('fixmanager_config') || '{}');
+        localStorage.setItem('fixmanager_config', JSON.stringify({ ...local, posTotalPosition: nextPos }));
+      } catch (e) {}
+    }
+    triggerToast(`Total del carrito: ${nextPos === 'top' ? 'Arriba a la derecha' : 'Abajo (Predeterminado)'}`, 'info');
+  }, [posTotalPosition, config, onUpdateConfig, triggerToast]);
 
   const playCashRegisterSound = () => {
     try {
@@ -1787,6 +1813,7 @@ export default function usePosLogic({
     savedSales, setSavedSales,
     warehouseSelectionItem, setWarehouseSelectionItem,
     selectedSaleWarehouseId, setSelectedSaleWarehouseId,
+    posTotalPosition, setPosTotalPosition, togglePosTotalPosition,
     // Refs
     lastSelectedQueryRef, fastSalePriceRef, fastSaleNameInputRef, searchInputRef,
     lastClickTimeRef, modalFastSaleNameInputRef, modalFastSalePriceInputRef,

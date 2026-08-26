@@ -71,6 +71,7 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
     modalCategoryFilter, setModalCategoryFilter,
     paginatedModalItems, modalTotalPages,
     availableItems, inventory, getItemStock,
+    posTotalPosition, togglePosTotalPosition,
     basketTotal, basketTotalItems, saleType, setSaleType,
     triggerToast, handleCalcBtn, cancelAndCleanupFastSale, cancelAndCleanupSearchModal,
     addFastSaleItem, handleModalAddFastSaleItem,
@@ -1815,18 +1816,40 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
               </span>
             </div>
 
-            {/* TOGGLE ¿ES COTIZACIÓN? */}
-            <div className="flex items-center gap-2">
-              <input 
-                type="checkbox"
-                id="quote-active-chk-modern-header"
-                checked={isQuoteMode}
-                onChange={(e) => setIsQuoteMode(e.target.checked)}
-                className="w-4 h-4 accent-amber-500 cursor-pointer"
-              />
-              <label htmlFor="quote-active-chk-modern-header" className="text-[10px] uppercase font-black tracking-wider text-amber-500 cursor-pointer select-none">
-                ¿Es Cotización?
-              </label>
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* TOGGLE ¿ES COTIZACIÓN? */}
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox"
+                  id="quote-active-chk-modern-header"
+                  checked={isQuoteMode}
+                  onChange={(e) => setIsQuoteMode(e.target.checked)}
+                  className="w-4 h-4 accent-amber-500 cursor-pointer"
+                />
+                <label htmlFor="quote-active-chk-modern-header" className="text-[10px] uppercase font-black tracking-wider text-amber-500 cursor-pointer select-none">
+                  ¿Es Cotización?
+                </label>
+              </div>
+
+              {/* Botón de alternar posición del Total */}
+              <button
+                type="button"
+                onClick={togglePosTotalPosition}
+                title={`Cambiar posición del total (Actualmente: ${posTotalPosition === 'top' ? 'Arriba a la derecha' : 'Abajo'})`}
+                className="px-2 py-0.5 text-[9px] font-bold uppercase rounded-lg bg-[#1a1b20] hover:bg-[#25262c] text-zinc-400 border border-[#2e3038] transition-all cursor-pointer flex items-center gap-1 select-none"
+              >
+                ↕️ Total {posTotalPosition === 'top' ? 'Arriba' : 'Abajo'}
+              </button>
+
+              {/* Total Card if Top */}
+              {posTotalPosition === 'top' && (
+                <div className="flex items-center gap-2 px-3 py-1 rounded-lg border shadow-sm bg-indigo-950/40 border-indigo-700/50 text-indigo-200 select-none">
+                  <span className="text-[10px] font-bold uppercase opacity-70 tracking-wider">TOTAL:</span>
+                  <span className="text-xl font-black font-mono tracking-tight text-indigo-400">
+                    {config.currencySymbol}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2139,14 +2162,16 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
       {/* Pinned bottom bar — Totalizer and Action buttons */}
       <div className="bg-[#121316] border border-[#1b1c21] text-xs text-zinc-200 flex items-center justify-between shadow-sm px-4 py-2.5 rounded-lg shrink-0 select-none">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-black text-zinc-500 uppercase tracking-widest font-sans select-none leading-none pt-0.5">
-              Total:
-            </span>
-            <span className="text-2xl md:text-3xl font-black text-indigo-400 font-mono tracking-tighter leading-none select-none">
-              {config.currencySymbol}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
+          {posTotalPosition !== 'top' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-black text-zinc-500 uppercase tracking-widest font-sans select-none leading-none pt-0.5">
+                Total:
+              </span>
+              <span className="text-2xl md:text-3xl font-black text-indigo-400 font-mono tracking-tighter leading-none select-none">
+                {config.currencySymbol}{basketTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
 
           {/* Selector de Tipo de Venta (Público / Mayoreo) */}
           <div className="flex bg-[#0b0c0e] border border-[#23252f] rounded-full p-0.5 font-sans select-none shrink-0">

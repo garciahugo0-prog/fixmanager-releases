@@ -632,6 +632,7 @@ export interface WorkshopConfig {
   whatsappNotifyStates?: string[];
   enableTaller?: boolean;
   enablePOS?: boolean;
+  posTotalPosition?: 'bottom' | 'top';
   quoteSignature?: string;
   hiddenModules?: string[];
   businessHours?: string;

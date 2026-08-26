@@ -31,6 +31,7 @@ interface PosViewProps {
   warehouses?: any[];
   onSetInventory?: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
   onSetRefacciones?: React.Dispatch<React.SetStateAction<RefaccionItem[]>>;
+  onUpdateConfig?: (config: WorkshopConfig) => void;
 }
 
 export default function PosView(props: PosViewProps) {

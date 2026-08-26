@@ -78,6 +78,7 @@ export const INITIAL_CONFIG: WorkshopConfig = {
   autoBackupLastTime: '',
   enableTaller: true,
   enablePOS: true,
+  posTotalPosition: 'bottom',
   whatsappMode: 'integrated',
   autoSendSaleTicket: false,
   autoSendRepairStatus: false,
