@@ -17,12 +17,55 @@ export function generateUUID(): string {
   });
 }
 
+import { isRechargeSale } from './folioUtils';
+
+/**
+ * Automatically normalizes legacy sales records in fixmanager_sales
+ * by properly setting explicit isRecharge boolean property.
+ * This guarantees historical records created before modular sub-tabs
+ * are cleanly separated in Ventas, Recargas, and Chips SIM views.
+ */
+export function normalizeLegacySalesData(): number {
+  const raw = localStorage.getItem('fixmanager_sales');
+  if (!raw) return 0;
+
+  try {
+    const sales = JSON.parse(raw);
+    if (!Array.isArray(sales)) return 0;
+
+    let modified = 0;
+    const normalized = sales.map((sale: any) => {
+      if (!sale || typeof sale !== 'object') return sale;
+
+      // Detect if it is a recharge using robust criteria
+      const isRec = isRechargeSale(sale);
+      if (sale.isRecharge !== isRec) {
+        sale.isRecharge = isRec;
+        modified++;
+      }
+      return sale;
+    });
+
+    if (modified > 0) {
+      localStorage.setItem('fixmanager_sales', JSON.stringify(normalized));
+      console.log(`[Migration] Se normalizaron ${modified} registros de ventas/recargas históricos en fixmanager_sales.`);
+    }
+    return modified;
+  } catch (e) {
+    console.error('[Migration] Error al normalizar registros históricos de ventas:', e);
+    return 0;
+  }
+}
+
 /**
  * Migrates existing localStorage records (which only have short IDs like TKT-0001)
  * to include UUIDs and timestamps for synchronization, preventing data loss.
  */
 export function migrateLocalDataToUUIDs() {
   console.log('[Migration] Iniciando comprobación de migración a UUIDs para sincronización...');
+
+  // Also normalize legacy sales records
+  normalizeLegacySalesData();
 
   const tablesToMigrate = [
     { key: 'fixmanager_orders', name: 'Órdenes' },

@@ -29,6 +29,8 @@ import { taecelRegisterAccount, taecelGetBalance } from '../utils/taecel';
 import { PRINTER_PRESETS_DATABASE, PrinterPresetProfile } from '../utils/printerPresets';
 import { buildA4ReportHtml, printA4Report, showToast, notifyDone } from '../utils/a4Reports';
 import { COUNTRIES_LIST, MEXICO_STATES_DATA, USA_STATES_LIST, ALL_COUNTRIES, MEXICAN_STATES, COLOMBIA_DEPARTMENTS } from '../utils/mexicoLocations';
+import { COUNTRY_LIST, COMMON_CURRENCIES, getCountryByCode, getCountryByName } from '../utils/countries';
+import CountryCodeSelect from './CountryCodeSelect';
 
 const formatDateToDMY = (dateStr: string | undefined | null): string => {
   if (!dateStr) return '';
@@ -1569,7 +1571,9 @@ export function ConfigView({
   const [storeName, setStoreName] = useState(config.storeName);
   const [slogan, setSlogan] = useState(config.slogan || '');
   const [phone, setPhone] = useState(config.phone || '');
+  const [phoneCountryCode, setPhoneCountryCode] = useState(config.phoneCountryCode || '+52');
   const [phone2, setPhone2] = useState(config.phone2 || '');
+  const [phone2CountryCode, setPhone2CountryCode] = useState(config.phone2CountryCode || '+52');
   const [email, setEmail] = useState(config.email || '');
   const [logoUrl, setLogoUrl] = useState(config.logoUrl || '');
   const [ticketLogoUrl, setTicketLogoUrl] = useState(config.ticketLogoUrl || '');
@@ -4175,7 +4179,9 @@ export function ConfigView({
       quoteSignature,
       businessHours,
       phone,
+      phoneCountryCode,
       phone2,
+      phone2CountryCode,
       email,
       logoUrl,
       ticketLogoUrl,
@@ -6787,14 +6793,18 @@ ${rowH('Anticipo pagado:', `${sym}${totalPaid.toLocaleString('es-MX', { minimumF
 
                 <div className="space-y-1">
                   <label className={`text-[10px] font-black uppercase tracking-wider block ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>Prefijo de País por Defecto</label>
-                  <input
-                    type="text"
+                  <select
                     value={waDefaultCountry}
-                    onChange={e => setWaDefaultCountry(e.target.value.replace(/\D/g, ''))}
-                    placeholder="52"
-                    className={`w-full focus:outline-none px-2.5 py-2 text-xs font-mono font-bold ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black' : isLight ? 'bg-white border border-zinc-300 rounded-lg text-zinc-900' : 'bg-zinc-900 border border-zinc-800 rounded-lg text-white'}`}
-                  />
-                  <p className="text-[9px] text-zinc-500">Se añade automáticamente al detectar números a 10 dígitos (Ej: 52 para México).</p>
+                    onChange={e => setWaDefaultCountry(e.target.value)}
+                    className={`w-full focus:outline-none px-2.5 py-2 text-xs font-mono font-bold cursor-pointer ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black' : isLight ? 'bg-white border border-zinc-300 rounded-lg text-zinc-900' : 'bg-zinc-900 border border-zinc-800 rounded-lg text-white'}`}
+                  >
+                    {COUNTRY_LIST.map((c, i) => (
+                      <option key={`${c.dialCode}-${i}`} value={c.dialCode}>
+                        {c.flag} +{c.dialCode} · {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-zinc-500">Se añade automáticamente al detectar números locales para envíos de WhatsApp.</p>
                 </div>
               </div>
 
@@ -7520,15 +7530,67 @@ ${rowH('Anticipo pagado:', `${sym}${totalPaid.toLocaleString('es-MX', { minimumF
                   >
                     <div className="space-y-1">
                       <label className={configLabelCls}>Teléfono de Casa / Oficina</label>
-                      <input type="text" value={phone} onChange={e => setPhone(formatPhoneNumber(e.target.value))} placeholder="Ej: (351) 157-4876"
-                        onBlur={handleSaveTicketConfig}
-                        className={`w-full text-xs px-2.5 py-1.5 focus:outline-none ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900 rounded-none font-bold' : isLight ? 'bg-white border border-zinc-200 text-zinc-900 focus:border-amber-500 rounded-md' : 'bg-[#08080a] border border-[#2d2f36] focus:border-amber-500 text-white rounded'}`} />
+                      <div className="flex gap-1 items-stretch">
+                        <CountryCodeSelect
+                          value={phoneCountryCode}
+                          onChange={code => {
+                            setPhoneCountryCode(code);
+                            const country = getCountryByCode(code);
+                            const updates: Partial<WorkshopConfig> = { phoneCountryCode: code };
+                            if (country) {
+                              if (country.currencySymbol) {
+                                setCurrencySymbol(country.currencySymbol);
+                                updates.currencySymbol = country.currencySymbol;
+                              }
+                              if (country.name) {
+                                setAddressCountry(country.name);
+                                updates.addressCountry = country.name;
+                                updates.countryName = country.name;
+                              }
+                              if (country.dialCode) {
+                                updates.whatsappDefaultCountryCode = country.dialCode;
+                              }
+                              if (country.defaultTaxRate !== undefined) {
+                                setTaxRate(country.defaultTaxRate);
+                                updates.taxRate = country.defaultTaxRate;
+                              }
+                            }
+                            handleSaveTicketConfig(updates);
+                          }}
+                          className={`text-xs px-2 py-1.5 focus:outline-none cursor-pointer ${
+                            isRetro 
+                              ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900 font-bold' 
+                              : isLight 
+                                ? 'bg-white border border-zinc-200 text-zinc-900 rounded-md' 
+                                : 'bg-[#08080a] border border-[#2d2f36] text-white rounded'
+                          }`}
+                        />
+                        <input type="text" value={phone} onChange={e => setPhone(formatPhoneNumber(e.target.value))} placeholder="Ej: (351) 157-4876"
+                          onBlur={handleSaveTicketConfig}
+                          className={`flex-1 text-xs px-2.5 py-1.5 focus:outline-none ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900 rounded-none font-bold' : isLight ? 'bg-white border border-zinc-200 text-zinc-900 focus:border-amber-500 rounded-md' : 'bg-[#08080a] border border-[#2d2f36] focus:border-amber-500 text-white rounded'}`} />
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <label className={configLabelCls}>WhatsApp / Celular</label>
-                      <input type="text" value={phone2} onChange={e => setPhone2(formatPhoneNumber(e.target.value))} placeholder="Ej: (355) 100-1632"
-                        onBlur={handleSaveTicketConfig}
-                        className={`w-full text-xs px-2.5 py-1.5 focus:outline-none ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900 rounded-none font-bold' : isLight ? 'bg-white border border-zinc-200 text-zinc-900 focus:border-amber-500 rounded-md' : 'bg-[#08080a] border border-[#2d2f36] focus:border-amber-500 text-white rounded'}`} />
+                      <div className="flex gap-1 items-stretch">
+                        <CountryCodeSelect
+                          value={phone2CountryCode}
+                          onChange={code => {
+                            setPhone2CountryCode(code);
+                            handleSaveTicketConfig({ phone2CountryCode: code });
+                          }}
+                          className={`text-xs px-2 py-1.5 focus:outline-none cursor-pointer ${
+                            isRetro 
+                              ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900 font-bold' 
+                              : isLight 
+                                ? 'bg-white border border-zinc-200 text-zinc-900 rounded-md' 
+                                : 'bg-[#08080a] border border-[#2d2f36] text-white rounded'
+                          }`}
+                        />
+                        <input type="text" value={phone2} onChange={e => setPhone2(formatPhoneNumber(e.target.value))} placeholder="Ej: (355) 100-1632"
+                          onBlur={handleSaveTicketConfig}
+                          className={`flex-1 text-xs px-2.5 py-1.5 focus:outline-none ${isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900 rounded-none font-bold' : isLight ? 'bg-white border border-zinc-200 text-zinc-900 focus:border-amber-500 rounded-md' : 'bg-[#08080a] border border-[#2d2f36] focus:border-amber-500 text-white rounded'}`} />
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <label className={configLabelCls}>Correo Electrónico</label>
@@ -7584,6 +7646,33 @@ ${rowH('Anticipo pagado:', `${sym}${totalPaid.toLocaleString('es-MX', { minimumF
                               }
                               const full = buildFormattedAddress(addressStreet, addressNumber, addressColonia, newCity, newState, addressZip, newCountry);
                               setAddress(full);
+
+                              const cInfo = getCountryByName(newCountry);
+                              const updates: Partial<WorkshopConfig> = {
+                                addressCountry: newCountry,
+                                countryName: newCountry,
+                                addressState: newState,
+                                addressCity: newCity,
+                                address: full
+                              };
+                              if (cInfo) {
+                                if (cInfo.code) {
+                                  setPhoneCountryCode(cInfo.code);
+                                  updates.phoneCountryCode = cInfo.code;
+                                }
+                                if (cInfo.currencySymbol) {
+                                  setCurrencySymbol(cInfo.currencySymbol);
+                                  updates.currencySymbol = cInfo.currencySymbol;
+                                }
+                                if (cInfo.dialCode) {
+                                  updates.whatsappDefaultCountryCode = cInfo.dialCode;
+                                }
+                                if (cInfo.defaultTaxRate !== undefined) {
+                                  setTaxRate(cInfo.defaultTaxRate);
+                                  updates.taxRate = cInfo.defaultTaxRate;
+                                }
+                              }
+                              handleSaveTicketConfig(updates);
                             }}
                             onBlur={() => handleSaveTicketConfig({
                               addressCountry,
@@ -8282,8 +8371,12 @@ ${rowH('Anticipo pagado:', `${sym}${totalPaid.toLocaleString('es-MX', { minimumF
                       <label className={configLabelCls}>Símbolo Monetario</label>
                       <select
                         value={currencySymbol}
-                        onChange={e => setCurrencySymbol(e.target.value)}
-                        className={`w-full text-xs px-2.5 py-1.5 focus:outline-none ${
+                        onChange={e => {
+                          const val = e.target.value;
+                          setCurrencySymbol(val);
+                          handleSaveTicketConfig({ currencySymbol: val });
+                        }}
+                        className={`w-full text-xs px-2.5 py-1.5 focus:outline-none cursor-pointer ${
                           isRetro 
                             ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-900 rounded-none font-bold' 
                             : isLight 
@@ -8291,10 +8384,11 @@ ${rowH('Anticipo pagado:', `${sym}${totalPaid.toLocaleString('es-MX', { minimumF
                               : 'bg-[#08080a] border border-[#2d2f36] focus:border-amber-500 text-white rounded'
                         }`}
                       >
-                        <option value="$">Peso Mexicano ($)</option>
-                        <option value="USD $">Dolar Estadounidense (USD $)</option>
-                        <option value="€">Euro (€)</option>
-                        <option value="Q">Quetzal (Q)</option>
+                        {COMMON_CURRENCIES.map((cur, i) => (
+                          <option key={`${cur.value}-${i}`} value={cur.value}>
+                            {cur.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 

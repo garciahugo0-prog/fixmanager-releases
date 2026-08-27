@@ -11,6 +11,7 @@ import { formatPhoneNumber } from '../utils/phoneFormatter';
 import { sendWhatsappQuote, formatPhoneForWhatsapp, openWhatsappChat } from '../utils/whatsapp';
 import { createPortal } from 'react-dom';
 import { handleCaretPreservingChange } from '../utils/domHelpers';
+import CountryCodeSelect from './CountryCodeSelect';
 
 interface CotizacionesViewProps {
   quotes: Quote[];
@@ -112,7 +113,7 @@ function NewQuoteModal({
   const isLight = _globalIsLight;
   const [customerName, setCustomerName] = useState(editingQuote ? editingQuote.customerName : '');
   const [customerPhone, setCustomerPhone] = useState(editingQuote ? editingQuote.customerPhone : '');
-  const [customerCountryCode, setCustomerCountryCode] = useState(editingQuote ? editingQuote.customerCountryCode : '+52');
+  const [customerCountryCode, setCustomerCountryCode] = useState(editingQuote ? editingQuote.customerCountryCode : (config?.phoneCountryCode || '+52'));
   const [validUntil, setValidUntil] = useState(() => {
     if (editingQuote && editingQuote.validUntil) {
       return editingQuote.validUntil;
@@ -1159,18 +1160,12 @@ function NewQuoteModal({
                                  <div className="flex items-center gap-1.5 w-[230px] shrink-0 justify-end">
                                    <span className="text-[10px] text-black font-black uppercase tracking-wider shrink-0">TELÉFONO:</span>
                                    <div className="flex w-[160px] border-b border-zinc-300 focus-within:border-black bg-transparent min-w-0">
-                                     <select
-                                       value={customerCountryCode}
-                                       onChange={e => setCustomerCountryCode(e.target.value)}
+                                     <CountryCodeSelect
+                                       value={customerCountryCode || config.phoneCountryCode || '+52'}
+                                       onChange={code => setCustomerCountryCode(code)}
+                                       isCompact
                                        className="quote-sheet-select py-0.5 pr-0.5 text-xs font-black bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer text-black shrink-0"
-                                     >
-                                       <option value="+52">🇲🇽</option>
-                                       <option value="+1">🇺🇸</option>
-                                       <option value="+34">🇪🇸</option>
-                                       <option value="+57">🇨🇴</option>
-                                       <option value="+54">🇦🇷</option>
-                                       <option value="+56">🇨🇱</option>
-                                     </select>
+                                     />
                                      <input
                                        type="text"
                                        placeholder="Teléfono"
@@ -1700,19 +1695,12 @@ function NewQuoteModal({
               {/* Teléfono — mismo estilo que NuevaView */}
               <div className={`flex rounded-lg overflow-hidden border focus-within:ring-1 ${isRetro ? 'border-zinc-400 focus-within:border-[#000080] focus-within:ring-[#000080]' : isLight ? 'border-[#b2c0cc] focus-within:border-blue-600 focus-within:ring-blue-600' : 'border-zinc-600 focus-within:border-blue-500 focus-within:ring-blue-500'} ${isLight ? 'bg-white' : 'bg-[#1c1f2e]'} shadow-sm`}>
                 <div className={`border-r shrink-0 flex items-center relative select-none ${isRetro ? 'bg-zinc-100 border-zinc-400' : isLight ? 'bg-zinc-100 border-[#b2c0cc]' : 'bg-zinc-800 border-zinc-600'}`}>
-                  <select
+                  <CountryCodeSelect
                     value={customerCountryCode}
-                    onChange={e => setCustomerCountryCode(e.target.value)}
+                    onChange={code => setCustomerCountryCode(code)}
                     className={`pl-2.5 pr-6 py-2 text-xs font-bold font-mono border-none focus:outline-none focus:ring-0 cursor-pointer appearance-none h-full ${isLight ? 'bg-zinc-100 text-zinc-800' : 'bg-zinc-800 text-zinc-200'}`}
                     style={{ backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23555'><path fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /></svg>")`, backgroundPosition: 'right 0.35rem center', backgroundRepeat: 'no-repeat', backgroundSize: '0.8rem' }}
-                  >
-                    <option value="+52">🇲🇽 +52</option>
-                    <option value="+1">🇺🇸 +1</option>
-                    <option value="+34">🇪🇸 +34</option>
-                    <option value="+57">🇨🇴 +57</option>
-                    <option value="+54">🇦🇷 +54</option>
-                    <option value="+56">🇨🇱 +56</option>
-                  </select>
+                  />
                 </div>
                 <input
                   id="cot-phone"

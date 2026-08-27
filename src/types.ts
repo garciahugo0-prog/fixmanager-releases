@@ -515,7 +515,10 @@ export interface WorkshopConfig {
   deletedAt?: string;
   storeName: string;
   phone: string;
+  phoneCountryCode?: string;
   phone2?: string;
+  phone2CountryCode?: string;
+  countryName?: string;
   email: string;
   logoUrl: string;
   slogan: string;

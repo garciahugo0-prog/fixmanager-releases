@@ -94,18 +94,37 @@ async function renderHtmlToBase64(html: string): Promise<string | undefined> {
 }
 
 /**
- * Limpia y formatea el número de teléfono para que sea compatible con WhatsApp.
- * Si tiene 10 dígitos, agrega el prefijo del país por defecto (ej. '52' para México).
+ * Limpia y formatea el número de teléfono para que sea compatible con WhatsApp internacional.
+ * - México (52): normaliza a 521 + 10 dígitos
+ * - Argentina (54): normaliza a 549 + código de área + número local
+ * - Resto del mundo: código de país + número
  */
 export function formatPhoneForWhatsapp(phone: string, defaultCountry: string = '52'): string {
   let cleaned = phone.replace(/\D/g, '');
+  const cleanCc = (defaultCountry || '52').replace(/\D/g, '') || '52';
+
+  // Si el número solo tiene 10 dígitos o no tiene el prefijo de país, anteponer el prefijo correspondiente
   if (cleaned.length === 10) {
-    cleaned = defaultCountry + cleaned;
+    cleaned = cleanCc + cleaned;
+  } else if (!cleaned.startsWith(cleanCc) && cleaned.length < 11) {
+    cleaned = cleanCc + cleaned;
   }
-  // Normalizar números de México (52): los móviles en WhatsApp requieren el prefijo 521 (13 dígitos)
+
+  // 1. Normalizar números de México (52): los móviles en WhatsApp requieren el prefijo 521 (13 dígitos)
   if (cleaned.startsWith('52') && cleaned.length === 12 && !cleaned.startsWith('521')) {
     cleaned = '521' + cleaned.substring(2);
   }
+
+  // 2. Normalizar números de Argentina (54): los móviles en WhatsApp requieren 549 + área + número (sin 15)
+  if (cleaned.startsWith('54') && !cleaned.startsWith('549')) {
+    const after54 = cleaned.substring(2);
+    if (after54.startsWith('15')) {
+      cleaned = '549' + after54.substring(2);
+    } else {
+      cleaned = '549' + after54;
+    }
+  }
+
   return cleaned;
 }
 

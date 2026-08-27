@@ -25,6 +25,7 @@ import { InventoryItem, WorkshopConfig, Expense, AppUser } from '../types';
 import { formatPhoneNumber } from '../utils/phoneFormatter';
 import { handleCaretPreservingChange } from '../utils/domHelpers';
 import { PosItemThumbnail } from './pos/PosItemThumbnail';
+import CountryCodeSelect from './CountryCodeSelect';
 
 interface ReabastecerViewProps {
   inventory: InventoryItem[];
@@ -109,7 +110,7 @@ export default function ReabastecerView({
   const openNewProviderModal = () => {
     setNewProviderName('');
     setNewProviderPhone('');
-    setNewProviderCountryCode('+52');
+    setNewProviderCountryCode(config?.phoneCountryCode || '+52');
     setNewProviderCity('');
     setNewProviderState('');
     setNewProviderAddress('');
@@ -1686,15 +1687,12 @@ export default function ReabastecerView({
                   Teléfono <span className="text-red-500">*</span>
                 </label>
                 <div className={`flex rounded overflow-hidden border focus-within:border-amber-500 transition-colors ${isRetro ? 'border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white bg-white' : 'border border-zinc-500 bg-[#22252d]'}`}>
-                  <select
+                  <CountryCodeSelect
                     value={newProviderCountryCode}
-                    onChange={(e) => setNewProviderCountryCode(e.target.value)}
+                    onChange={(code) => setNewProviderCountryCode(code)}
                     className={`shrink-0 pl-2 pr-5 py-2 text-xs font-bold font-mono border-r focus:outline-none appearance-none cursor-pointer ${isRetro ? 'bg-zinc-100 border-zinc-300 text-zinc-800' : 'bg-[#1a1d23] border-zinc-600 text-zinc-200'}`}
                     style={{ backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23888'><path fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /></svg>")`, backgroundPosition: 'right 0.3rem center', backgroundRepeat: 'no-repeat', backgroundSize: '0.75rem' }}
-                  >
-                    <option value="+52">🇲🇽 +52</option>
-                    <option value="+1">🇺🇸 +1</option>
-                  </select>
+                  />
                   <input
                     type="text"
                     inputMode="numeric"

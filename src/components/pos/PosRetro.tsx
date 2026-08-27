@@ -13,6 +13,7 @@ import { buildPosTicketHtml } from '../../utils/ticketBuilder';
 import { getIndividualAdvance } from '../../utils/orderHelpers';
 import { handleCaretPreservingChange } from '../../utils/domHelpers';
 import { PosItemThumbnail } from './PosItemThumbnail';
+import CountryCodeSelect from '../CountryCodeSelect';
 
 interface Props {
   logic: PosLogic;
@@ -2622,14 +2623,11 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
                 <div className="relative">
                   <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
                   <div className="flex mt-1 border-2 border-zinc-400 bg-white focus-within:border-[#000080]">
-                    <select
+                    <CountryCodeSelect
                       value={fiarCountryCode}
-                      onChange={e => setFiarCountryCode(e.target.value)}
+                      onChange={code => setFiarCountryCode(code)}
                       className="bg-zinc-100 border-r-2 border-zinc-450 px-2 text-xs font-bold text-zinc-800 focus:outline-none cursor-pointer appearance-none"
-                    >
-                      <option value="+52">🇲🇽 +52</option>
-                      <option value="+1">🇺🇸 +1</option>
-                    </select>
+                    />
                     <input id="fiar-telefono" value={fiarClientPhone}
                       onChange={e => setFiarClientPhone(formatPhoneNumber(e.target.value))}
                       onFocus={() => setActiveSearchField('phone')}
@@ -2836,14 +2834,11 @@ export default function PosRetro({ logic, warehouses = [] }: Props) {
                 <div>
                   <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
                   <div className="flex mt-1 border-2 border-zinc-400 bg-white focus-within:border-[#000080]">
-                    <select
+                    <CountryCodeSelect
                       value={apartarCountryCode}
-                      onChange={e => setApartarCountryCode(e.target.value)}
+                      onChange={code => setApartarCountryCode(code)}
                       className="bg-zinc-100 border-r-2 border-zinc-450 px-2 text-xs font-bold text-zinc-800 focus:outline-none cursor-pointer appearance-none"
-                    >
-                      <option value="+52">🇲🇽 +52</option>
-                      <option value="+1">🇺🇸 +1</option>
-                    </select>
+                    />
                     <input value={apartarClientPhone} onChange={e => setApartarClientPhone(formatPhoneNumber(e.target.value))}
                       placeholder="(351) 000-0000"
                       className="w-full bg-white border-none text-zinc-900 px-3 py-1.5 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-400" />

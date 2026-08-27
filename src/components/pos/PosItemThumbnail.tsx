@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { X, ZoomIn, MessageCircle, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import { sendProductByWhatsapp } from '../../utils/whatsapp';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
+import CountryCodeSelect from '../CountryCodeSelect';
 
 interface PosItemThumbnailProps {
   imageUrl?: string;
@@ -377,27 +378,23 @@ export const PosItemThumbnail: React.FC<PosItemThumbnailProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, marginTop: 2 }}>
               <span style={{ fontSize: 11, fontWeight: 800, color: '#166534', flexShrink: 0 }}>📱 WhatsApp Cliente:</span>
               {/* Selector de código de país */}
-              <select
+              <CountryCodeSelect
                 value={countryCode}
-                onChange={e => setCountryCode(e.target.value)}
+                onChange={(code) => setCountryCode(code)}
                 style={{
                   padding: '5px 6px',
                   borderRadius: 6,
                   border: '1px solid #86efac',
                   fontSize: 11,
+                  fontFamily: 'monospace',
                   fontWeight: 700,
-                  backgroundColor: '#f0fdf4',
+                  backgroundColor: '#ffffff',
                   color: '#166534',
                   cursor: 'pointer',
                   flexShrink: 0,
                   outline: 'none',
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
                 }}
-              >
-                <option value="+52">🇲🇽 +52</option>
-                <option value="+1">🇺🇸 +1</option>
-              </select>
+              />
               {/* Input con formato automático */}
               <input
                 type="tel"

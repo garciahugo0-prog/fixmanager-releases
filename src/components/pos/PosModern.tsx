@@ -14,6 +14,7 @@ import { getIndividualAdvance } from '../../utils/orderHelpers';
 import { handleCaretPreservingChange } from '../../utils/domHelpers';
 import { PosItemThumbnail } from './PosItemThumbnail';
 import { sendPosQuoteByWhatsapp } from '../../utils/whatsapp';
+import CountryCodeSelect from '../CountryCodeSelect';
 
 interface Props {
   logic: PosLogic;
@@ -113,7 +114,7 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
   const [showQuoteWhatsappModal, setShowQuoteWhatsappModal] = React.useState(false);
   const [quoteClientName, setQuoteClientName] = React.useState('');
   const [quoteWhatsappPhone, setQuoteWhatsappPhone] = React.useState('');
-  const [quoteCountryCode, setQuoteCountryCode] = React.useState('+52');
+  const [quoteCountryCode, setQuoteCountryCode] = React.useState(config?.phoneCountryCode || '+52');
   const [isQuoteMode, setIsQuoteMode] = React.useState(false);
 
   React.useEffect(() => {
@@ -2849,14 +2850,11 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
                   <div className="relative">
                     <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
                     <div className="flex mt-1 bg-zinc-800 border border-zinc-600 rounded-lg overflow-hidden focus-within:border-orange-500">
-                      <select
+                      <CountryCodeSelect
                         value={fiarCountryCode}
-                        onChange={e => setFiarCountryCode(e.target.value)}
+                        onChange={code => setFiarCountryCode(code)}
                         className="bg-zinc-900 border-r border-zinc-700 text-white px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none"
-                      >
-                        <option value="+52">🇲🇽 +52</option>
-                        <option value="+1">🇺🇸 +1</option>
-                      </select>
+                      />
                       <input id="fiar-tel-modern" value={fiarClientPhone}
                         onChange={e => setFiarClientPhone(formatPhoneNumber(e.target.value))}
                         onFocus={() => setActiveSearchField('phone')}
@@ -3028,14 +3026,11 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
               <div>
                 <label className="text-[10px] font-black uppercase text-zinc-500">Teléfono *</label>
                 <div className="flex mt-1 bg-zinc-800 border border-zinc-600 rounded-lg overflow-hidden focus-within:border-purple-500">
-                  <select
+                  <CountryCodeSelect
                     value={apartarCountryCode}
-                    onChange={e => setApartarCountryCode(e.target.value)}
+                    onChange={code => setApartarCountryCode(code)}
                     className="bg-zinc-900 border-r border-zinc-700 text-white px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none"
-                  >
-                    <option value="+52">🇲🇽 +52</option>
-                    <option value="+1">🇺🇸 +1</option>
-                  </select>
+                  />
                   <input value={apartarClientPhone} onChange={e => setApartarClientPhone(formatPhoneNumber(e.target.value))}
                     placeholder="(351) 000-0000"
                     className="w-full bg-transparent border-none text-white px-3 py-1.5 text-sm font-bold outline-none placeholder:font-normal placeholder:text-zinc-500" />
@@ -4298,14 +4293,11 @@ export default function PosModern({ logic, warehouses = [] }: Props) {
               <div className="space-y-1">
                 <label className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wide block select-none">Número de WhatsApp (Celular)</label>
                 <div className="flex bg-[#22252d] border border-zinc-650 rounded-lg overflow-hidden focus-within:border-amber-500">
-                  <select
+                  <CountryCodeSelect
                     value={quoteCountryCode}
-                    onChange={e => setQuoteCountryCode(e.target.value)}
+                    onChange={code => setQuoteCountryCode(code)}
                     className="bg-zinc-900 border-r border-zinc-700 text-white px-2 text-xs font-bold focus:outline-none cursor-pointer appearance-none"
-                  >
-                    <option value="+52">🇲🇽 +52</option>
-                    <option value="+1">🇺🇸 +1</option>
-                  </select>
+                  />
                   <input
                     type="text"
                     value={quoteWhatsappPhone}

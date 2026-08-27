@@ -21,6 +21,7 @@ import { buildConsolidatedTicketHtml, buildTicketHtml, buildServiceLabelHtml } f
 import { DEFAULT_OFFLINE_MODELS, INITIAL_SERVICES } from '../data';
 import { handleCaretPreservingChange } from '../utils/domHelpers';
 import { generateNextOrderId } from '../utils/folioUtils';
+import CountryCodeSelect from './CountryCodeSelect';
 
 const ACCESSORY_OPTIONS = [
   'CHIP / SIM',
@@ -2044,7 +2045,7 @@ export default function NuevaView({
 
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [customerCountryCode, setCustomerCountryCode] = useState('+52');
+  const [customerCountryCode, setCustomerCountryCode] = useState(config.phoneCountryCode || '+52');
 
   const hasProgress = activeStep > 0 || !!customerName || !!deviceModel;
 
@@ -5938,10 +5939,10 @@ export default function NuevaView({
                           <div className="relative">
                             <div className="flex rounded-lg overflow-hidden border border-[#b2c0cc] focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600 bg-white shadow-sm">
                               <div className="bg-zinc-100 border-r border-[#b2c0cc] text-zinc-500 shrink-0 flex items-center relative select-none">
-                                <select
+                                <CountryCodeSelect
                                   id="country-code-selector"
                                   value={customerCountryCode}
-                                  onChange={(e) => setCustomerCountryCode(e.target.value)}
+                                  onChange={(code) => setCustomerCountryCode(code)}
                                   className="bg-[#f4f4f5] pl-2.5 pr-6 py-2 text-xs font-bold font-mono text-zinc-800 border-none focus:outline-none focus:ring-0 cursor-pointer appearance-none h-full"
                                   style={{
                                     backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23555'><path fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /></svg>")`,
@@ -5949,10 +5950,7 @@ export default function NuevaView({
                                     backgroundRepeat: 'no-repeat',
                                     backgroundSize: '0.8rem'
                                   }}
-                                >
-                                  <option value="+52">🇲🇽 +52</option>
-                                  <option value="+1">🇺🇸 +1</option>
-                                </select>
+                                />
                               </div>
                               <input
                                 id="new-customer-phone-input"

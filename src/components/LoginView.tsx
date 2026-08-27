@@ -16,7 +16,7 @@ interface LoginViewProps {
   config: WorkshopConfig;
   onLogin: (user: AppUser) => void;
   isOverlay?: boolean;
-  licenseStatus?: 'checking' | 'active' | 'none' | 'invalid' | 'expired';
+  licenseStatus?: 'checking' | 'active' | 'trial' | 'none' | 'invalid' | 'expired';
   licenseInfo?: Record<string, unknown> | null;
   onRenewLicense?: () => void;
   onLicenseActivated?: (info: Record<string, unknown>) => void;
@@ -275,7 +275,7 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('license_status, license_expiry, email, app, cloud_sync_enabled')
+        .select('license_status, license_expiry, created_at, email, app, cloud_sync_enabled')
         .eq('id', user.id)
         .single();
 
@@ -296,11 +296,39 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
         return;
       }
 
-      // 1. Validar si es una cuenta nueva sin activar
-      if (!profile.license_expiry || profile.license_status === 'none' || !profile.license_status) {
-        setSbError('Tu cuenta ha sido registrada con éxito. Por favor, comunícate con administración para activar tu licencia.');
-        setSbLoading(false);
-        return;
+      // 1. Si es una cuenta nueva sin definir, o si es un trial que fue registrado sin fecha futura (bug de fecha de hoy):
+      const hasNoExpiry = !profile.license_expiry || profile.license_status === 'none' || !profile.license_status;
+      let isTrialCreationBug = false;
+      if (profile.license_status === 'trial' && profile.license_expiry) {
+        const expTime = new Date(profile.license_expiry).getTime();
+        const createdTime = profile.created_at ? new Date(profile.created_at).getTime() : 0;
+        const nowTime = Date.now();
+        if (createdTime > 0 && Math.abs(expTime - createdTime) < 1000 * 60 * 60 * 24) {
+          isTrialCreationBug = true;
+        } else if (expTime <= nowTime && (!profile.created_at || (nowTime - createdTime < 1000 * 60 * 60 * 48))) {
+          isTrialCreationBug = true;
+        }
+      }
+
+      if (hasNoExpiry || isTrialCreationBug) {
+        const trialExpiry = new Date();
+        trialExpiry.setDate(trialExpiry.getDate() + 7);
+        try {
+          const { error: updErr } = await supabase
+            .from('profiles')
+            .update({
+              license_status: 'trial',
+              license_expiry: trialExpiry.toISOString(),
+              app: appMode
+            })
+            .eq('id', user.id);
+          if (!updErr) {
+            profile.license_status = 'trial';
+            profile.license_expiry = trialExpiry.toISOString();
+          }
+        } catch (e) {
+          console.warn('Error setting fallback trial:', e);
+        }
       }
 
       // 2. Validar si la cuenta está suspendida
@@ -314,7 +342,11 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
       const expiryDate = new Date(profile.license_expiry);
       const isCloudInvalid = profile.license_status !== 'active' && profile.license_status !== 'trial';
       if (isCloudInvalid || expiryDate < new Date()) {
-        setSbError('Tu suscripción ha expirado. Por favor, comunícate con administración para renovar tu licencia.');
+        if (profile.license_status === 'trial') {
+          setSbError('Tu periodo de prueba gratuita de 7 días ha finalizado. Por favor, comunícate con administración para adquirir tu licencia.');
+        } else {
+          setSbError('Tu suscripción ha expirado. Por favor, comunícate con administración para renovar tu licencia.');
+        }
         setSbLoading(false);
         return;
       }
@@ -407,7 +439,15 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
           } catch (e) {}
         }
 
-        setSbMessage('¡Licencia activada con éxito!');
+        if (profile.license_status === 'trial') {
+          setSbMessage('🎉 ¡Bienvenido! Tu prueba gratuita de 7 días está activa.');
+        } else {
+          if (profile.license_status === 'trial') {
+          setSbMessage('🎉 ¡Bienvenido! Tu prueba gratuita de 7 días está activa.');
+        } else {
+          setSbMessage('¡Licencia activada con éxito!');
+        }
+        }
         if (onLicenseActivated) {
           onLicenseActivated(actResult.license);
         }
@@ -514,7 +554,7 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
       // Obtener el estado de la licencia de su perfil
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('id, email, license_status, license_expiry, app, cloud_sync_enabled')
+        .select('id, email, license_status, license_expiry, created_at, app, cloud_sync_enabled')
         .eq('id', userId)
         .single();
 
@@ -535,11 +575,39 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
         return;
       }
 
-      // 1. Validar si es una cuenta nueva sin activar
-      if (!profile.license_expiry || profile.license_status === 'none' || !profile.license_status) {
-        setSbError('Tu cuenta ha sido registrada con éxito. Por favor, comunícate con administración para activar tu licencia.');
-        setSbLoading(false);
-        return;
+      // 1. Si es una cuenta nueva sin definir o con el bug de fecha de expiración en trial:
+      const hasNoExpiry = !profile.license_expiry || profile.license_status === 'none' || !profile.license_status;
+      let isTrialCreationBug = false;
+      if (profile.license_status === 'trial' && profile.license_expiry) {
+        const expTime = new Date(profile.license_expiry).getTime();
+        const createdTime = profile.created_at ? new Date(profile.created_at).getTime() : 0;
+        const nowTime = Date.now();
+        if (createdTime > 0 && Math.abs(expTime - createdTime) < 1000 * 60 * 60 * 24) {
+          isTrialCreationBug = true;
+        } else if (expTime <= nowTime && (!profile.created_at || (nowTime - createdTime < 1000 * 60 * 60 * 48))) {
+          isTrialCreationBug = true;
+        }
+      }
+
+      if (hasNoExpiry || isTrialCreationBug) {
+        const trialExpiry = new Date();
+        trialExpiry.setDate(trialExpiry.getDate() + 7);
+        try {
+          const { error: updErr } = await supabase
+            .from('profiles')
+            .update({
+              license_status: 'trial',
+              license_expiry: trialExpiry.toISOString(),
+              app: appMode
+            })
+            .eq('id', userId);
+          if (!updErr) {
+            profile.license_status = 'trial';
+            profile.license_expiry = trialExpiry.toISOString();
+          }
+        } catch (e) {
+          console.warn('Error setting fallback trial in login:', e);
+        }
       }
 
       // 2. Verificar si la licencia está suspendida
@@ -553,7 +621,11 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
       const expiryDate = new Date(profile.license_expiry);
       const isCloudInvalid = profile.license_status !== 'active' && profile.license_status !== 'trial';
       if (isCloudInvalid || expiryDate < new Date()) {
-        setSbError('Tu suscripción ha expirado. Por favor, comunícate con administración para renovar tu licencia.');
+        if (profile.license_status === 'trial') {
+          setSbError('Tu periodo de prueba gratuita de 7 días ha finalizado. Por favor, comunícate con administración para adquirir tu licencia.');
+        } else {
+          setSbError('Tu suscripción ha expirado. Por favor, comunícate con administración para renovar tu licencia.');
+        }
         setSbLoading(false);
         return;
       }
@@ -693,7 +765,9 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
         options: {
           emailRedirectTo: `https://fixmanagerproject.com/auth/${appMode}/index.html`,
           data: {
-            app: appMode
+            app: appMode,
+            business_name: config?.storeName || '',
+            business_phone: config?.phone || ''
           }
         }
       });
@@ -705,17 +779,21 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
       }
 
       if (data?.user) {
+        const trialExpiry = new Date();
+        trialExpiry.setDate(trialExpiry.getDate() + 7);
         await supabase
           .from('profiles')
           .update({ 
             app: appMode,
             business_name: config?.storeName || null,
-            business_phone: config?.phone || null
+            business_phone: config?.phone || null,
+            license_status: 'trial',
+            license_expiry: trialExpiry.toISOString()
           })
           .eq('id', data.user.id);
       }
 
-      setSbMessage('Registro exitoso. Se ha enviado un correo de confirmación. Por favor, confírmalo y luego solicita la activación de tu plan por WhatsApp.');
+      setSbMessage('¡Registro exitoso! Hemos enviado un correo de confirmación. Por favor, confírmalo en tu bandeja de entrada para activar tus 7 días de prueba gratis.');
       setSbMode('login');
       setSbPassword('');
     } catch (err) {
@@ -825,7 +903,7 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
     // PIN correcto — verificar licencia en Supabase obligatoriamente para login inicial
     try {
       const checkOnline = async () => {
-        if (licenseStatus === 'active') {
+        if (licenseStatus === 'active' || licenseStatus === 'trial') {
           // Si la licencia ya fue validada con éxito en el arranque, omitimos la consulta de red
           // para que el inicio de sesión del usuario local sea inmediato.
           return;
@@ -1017,24 +1095,22 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
       btnBorder = '1px solid #f97316';
       btnAction = handleWhatsAppRenew;
     } else if (licenseStatus === 'none') {
-      bannerBg = '#1e3a8a'; // Azul indigo profesional
-      bannerText = '💡 ¡Todo listo! Activa tu FixManager para comenzar';
-      bannerTextColor = '#bfdbfe';
+      bannerBg = 'linear-gradient(90deg, #1e3a8a 0%, #1e40af 100%)';
+      bannerTextColor = '#dbeafe';
       bannerBorder = '1px solid rgba(59,130,246,0.4)';
-      
-      // Estilo de vidrio translúcido (glassmorphism) para que no se pierda y tenga buen contraste
-      btnBg = 'rgba(255, 255, 255, 0.15)';
-      btnBorder = '1px solid rgba(255, 255, 255, 0.35)';
-      
-      if (sbMode === 'login') {
-        btnText = '¿Eres nuevo? Regístrate aquí →';
-        btnAction = () => { setSbMode('register'); setSbError(null); setSbMessage(null); };
-      } else if (sbMode === 'register') {
-        btnText = '¿Ya tienes cuenta? Inicia sesión →';
-        btnAction = () => { setSbMode('login'); setSbError(null); setSbMessage(null); };
+      btnText = '';
+      btnAction = undefined;
+
+      if (sbMode === 'register') {
+        bannerText = '✨ ¡Todo listo! Inicia tus 7 días de prueba gratis';
+      } else if (sbMode === 'login') {
+        bannerText = '🔑 Inicia sesión para activar tu dispositivo';
+      } else if (sbMode === 'forgot') {
+        bannerText = '🔄 Recuperación de contraseña';
+      } else if (sbMode === 'localLink') {
+        bannerText = '🌐 Enlace de Caja Secundaria';
       } else {
-        btnText = 'Volver al Inicio →';
-        btnAction = () => { setSbMode('login'); setSbError(null); setSbMessage(null); };
+        bannerText = '✨ FixManager — Sistema de Gestión de Taller';
       }
     }
   }
@@ -1445,15 +1521,26 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
 
       {/* ── BARRA DE ESTADO ────────────────────────────────────────────── */}
       {licenseBlocked ? (
-        <div style={{ background: bannerBg, padding:'5px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, borderBottom: bannerBorder }}>
-          <span className="retro-white-text" style={{ fontSize:10, fontWeight:700 }}>
+        <div style={{
+          background: bannerBg,
+          padding: '6px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: btnText ? 'space-between' : 'center',
+          flexShrink: 0,
+          borderBottom: bannerBorder,
+          minHeight: 28
+        }}>
+          <span className="retro-white-text" style={{ fontSize: 11, fontWeight: 800, textAlign: 'center', letterSpacing: '0.01em' }}>
             {bannerText}
           </span>
-          <button type="button" onClick={btnAction} className="retro-white-text" style={{ background: btnBg, border: btnBorder, padding:'4px 10px', borderRadius:4, cursor:'pointer', letterSpacing:'0.05em', textTransform:'uppercase', display: 'flex', alignItems: 'center', transition: 'all 0.15s' }}>
-            <span className="retro-white-text" style={{ fontSize: '9px', fontWeight: 900 }}>
-              {btnText}
-            </span>
-          </button>
+          {btnText ? (
+            <button type="button" onClick={btnAction} className="retro-white-text" style={{ background: btnBg, border: btnBorder, padding:'4px 10px', borderRadius:4, cursor:'pointer', letterSpacing:'0.05em', textTransform:'uppercase', display: 'flex', alignItems: 'center', transition: 'all 0.15s' }}>
+              <span className="retro-white-text" style={{ fontSize: '9px', fontWeight: 900 }}>
+                {btnText}
+              </span>
+            </button>
+          ) : null}
         </div>
       ) : (
         <div style={{ background:'#1a5fa8',padding:'4px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0 }}>
@@ -1772,7 +1859,7 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
                 </h3>
                 <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 10.5, lineHeight: 1.3 }}>
                   {sbMode === 'login' && 'Ingresa tu correo y contraseña para activar la licencia en esta computadora.'}
-                  {sbMode === 'register' && 'Crea tu cuenta de FixManager. Para activarla, deberás adquirir una licencia.'}
+                  {sbMode === 'register' && 'Crea tu cuenta y obtén 7 días de prueba gratuita completa de FixManager.'}
                   {sbMode === 'forgot' && 'Ingresa tu correo para recibir un enlace para cambiar tu contraseña.'}
                 </p>
               </div>
@@ -1856,7 +1943,7 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
                 </div>
               )}
 
-              {(sbMode === 'register' || licenseStatus === 'expired' || licenseStatus === 'invalid') && renderPlanSelector()}
+              {(licenseStatus === 'expired' || licenseStatus === 'invalid') && renderPlanSelector()}
 
               <button type="submit" disabled={sbLoading}
                 style={{
@@ -1876,7 +1963,7 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
                   opacity: sbLoading ? 0.7 : 1
                 }}
               >
-                {sbLoading ? 'Cargando...' : sbMode === 'login' ? 'Activar Dispositivo →' : sbMode === 'register' ? 'Crear Cuenta →' : 'Enviar Enlace →'}
+                {sbLoading ? 'Cargando...' : sbMode === 'login' ? 'Activar Dispositivo →' : sbMode === 'register' ? 'Comenzar Prueba Gratis (7 Días) →' : 'Enviar Enlace →'}
               </button>
 
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginTop: 4 }}>
@@ -1898,7 +1985,7 @@ export default function LoginView({ users, config, onLogin, isOverlay = false, l
                 ) : (
                   <button type="button" onClick={() => { setSbMode('login'); setSbError(null); setSbMessage(null); }}
                     style={{ background: 'none', border: 'none', color: '#1a7abf', fontSize: 11, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>
-                    Ya tengo cuenta, Iniciar Sesión
+                    ¿Ya tienes una cuenta registrada? Inicia sesión aquí
                   </button>
                 )}
               </div>

@@ -111,7 +111,7 @@ export default function usePosLogic({
   const [showFiarModal, setShowFiarModal] = React.useState(false);
   const [fiarClientName, setFiarClientName] = React.useState('');
   const [fiarClientPhone, setFiarClientPhone] = React.useState('');
-  const [fiarCountryCode, setFiarCountryCode] = React.useState('+52');
+  const [fiarCountryCode, setFiarCountryCode] = React.useState(config?.phoneCountryCode || '+52');
   const [fiarExistingAccount, setFiarExistingAccount] = React.useState<{ clientName: string; clientPhone: string; balance: number; matchType: 'phone' | 'name-only'; creditLimit?: number } | null>(null);
   const [fiarForceNew, setFiarForceNew] = React.useState(false);
   const [fiarCreditLimit, setFiarCreditLimit] = React.useState('');
@@ -284,7 +284,7 @@ export default function usePosLogic({
   const [showApartarModal, setShowApartarModal] = React.useState(false);
   const [apartarClientName, setApartarClientName] = React.useState('');
   const [apartarClientPhone, setApartarClientPhone] = React.useState('');
-  const [apartarCountryCode, setApartarCountryCode] = React.useState('+52');
+  const [apartarCountryCode, setApartarCountryCode] = React.useState(config?.phoneCountryCode || '+52');
   const [apartarInitialAmount, setApartarInitialAmount] = React.useState('');
   const [apartarInitialMethod, setApartarInitialMethod] = React.useState<'Efectivo' | 'Tarjeta' | 'Transferencia'>('Efectivo');
   const [apartarDueDate, setApartarDueDate] = React.useState('');

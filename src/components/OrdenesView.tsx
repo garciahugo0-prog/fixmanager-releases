@@ -12,9 +12,11 @@ import { buildTicketHtml, buildServiceLabelHtml, buildWarrantyLabelHtml, buildCo
 import { sendWhatsappNotification, buildWhatsappOrderStatusMessage, showUiToast, formatPhoneForWhatsapp, openWhatsappChat } from '../utils/whatsapp';
 import { handleCaretPreservingChange } from '../utils/domHelpers';
 import { generateNextOrderId } from '../utils/folioUtils';
-import { PosItemThumbnail } from './pos/PosItemThumbnail';
 import QRCode from 'qrcode';
 import { uploadEvidenceToSupabase } from '../utils/evidenceUpload';
+import { formatCountryDisplayName } from '../utils/countries';
+import { PosItemThumbnail } from './pos/PosItemThumbnail';
+import CountryCodeSelect from './CountryCodeSelect';
 
 const ACCESSORY_OPTIONS = [
   'CHIP / SIM',
@@ -5246,18 +5248,15 @@ ${isMediaCartaDuplicado ? `
                           />
                         </div>
                         <div className="flex gap-1.5">
-                          <select
+                          <CountryCodeSelect
                             value={o.customerCountryCode || '+52'}
-                            onChange={(e) => setField('customerCountryCode', e.target.value)}
-                            className={`w-20 text-xs font-semibold rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer ${
+                            onChange={(code) => setField('customerCountryCode', code)}
+                            className={`w-28 text-xs font-semibold rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer ${
                               isRetro ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-zinc-800'
                               : isLight ? 'bg-white border border-zinc-300 text-zinc-800'
                               : 'bg-zinc-800 border border-zinc-600 text-zinc-100'
                             }`}
-                          >
-                            <option value="+52">🇲🇽 +52</option>
-                            <option value="+1">🇺🇸 +1</option>
-                          </select>
+                          />
                           <input
                             type="text"
                             value={o.customerPhone || ''}
@@ -9454,27 +9453,6 @@ function EditRow({ label, children, isRetro, isLight }: { label: string; childre
 
 const getCountryName = (code?: string): string => {
   if (!code) return '';
-  const cleanCode = code.replace(/\s+/g, '').replace('+', '');
-  switch (cleanCode) {
-    case '52': return '🇲🇽 México';
-    case '1': return '🇺🇸 EUA';
-    case '502': return '🇬🇹 Guatemala';
-    case '503': return '🇸🇻 El Salvador';
-    case '504': return '🇭🇳 Honduras';
-    case '505': return '🇳🇮 Nicaragua';
-    case '506': return '🇨🇷 Costa Rica';
-    case '507': return '🇵🇦 Panamá';
-    case '57': return '🇨🇴 Colombia';
-    case '58': return '🇻🇪 Venezuela';
-    case '51': return '🇵🇪 Perú';
-    case '56': return '🇨🇱 Chile';
-    case '54': return '🇦🇷 Argentina';
-    case '591': return '🇧🇴 Bolivia';
-    case '593': return '🇪🇨 Ecuador';
-    case '595': return '🇵🇾 Paraguay';
-    case '598': return '🇺🇾 Uruguay';
-    case '34': return '🇪🇸 España';
-    default: return `🌐 +${cleanCode}`;
-  }
+  return formatCountryDisplayName(code);
 };
 

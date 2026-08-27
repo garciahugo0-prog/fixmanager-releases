@@ -29,35 +29,42 @@ interface PrinterOption {
 
 // ── Datos de referencia ────────────────────────────────────────────────────
 
-const COUNTRY_CODES = [
-  { code: '+52',  flag: '🇲🇽', name: 'México'             },
-  { code: '+1',   flag: '🇺🇸', name: 'Estados Unidos'     },
-  { code: '+1',   flag: '🇨🇦', name: 'Canadá'             },
-  { code: '+54',  flag: '🇦🇷', name: 'Argentina'          },
-  { code: '+55',  flag: '🇧🇷', name: 'Brasil'             },
-  { code: '+56',  flag: '🇨🇱', name: 'Chile'              },
-  { code: '+57',  flag: '🇨🇴', name: 'Colombia'           },
-  { code: '+51',  flag: '🇵🇪', name: 'Perú'               },
-  { code: '+58',  flag: '🇻🇪', name: 'Venezuela'          },
-  { code: '+593', flag: '🇪🇨', name: 'Ecuador'            },
-  { code: '+591', flag: '🇧🇴', name: 'Bolivia'            },
-  { code: '+598', flag: '🇺🇾', name: 'Uruguay'            },
-  { code: '+595', flag: '🇵🇾', name: 'Paraguay'           },
-  { code: '+502', flag: '🇬🇹', name: 'Guatemala'          },
-  { code: '+503', flag: '🇸🇻', name: 'El Salvador'        },
-  { code: '+504', flag: '🇭🇳', name: 'Honduras'           },
-  { code: '+505', flag: '🇳🇮', name: 'Nicaragua'          },
-  { code: '+506', flag: '🇨🇷', name: 'Costa Rica'         },
-  { code: '+507', flag: '🇵🇦', name: 'Panamá'             },
-  { code: '+1',   flag: '🇩🇴', name: 'Rep. Dominicana'   },
-  { code: '+53',  flag: '🇨🇺', name: 'Cuba'               },
-  { code: '+34',  flag: '🇪🇸', name: 'España'             },
-  { code: '+44',  flag: '🇬🇧', name: 'Reino Unido'        },
-  { code: '+49',  flag: '🇩🇪', name: 'Alemania'           },
-  { code: '+33',  flag: '🇫🇷', name: 'Francia'            },
-  { code: '+39',  flag: '🇮🇹', name: 'Italia'             },
-  { code: '+81',  flag: '🇯🇵', name: 'Japón'              },
-  { code: '+86',  flag: '🇨🇳', name: 'China'              },
+interface CountryCode {
+  code: string;
+  flag: string;
+  name: string;
+  currencyCode: string;
+}
+
+const COUNTRY_CODES: CountryCode[] = [
+  { code: '+52',  flag: '🇲🇽', name: 'México',             currencyCode: 'MXN' },
+  { code: '+1',   flag: '🇺🇸', name: 'Estados Unidos',     currencyCode: 'USD' },
+  { code: '+1',   flag: '🇨🇦', name: 'Canadá',             currencyCode: 'CAD' },
+  { code: '+54',  flag: '🇦🇷', name: 'Argentina',          currencyCode: 'ARS' },
+  { code: '+55',  flag: '🇧🇷', name: 'Brasil',             currencyCode: 'BRL' },
+  { code: '+56',  flag: '🇨🇱', name: 'Chile',              currencyCode: 'CLP' },
+  { code: '+57',  flag: '🇨🇴', name: 'Colombia',           currencyCode: 'COP' },
+  { code: '+51',  flag: '🇵🇪', name: 'Perú',               currencyCode: 'PEN' },
+  { code: '+58',  flag: '🇻🇪', name: 'Venezuela',          currencyCode: 'VES' },
+  { code: '+593', flag: '🇪🇨', name: 'Ecuador',            currencyCode: 'USD' },
+  { code: '+591', flag: '🇧🇴', name: 'Bolivia',            currencyCode: 'BOB' },
+  { code: '+598', flag: '🇺🇾', name: 'Uruguay',            currencyCode: 'UYU' },
+  { code: '+595', flag: '🇵🇾', name: 'Paraguay',           currencyCode: 'PYG' },
+  { code: '+502', flag: '🇬🇹', name: 'Guatemala',          currencyCode: 'GTQ' },
+  { code: '+503', flag: '🇸🇻', name: 'El Salvador',        currencyCode: 'USD' },
+  { code: '+504', flag: '🇭🇳', name: 'Honduras',           currencyCode: 'USD' },
+  { code: '+505', flag: '🇳🇮', name: 'Nicaragua',          currencyCode: 'USD' },
+  { code: '+506', flag: '🇨🇷', name: 'Costa Rica',         currencyCode: 'CRC' },
+  { code: '+507', flag: '🇵🇦', name: 'Panamá',             currencyCode: 'PAB' },
+  { code: '+1',   flag: '🇩🇴', name: 'Rep. Dominicana',   currencyCode: 'DOP' },
+  { code: '+53',  flag: '🇨🇺', name: 'Cuba',               currencyCode: 'USD' },
+  { code: '+34',  flag: '🇪🇸', name: 'España',             currencyCode: 'EUR' },
+  { code: '+44',  flag: '🇬🇧', name: 'Reino Unido',        currencyCode: 'GBP' },
+  { code: '+49',  flag: '🇩🇪', name: 'Alemania',           currencyCode: 'EUR' },
+  { code: '+33',  flag: '🇫🇷', name: 'Francia',            currencyCode: 'EUR' },
+  { code: '+39',  flag: '🇮🇹', name: 'Italia',             currencyCode: 'EUR' },
+  { code: '+81',  flag: '🇯🇵', name: 'Japón',              currencyCode: 'JPY' },
+  { code: '+86',  flag: '🇨🇳', name: 'China',              currencyCode: 'CNY' },
 ];
 
 interface Currency {
@@ -112,12 +119,13 @@ export default function SetupWizard({ onComplete, onBack }: SetupWizardProps) {
   const [selectedThemeMode, setSelectedThemeMode] = useState<'light' | 'dark'>('light');
 
   // Step 2 — Datos del Negocio
-  const [storeName,      setStoreName]      = useState('');
-  const [slogan,         setSlogan]         = useState('');
-  const [phoneCode,      setPhoneCode]      = useState('+52');
-  const [phone,          setPhone]          = useState('');
-  const [address,        setAddress]        = useState('');
-  const [currencyCode,   setCurrencyCode]   = useState('MXN');
+  const [storeName,           setStoreName]           = useState('');
+  const [slogan,              setSlogan]              = useState('');
+  const [selectedCountryName, setSelectedCountryName] = useState('México');
+  const [phoneCode,           setPhoneCode]           = useState('+52');
+  const [phone,               setPhone]               = useState('');
+  const [address,             setAddress]             = useState('');
+  const [currencyCode,        setCurrencyCode]        = useState('MXN');
 
   // Step 3 — Logotipos
   const [logoUrl,        setLogoUrl]        = useState('');
@@ -465,7 +473,7 @@ export default function SetupWizard({ onComplete, onBack }: SetupWizardProps) {
 
   // Derived values
   const selectedCurrency = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
-  const selectedCountry  = COUNTRY_CODES.find(c => c.code === phoneCode) || COUNTRY_CODES[0];
+  const selectedCountry  = COUNTRY_CODES.find(c => c.name === selectedCountryName) || COUNTRY_CODES.find(c => c.code === phoneCode) || COUNTRY_CODES[0];
 
   // Focus management — step 1 (theme) has no text inputs
   useEffect(() => {
@@ -530,11 +538,16 @@ export default function SetupWizard({ onComplete, onBack }: SetupWizardProps) {
   const handleBack = () => { setErrors({}); setStep(s => Math.max(s - 1, 1)); };
   const handleComplete = () => {
     if (!validate(step)) return;
+    const selectedCountry = COUNTRY_CODES.find(c => c.code === phoneCode);
     const cfg: Partial<WorkshopConfig> = {
       ...INITIAL_CONFIG,
       storeName:      storeName.trim(),
       slogan:         slogan.trim(),
       phone:          phone.trim() ? `${phoneCode} ${phone.trim()}` : '',
+      phoneCountryCode: phoneCode,
+      countryName:    selectedCountry?.name || '',
+      addressCountry: selectedCountry?.name || '',
+      whatsappDefaultCountryCode: phoneCode.replace('+', ''),
       address:        address.trim(),
       currencySymbol: selectedCurrency.symbol,
       logoUrl:        logoUrl || '',
@@ -587,6 +600,7 @@ export default function SetupWizard({ onComplete, onBack }: SetupWizardProps) {
     } else {
       cfg.whatsappMode = 'disabled';
     }
+    localStorage.setItem('fixmanager_country_configured_v2', 'true');
     onComplete(cfg, adminUser, employeeUsers);
   };
 
@@ -1020,12 +1034,21 @@ export default function SetupWizard({ onComplete, onBack }: SetupWizardProps) {
                   {/* Country code selector */}
                   <div className={`${SUNKEN} ${isRetro ? 'bg-white' : 'bg-[#1c1f27]'} flex items-center`} style={{ minWidth: 130 }}>
                     <select
-                      value={phoneCode}
-                      onChange={e => setPhoneCode(e.target.value)}
+                      value={selectedCountry.name}
+                      onChange={e => {
+                        const country = COUNTRY_CODES.find(c => c.name === e.target.value);
+                        if (country) {
+                          setSelectedCountryName(country.name);
+                          setPhoneCode(country.code);
+                          if (country.currencyCode) {
+                            setCurrencyCode(country.currencyCode);
+                          }
+                        }
+                      }}
                       className={`bg-transparent text-xs font-mono outline-none px-1.5 py-1.5 w-full cursor-pointer ${isRetro ? 'text-zinc-900' : 'text-zinc-200'}`}
                     >
                       {COUNTRY_CODES.map((c, i) => (
-                        <option key={`${c.code}-${i}`} value={c.code}>
+                        <option key={`${c.name}-${i}`} value={c.name}>
                           {c.flag}  {c.code}  {c.name}
                         </option>
                       ))}
@@ -1035,6 +1058,7 @@ export default function SetupWizard({ onComplete, onBack }: SetupWizardProps) {
                   <div className="flex items-center gap-1 flex-1">
                     <Phone className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                     <input ref={phoneRef} type="tel" value={phone}
+                      maxLength={14}
                       onChange={e => setPhone(formatPhoneNumber(e.target.value))}
                       onKeyDown={advance(addressRef)}
                       className={INPUT}
@@ -1085,6 +1109,10 @@ export default function SetupWizard({ onComplete, onBack }: SetupWizardProps) {
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleNext(); } }}
                     className={INPUT} placeholder="Av. Principal #104, Col. Centro" />
                 </div>
+                <p className={`text-[10px] mt-1.5 flex items-center gap-1.5 ${isRetro ? 'text-zinc-500 font-bold' : 'text-zinc-400'}`}>
+                  <span>📍</span>
+                  <span>Podrás generar el código QR de Google Maps con tu dirección detallada en <strong>Ajustes → Datos del Negocio</strong>.</span>
+                </p>
               </div>
 
             </div>

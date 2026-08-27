@@ -3,6 +3,7 @@ import html2canvas from 'html2canvas';
 import { Smartphone, X, Loader2 } from 'lucide-react';
 import { formatPhoneForWhatsapp, sendWhatsappAutomated, showUiToast } from '../utils/whatsapp';
 import { formatPhoneNumber } from '../utils/phoneFormatter';
+import { COUNTRY_LIST } from '../utils/countries';
 
 interface WhatsappModalProps {
   modalData: {
@@ -766,25 +767,11 @@ export function WhatsappModal({ modalData, onClose, config }: WhatsappModalProps
                 }`}
                 style={{ padding: '8px 12px', borderRadius: '8px' }}
               >
-                <option value="52">🇲🇽 México (+52)</option>
-                <option value="1">🇺🇸 USA/Canadá (+1)</option>
-                <option value="54">🇦🇷 Argentina (+54)</option>
-                <option value="591">🇧🇴 Bolivia (+591)</option>
-                <option value="55">🇧🇷 Brasil (+55)</option>
-                <option value="56">🇨🇱 Chile (+56)</option>
-                <option value="57">🇨🇴 Colombia (+57)</option>
-                <option value="506">🇨🇷 Costa Rica (+506)</option>
-                <option value="593">🇪🇨 Ecuador (+593)</option>
-                <option value="34">🇪🇸 España (+34)</option>
-                <option value="503">🇸🇻 El Salvador (+503)</option>
-                <option value="502">🇬🇹 Guatemala (+502)</option>
-                <option value="504">🇭🇳 Honduras (+504)</option>
-                <option value="505">🇳🇮 Nicaragua (+505)</option>
-                <option value="507">🇵🇦 Panamá (+507)</option>
-                <option value="595">🇵🇾 Paraguay (+595)</option>
-                <option value="51">🇵🇪 Perú (+51)</option>
-                <option value="598">🇺🇾 Uruguay (+598)</option>
-                <option value="58">🇻🇪 Venezuela (+58)</option>
+                {COUNTRY_LIST.map((c, i) => (
+                  <option key={`${c.dialCode}-${i}`} value={c.dialCode}>
+                    {c.flag} {c.name} (+{c.dialCode})
+                  </option>
+                ))}
               </select>
               <input
                 type="tel"

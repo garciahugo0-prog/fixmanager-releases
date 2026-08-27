@@ -17,6 +17,7 @@ import { formatPhoneNumber } from '../utils/phoneFormatter';
 import { formatPhoneForWhatsapp, openWhatsappChat } from '../utils/whatsapp';
 import { buildA4ReportHtml, printA4Report, showToast } from '../utils/a4Reports';
 import * as XLSX from 'xlsx';
+import CountryCodeSelect from './CountryCodeSelect';
 
 const formatDateToDMY = (dateStr: string | undefined | null): string => {
   if (!dateStr) return '';
@@ -928,6 +929,7 @@ export function ClientesView({ clients, setOrderFilter, setActiveTab, setSelecte
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
+  const [newClientCountryCode, setNewClientCountryCode] = useState(config.phoneCountryCode || '+52');
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientCreditLimit, setNewClientCreditLimit] = useState('');
   const [showImportClientsModal, setShowImportClientsModal] = useState(false);
@@ -1049,7 +1051,7 @@ export function ClientesView({ clients, setOrderFilter, setActiveTab, setSelecte
       id: `C${nextIdNum}`,
       name: newClientName.toUpperCase().trim(),
       phone: cleanPhone,
-      countryCode: '52',
+      countryCode: (newClientCountryCode || config.phoneCountryCode || '+52').replace('+', ''),
       email: `${newClientName.toLowerCase().replace(/\s+/g, '')}@example.com`,
       totalOrders: 0,
       registeredAt: new Date().toISOString().split('T')[0],
@@ -3365,22 +3367,35 @@ export function ClientesView({ clients, setOrderFilter, setActiveTab, setSelecte
 
               <div className="space-y-1.5">
                 <label className={`text-[10px] font-bold uppercase tracking-wider block ${isLight ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                  Teléfono (WhatsApp - 10 dígitos) <span className="text-red-500">*</span>
+                  Teléfono (WhatsApp) <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. 3511574876"
-                  maxLength={10}
-                  value={newClientPhone}
-                  onChange={(e) => setNewClientPhone(e.target.value)}
-                  className={isRetro
-                    ? 'w-full bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black text-xs px-3 py-2 focus:outline-none font-mono'
-                    : isLight
-                      ? 'w-full bg-white border border-zinc-300 rounded px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-purple-500'
-                      : 'w-full bg-[#1c1e24] border border-[#2d2f36] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono'
-                  }
-                />
+                <div className="flex gap-1.5 items-stretch">
+                  <CountryCodeSelect
+                    value={newClientCountryCode}
+                    onChange={(code) => setNewClientCountryCode(code)}
+                    className={`text-xs px-2 py-2 focus:outline-none cursor-pointer ${
+                      isRetro 
+                        ? 'bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black font-mono font-bold' 
+                        : isLight 
+                          ? 'bg-white border border-zinc-300 rounded text-zinc-900' 
+                          : 'bg-[#1c1e24] border border-[#2d2f36] rounded text-white font-mono'
+                    }`}
+                  />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. 3511574876"
+                    maxLength={14}
+                    value={newClientPhone}
+                    onChange={(e) => setNewClientPhone(e.target.value)}
+                    className={isRetro
+                      ? 'flex-1 bg-white border-2 border-t-[#808080] border-l-[#808080] border-b-white border-r-white text-black text-xs px-3 py-2 focus:outline-none font-mono'
+                      : isLight
+                        ? 'flex-1 bg-white border border-zinc-300 rounded px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-purple-500'
+                        : 'flex-1 bg-[#1c1e24] border border-[#2d2f36] rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono'
+                    }
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">

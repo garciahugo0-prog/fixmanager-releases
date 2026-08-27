@@ -5,7 +5,7 @@
 
 import { RepairOrder, WorkshopConfig, Quote, QuoteDevice, DailySchedule, WeeklySchedule, ApartadoEntry } from '../types';
 
-export function formatCustomerPhoneWithCountryCode(phone: string | undefined, countryCode: string | undefined): string {
+export function formatCustomerPhoneWithCountryCode(phone: string | undefined, countryCode: string | undefined, workshopCountryCode?: string): string {
   if (!phone) return 'N/A';
   const cc = countryCode ? countryCode.trim() : '';
   const rawDigits = phone.replace(/\D/g, '');
@@ -25,7 +25,8 @@ export function formatCustomerPhoneWithCountryCode(phone: string | undefined, co
     
   if (ccPrefix) {
     const cleanPrefix = ccPrefix.replace(/\D/g, '');
-    if (cleanPrefix === '52') {
+    const cleanWorkshop = (workshopCountryCode || '52').replace(/\D/g, '') || '52';
+    if (cleanPrefix === cleanWorkshop) {
       return formatted10;
     }
   }

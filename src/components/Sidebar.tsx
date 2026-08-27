@@ -160,7 +160,7 @@ interface SidebarProps {
   lowStockCount?: number;
   currentUser?: AppUser | null;
   onOpenMovimiento?: (type: 'entrada' | 'salida') => void;
-  licenseStatus?: 'checking' | 'active' | 'none' | 'invalid' | 'expired';
+  licenseStatus?: 'checking' | 'active' | 'trial' | 'none' | 'invalid' | 'expired';
   licenseInfo?: Record<string, unknown> | null;
   onManageLicense?: () => void;
   isSendingPromos?: boolean;

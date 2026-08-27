@@ -1,8 +1,8 @@
 {
   "name": "fixmanager",
   "productName": "FixManager",
-  "version": "1.15.46",
-  "description": "Sistema de gestión para taller de reparaciones FixManager",
+  "version": "1.15.52",
+  "description": "Sistema de gesti\u00f3n para taller de reparaciones FixManager",
   "private": true,
   "repository": {
     "type": "git",
@@ -74,7 +74,7 @@
   "build": {
     "appId": "com.fixmanager.app",
     "productName": "FixManager",
-    "copyright": "© 2025 FixManager",
+    "copyright": "\u00a9 2025 FixManager",
     "directories": {
       "output": "release"
     },

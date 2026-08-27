@@ -63,6 +63,7 @@ const SessionResumeView = lazy(() => import('./components/SessionResumeView'));
 const FiadosView = lazy(() => import('./components/FiadosView'));
 const SetupWizard = lazy(() => import('./components/SetupWizard'));
 const WhatsappModal = lazy(() => import('./components/WhatsappModal'));
+const InternationalUpdateModal = lazy(() => import('./components/InternationalUpdateModal'));
 
 export const safeSetItem = (key: string, value: string) => {
   try {
@@ -343,8 +344,8 @@ export default function App() {
   const [cloudRestoreApplyingId, setCloudRestoreApplyingId] = useState<string | null>(null);
 
   // ── Licencia ───────────────────────────────────────────────────────────────
-  // 'checking' mientras carga, 'active' si válida, 'none'/'invalid'/'expired' si no
-  const [licenseStatus, setLicenseStatus] = useState<'checking' | 'active' | 'none' | 'invalid' | 'expired'>('checking');
+  // 'checking' mientras carga, 'active'/'trial' si válida, 'none'/'invalid'/'expired' si no
+  const [licenseStatus, setLicenseStatus] = useState<'checking' | 'active' | 'trial' | 'none' | 'invalid' | 'expired'>('checking');
   const [licenseInfo, setLicenseInfo] = useState<Record<string, unknown> | null>(null);
   const [showLicenseModal, setShowLicenseModal] = useState(false);
   const [showRenewConfirmation, setShowRenewConfirmation] = useState(false);
@@ -696,7 +697,7 @@ export default function App() {
           });
 
           if (refreshResult.success) {
-            setLicenseStatus('active');
+            setLicenseStatus(profile.license_status === 'trial' ? 'trial' : 'active');
             setLicenseInfo(refreshResult.license);
           }
         }
@@ -755,7 +756,7 @@ export default function App() {
         .then(async (info: Record<string, unknown>) => {
           const localStatus = (info?.status as typeof licenseStatus) ?? 'none';
           setLicenseStatus(localStatus);
-          if (localStatus === 'active') {
+          if (localStatus === 'active' || localStatus === 'trial') {
             setLicenseInfo(info);
           } else {
             setLicenseInfo(null);
@@ -793,7 +794,7 @@ export default function App() {
       }
     };
     
-    if (licenseStatus === 'active' && appScreen === 'active') {
+    if ((licenseStatus === 'active' || licenseStatus === 'trial') && appScreen === 'active') {
       checkDailyBackup();
     }
   }, [licenseStatus, appScreen]);
@@ -839,7 +840,7 @@ export default function App() {
     }
     localStorage.setItem('fixmanager_last_opened', nowMs.toString());
 
-    if (licenseStatus !== 'active') {
+    if (licenseStatus !== 'active' && licenseStatus !== 'trial') {
       setAppScreen('login');
       return;
     }
@@ -861,7 +862,7 @@ export default function App() {
     }
     localStorage.setItem('fixmanager_last_opened', nowMs.toString());
 
-    if (licenseStatus === 'active') {
+    if (licenseStatus === 'active' || licenseStatus === 'trial') {
       setAppScreen('active');
     } else {
       setAppScreen('login');
@@ -929,6 +930,7 @@ export default function App() {
 
     // Mark setup as completed
     localStorage.setItem('fixmanager_setup_complete', 'true');
+    localStorage.setItem('fixmanager_country_configured_v2', 'true');
     localStorage.setItem('fixmanager_session_closed', 'false');
 
     if (isMobile()) {
@@ -949,8 +951,9 @@ export default function App() {
       setCurrentUser(adminUser);
       setAppScreen('resume');
     } else {
-      // Ir a activación de licencia directamente en escritorio
+      // Ir a registro de cuenta y prueba de 7 días directamente en escritorio
       setLicenseInitialStep('activate');
+      setLoginInitialMode('register');
       setAppScreen('login');
     }
   };
@@ -1496,6 +1499,16 @@ const handleImportData = (mode: 'merge' | 'restore') => {
   const [configSubTab, setConfigSubTab] = useState<'global' | 'printer' | 'users' | 'notifications' | 'dev' | 'audit' | 'network' | 'taecel'>('global');
   const [showTaecelPromo, setShowTaecelPromo] = useState(() => {
     return !localStorage.getItem('fixmanager_seen_taecel_promo');
+  });
+
+  const [showInternationalUpdateModal, setShowInternationalUpdateModal] = useState<boolean>(() => {
+    const hasExistingData = Boolean(
+      localStorage.getItem('fixmanager_config') ||
+      localStorage.getItem('workshop_config') ||
+      localStorage.getItem('fixmanager_setup_complete') === 'true'
+    );
+    const isConfigured = localStorage.getItem('fixmanager_country_configured_v2') === 'true';
+    return hasExistingData && !isConfigured;
   });
 
   // Atajo global Ctrl+Shift+D — abre el panel dev desde cualquier pantalla
@@ -3383,7 +3396,7 @@ const handleImportData = (mode: 'merge' | 'restore') => {
   // Excepción: Permitimos "banner suave" (quedarse en active) SOLO si la licencia está expirada ('expired').
   // Si está suspendida ('invalid') o no hay licencia ('none'), se expulsa al usuario de inmediato.
   useEffect(() => {
-    if (licenseStatus !== 'active' && licenseStatus !== 'checking') {
+    if (licenseStatus !== 'active' && licenseStatus !== 'trial' && licenseStatus !== 'checking') {
       const isExpiredSoftBanner = licenseStatus === 'expired' && appScreen === 'active';
       if (!isExpiredSoftBanner) {
         if (appScreen !== 'login' && appScreen !== 'welcome-choice' && appScreen !== 'setup' && appScreen !== 'cloud-restore') {
@@ -6518,7 +6531,7 @@ const handleImportData = (mode: 'merge' | 'restore') => {
               licenseStatus={licenseStatus}
               licenseInfo={licenseInfo}
               onManageLicense={() => {
-                if (licenseStatus === 'active') setShowLicenseModal(true);
+                if (licenseStatus === 'active' || licenseStatus === 'trial') setShowLicenseModal(true);
                 else setAppScreen('login');
               }}
               isSendingPromos={isSendingPromos}
@@ -7773,6 +7786,26 @@ const handleImportData = (mode: 'merge' | 'restore') => {
             )}
           </div>
         </div>
+      )}
+
+      {/* Modal de Actualización Internacional para usuarios existentes */}
+      {showInternationalUpdateModal && (
+        <Suspense fallback={null}>
+          <InternationalUpdateModal
+            config={config}
+            onSave={(updates) => {
+              setConfig(prev => {
+                const merged = { ...prev, ...updates };
+                localStorage.setItem('fixmanager_config', JSON.stringify(merged));
+                return merged;
+              });
+              showUiToast('🎉 Configuración de país y moneda actualizada', 'success');
+            }}
+            onClose={() => setShowInternationalUpdateModal(false)}
+            isRetro={isRetro}
+            themeMode={config.themeMode}
+          />
+        </Suspense>
       )}
 
       {/* Modal de Previsualización de Reporte A4 */}

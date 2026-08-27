@@ -107,6 +107,15 @@ export function VentasView({
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
   const [subTab, setSubTab] = useState<'ventas' | 'recargas' | 'activaciones'>('ventas');
 
+  const [salesPage, setSalesPage] = useState(1);
+  const [activationsPage, setActivationsPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+
+  useEffect(() => {
+    setSalesPage(1);
+    setActivationsPage(1);
+  }, [subTab, searchTerm, dateFilter]);
+
   const [selectedActivation, setSelectedActivation] = useState<ChipActivation | null>(null);
   const [showActivationDetailModal, setShowActivationDetailModal] = useState(false);
   const [showActivationEditModal, setShowActivationEditModal] = useState(false);
@@ -280,7 +289,7 @@ export function VentasView({
     setRefundQuantities([]);
   };
 
-  const filteredSales = sales.filter(s => {
+  const filteredSales = (subTab === 'activaciones' ? [] : sales).filter(s => {
     const isRec = isRechargeSale(s);
     if (subTab === 'ventas' && isRec) return false;
     if (subTab === 'recargas' && !isRec) return false;
@@ -324,6 +333,156 @@ export function VentasView({
     }
 
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const paginatedSales = filteredSales.slice((salesPage - 1) * itemsPerPage, salesPage * itemsPerPage);
+  const paginatedActivations = filteredActivations.slice((activationsPage - 1) * itemsPerPage, activationsPage * itemsPerPage);
+
+  const renderPagination = (
+    currentPage: number,
+    totalItems: number,
+    onPageChange: (page: number) => void
+  ) => {
+    if (totalItems === 0) return null;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+    const pages: number[] = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+
+    return (
+      <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t ${
+        isLight ? 'border-zinc-200 bg-zinc-50/50' : 'border-zinc-800/80 bg-zinc-950/20'
+      }`}>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className={`text-[11px] font-mono ${isLight ? 'text-zinc-500' : 'text-zinc-400'}`}>
+            Mostrando <span className="font-bold">{Math.min(totalItems, (currentPage - 1) * itemsPerPage + 1)}</span>
+            {" - "}
+            <span className="font-bold">{Math.min(totalItems, currentPage * itemsPerPage)}</span>
+            {" de "}
+            <span className="font-bold">{totalItems}</span> registros
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px] font-mono">
+            <span className={isLight ? 'text-zinc-450' : 'text-zinc-500'}>Mostrar:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setItemsPerPage(val);
+                setSalesPage(1);
+                setActivationsPage(1);
+              }}
+              className={`px-1.5 py-0.5 rounded text-[11px] font-bold outline-none border cursor-pointer ${
+                isRetro
+                  ? 'bg-white border-2 border-zinc-400 text-zinc-900'
+                  : isLight
+                    ? 'bg-white border-zinc-200 text-zinc-700 hover:border-zinc-300'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+              }`}
+            >
+              <option value="20">20 por pág.</option>
+              <option value="30">30 por pág.</option>
+              <option value="50">50 por pág.</option>
+              <option value="100">100 por pág.</option>
+            </select>
+          </div>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1 flex-wrap">
+          <button
+            type="button"
+            disabled={currentPage === 1}
+            onClick={() => onPageChange(1)}
+            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all select-none cursor-pointer ${
+              currentPage === 1
+                ? 'opacity-40 cursor-not-allowed'
+                : (isLight 
+                    ? 'bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 shadow-sm active:scale-95' 
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 active:scale-95')
+            }`}
+          >
+            « Primero
+          </button>
+
+          <button
+            type="button"
+            disabled={currentPage === 1}
+            onClick={() => onPageChange(currentPage - 1)}
+            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all select-none cursor-pointer ${
+              currentPage === 1
+                ? 'opacity-40 cursor-not-allowed'
+                : (isLight 
+                    ? 'bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 shadow-sm active:scale-95' 
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 active:scale-95')
+            }`}
+          >
+            ‹ Ant.
+          </button>
+
+          {pages.map(p => {
+            const isActive = p === currentPage;
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onPageChange(p)}
+                className={`w-7.5 h-7.5 rounded-lg text-[11px] font-bold transition-all select-none cursor-pointer flex items-center justify-center ${
+                  isActive
+                    ? 'bg-blue-600 text-white font-black'
+                    : (isLight
+                        ? 'bg-white hover:bg-zinc-105 text-zinc-700 border border-zinc-200 shadow-sm active:scale-95'
+                        : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 active:scale-95')
+                }`}
+              >
+                {p}
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            disabled={currentPage === totalPages}
+            onClick={() => onPageChange(currentPage + 1)}
+            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all select-none cursor-pointer ${
+              currentPage === totalPages
+                ? 'opacity-40 cursor-not-allowed'
+                : (isLight 
+                    ? 'bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 shadow-sm active:scale-95' 
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 active:scale-95')
+            }`}
+          >
+            Sig. ›
+          </button>
+
+          <button
+            type="button"
+            disabled={currentPage === totalPages}
+            onClick={() => onPageChange(totalPages)}
+            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all select-none cursor-pointer ${
+              currentPage === totalPages
+                ? 'opacity-40 cursor-not-allowed'
+                : (isLight 
+                    ? 'bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 shadow-sm active:scale-95' 
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 active:scale-95')
+            }`}
+          >
+            Último »
+          </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const accumulatedSalesTotal = filteredSales
     .filter(s => !s.isCancelled)
@@ -766,7 +925,7 @@ export function VentasView({
                     </td>
                   </tr>
                 ) : (
-                  filteredSales.map((sale) => (
+                  paginatedSales.map((sale) => (
                     <tr key={sale.id} onClick={() => setSelectedSale(sale)} title="Clic para consultar detalles de esta transacción" className={`${
                       sale.isCancelled ? 'opacity-55' : (isLight ? 'hover:bg-zinc-50' : 'hover:bg-[#121316]/50')
                     } transition-all cursor-pointer`}>
@@ -913,6 +1072,7 @@ export function VentasView({
                 )}
               </tbody>
             </table>
+            {renderPagination(salesPage, filteredSales.length, setSalesPage)}
           </div>
         ) : (
           <div className={`hidden lg:block overflow-x-auto rounded border ${isLight ? 'border-zinc-200 bg-white' : 'border-zinc-900'}`}>
@@ -939,7 +1099,7 @@ export function VentasView({
                     </td>
                   </tr>
                 ) : (
-                  filteredActivations.map((act) => (
+                  paginatedActivations.map((act) => (
                     <tr
                       key={act.id}
                       onClick={() => {
@@ -1015,6 +1175,7 @@ export function VentasView({
                 )}
               </tbody>
             </table>
+            {renderPagination(activationsPage, filteredActivations.length, setActivationsPage)}
           </div>
         )}
 
@@ -1028,7 +1189,7 @@ export function VentasView({
                 {subTab === 'recargas' ? 'No hay recargas ni pagos de servicios registrados' : 'No hay ingresos de POS registrados'}
               </div>
             ) : (
-              filteredSales.map(sale => {
+              paginatedSales.map(sale => {
                 return (
                   <div
                   key={sale.id}
@@ -1182,6 +1343,7 @@ export function VentasView({
               );
             })
           )}
+          {renderPagination(salesPage, filteredSales.length, setSalesPage)}
         </div>
         ) : (
           <div className="lg:hidden space-y-3.5 mt-4">
@@ -1192,7 +1354,7 @@ export function VentasView({
                 No hay activaciones de chips SIM registradas
               </div>
             ) : (
-              filteredActivations.map(act => (
+              paginatedActivations.map(act => (
                 <div
                   key={act.id}
                   onClick={() => {
@@ -1275,6 +1437,7 @@ export function VentasView({
                 </div>
               ))
             )}
+            {renderPagination(activationsPage, filteredActivations.length, setActivationsPage)}
           </div>
         )}
       </div>

@@ -15,11 +15,9 @@ export function formatPhoneNumber(val: string | number | undefined | null): stri
     digits = digits.slice(3);
   } else if (digits.length === 11 && digits.startsWith('1')) {
     digits = digits.slice(1);
-  } else if (digits.length > 10) {
-    digits = digits.slice(-10);
   }
 
-  // Limit to exactly 10 digits
+  // Limit strictly to the first 10 digits (no shifting/sliding window)
   const capped = digits.slice(0, 10);
 
   if (capped.length <= 3) {

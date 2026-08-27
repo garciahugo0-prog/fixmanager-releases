@@ -80,14 +80,16 @@ export function extractSaleTicketNumber(saleId: string): string {
 
 /**
  * Robustly detects whether a sale is a mobile recharge or public service payment.
- * Supports current prefixes (R-, RC-), legacy prefixes (E-, ES-, C-),
- * payment methods, Taecel authorization codes, and item identifiers.
+ * Supports current prefixes (R-, RC-), explicit flags, payment methods,
+ * Taecel authorization codes, and item identifiers while avoiding false positives
+ * from generic card terminal authorization codes.
  */
 export function isRechargeSale(s: Sale | any): boolean {
   if (!s) return false;
 
-  // 1. Explicit flag
+  // 1. Explicit boolean flag
   if (s.isRecharge === true) return true;
+  if (s.isRecharge === false) return false;
 
   // 2. ID prefixes: R- (Desktop recharge), RC- (Mobile recharge)
   const rawId = (s.id || '').toUpperCase().trim();
@@ -96,9 +98,14 @@ export function isRechargeSale(s: Sale | any): boolean {
   // 3. Payment Method
   if (s.paymentMethod === 'Recarga') return true;
 
-  // 4. Confirmation code with Taecel Folio Aut / TX
+  // 4. Confirmation code with Taecel Folio Aut (explicit Taecel format)
   const code = (s.confirmationCode || '').toUpperCase();
-  if (code.includes('FOLIO AUT:') || code.includes('TX-') || code.includes('TRANSACCIÓN TAECEL') || code.includes('TAECEL')) {
+  if (
+    code.includes('FOLIO AUT:') ||
+    code.includes('TRANSACCIÓN TAECEL') ||
+    code.includes('TRANSACCION TAECEL') ||
+    code.includes('TAECEL')
+  ) {
     return true;
   }
 
@@ -112,14 +119,20 @@ export function isRechargeSale(s: Sale | any): boolean {
       itemId === 'recharge-commission' ||
       itemId.includes('tiempo-aire') ||
       name.includes('tiempo aire') ||
+      name.includes('tiempo-aire') ||
       name.includes('comisión de recarga') ||
+      name.includes('comision de recarga') ||
       name.includes('pago de servicio') ||
       name.includes('recarga telcel') ||
       name.includes('recarga movistar') ||
       name.includes('recarga at&t') ||
+      name.includes('recarga att') ||
       name.includes('recarga bait') ||
       name.includes('recarga unefon') ||
-      name.includes('paquete amigo')
+      name.includes('recarga virgin') ||
+      name.includes('recarga oui') ||
+      name.includes('paquete amigo') ||
+      name.includes('paquete telcel')
     );
   })) {
     return true;

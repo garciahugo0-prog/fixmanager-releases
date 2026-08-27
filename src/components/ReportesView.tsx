@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import {
   BarChart2, ShoppingCart, Wrench, ArrowUpRight, ArrowDownLeft,
   Scissors, Tags, Smartphone, X, Printer, Calendar,
-  ChevronDown, AlertCircle, Truck, Package, TrendingUp, CreditCard, Search, Bookmark, CheckCircle
+  ChevronDown, AlertCircle, Truck, Package, TrendingUp, CreditCard, Search, Bookmark, CheckCircle,
+  CheckSquare, Square
 } from 'lucide-react';
 import { Sale, RepairOrder, Expense, WorkshopConfig, ServicePrice, AppUser, Quote, CreditAccount, ApartadoEntry, InventoryItem, RefaccionItem, Warehouse } from '../types';
 import { showUiToast } from '../utils/whatsapp';
@@ -85,6 +86,227 @@ interface ReportesViewProps {
   inventory?: InventoryItem[];
   refacciones?: RefaccionItem[];
   warehouses?: Warehouse[];
+}
+
+// ─── Componente Popover Multi-Select con Checkboxes ────────────────────────
+interface MultiSelectFilterDropdownProps {
+  title: string;
+  placeholderAll: string;
+  icon?: React.ComponentType<any>;
+  items: { name: string; count: number }[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  allCount: number;
+  isRetro?: boolean;
+  isLight?: boolean;
+  compact?: boolean;
+}
+
+function MultiSelectFilterDropdown({
+  title,
+  placeholderAll,
+  icon: Icon,
+  items,
+  selected,
+  onChange,
+  allCount,
+  isRetro,
+  isLight,
+  compact = false
+}: MultiSelectFilterDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [open]);
+
+  const toggleItem = (name: string) => {
+    if (selected.includes('__NONE__')) {
+      onChange([name]);
+      return;
+    }
+    if (selected.includes(name)) {
+      const next = selected.filter(s => s !== name);
+      onChange(next);
+    } else {
+      onChange([...selected, name]);
+    }
+  };
+
+  const selectAll = () => {
+    onChange([]);
+  };
+
+  const clearAll = () => {
+    onChange(['__NONE__']);
+  };
+
+  const filteredItems = items.filter(i =>
+    i.name.toLowerCase().includes(search.toLowerCase().trim())
+  );
+
+  const isAllSelected = selected.length === 0;
+  const isNoneSelected = selected.includes('__NONE__');
+
+  const triggerLabel = useMemo(() => {
+    if (isNoneSelected) {
+      return 'Ninguna seleccionada';
+    }
+    if (isAllSelected) {
+      return `${placeholderAll} (${allCount})`;
+    }
+    if (selected.length === 1) {
+      return `${selected[0]}`;
+    }
+    return `${selected.length} selecc.: ${selected.slice(0, 2).join(', ')}${selected.length > 2 ? '...' : ''}`;
+  }, [isAllSelected, isNoneSelected, selected, placeholderAll, allCount]);
+
+  return (
+    <div className="relative inline-block text-left w-full sm:w-auto" ref={dropdownRef}>
+      {/* Trigger Button */}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`flex items-center justify-between gap-1.5 transition-all text-left font-bold cursor-pointer select-none ${
+          compact
+            ? `text-xs px-2.5 py-1 border rounded-lg max-w-[220px] w-full sm:w-auto ${
+                isRetro
+                  ? 'bg-white border-zinc-400 text-black'
+                  : isLight
+                    ? (selected.length > 0 && !isNoneSelected ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-zinc-50 border-zinc-200 text-zinc-800')
+                    : (selected.length > 0 && !isNoneSelected ? 'bg-amber-950/30 border-amber-500/40 text-amber-300' : 'bg-zinc-900 border-zinc-700 text-zinc-200')
+              }`
+            : `w-full text-xs p-2 rounded border ${
+                isRetro
+                  ? 'bg-white border-2 border-t-zinc-700 border-l-zinc-700 border-b-white border-r-white text-zinc-900 font-mono'
+                  : isLight
+                    ? (selected.length > 0 && !isNoneSelected ? 'bg-amber-50/70 border-amber-300 text-amber-900' : 'bg-zinc-50 border-zinc-200 text-zinc-900')
+                    : (selected.length > 0 && !isNoneSelected ? 'bg-amber-950/20 border-amber-500/30 text-amber-300' : 'bg-zinc-900 border-zinc-800 text-zinc-100')
+              }`
+        }`}
+        title={title}
+      >
+        <div className="flex items-center gap-1.5 truncate">
+          {Icon && <Icon className="w-3.5 h-3.5 shrink-0 opacity-70" />}
+          <span className="truncate">{triggerLabel}</span>
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Popover Panel */}
+      {open && (
+        <div
+          className={`absolute left-0 mt-1 z-50 min-w-[240px] max-w-xs w-full p-2.5 rounded-xl shadow-2xl border animate-scale-up ${
+            isRetro
+              ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-700 border-r-zinc-700 text-zinc-900 font-sans'
+              : isLight
+                ? 'bg-white border-zinc-200 text-zinc-900 shadow-[0_10px_30px_rgba(0,0,0,0.15)]'
+                : 'bg-[#12141a] border-zinc-700 text-zinc-100 shadow-2xl'
+          }`}
+        >
+          {/* Header Actions */}
+          <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-200 dark:border-zinc-800 text-[10px] font-bold">
+            <span className="text-zinc-500 uppercase tracking-wider">{title}</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={selectAll}
+                className="text-amber-500 hover:text-amber-400 cursor-pointer hover:underline font-black"
+              >
+                Todas
+              </button>
+              <span className="text-zinc-400">·</span>
+              <button
+                type="button"
+                onClick={clearAll}
+                className="text-rose-500 hover:text-rose-400 cursor-pointer hover:underline font-black"
+              >
+                Limpiar
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Search */}
+          {items.length > 5 && (
+            <div className="mb-2">
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Filtrar opciones..."
+                className={`w-full text-xs px-2 py-1 rounded border focus:outline-none ${
+                  isRetro
+                    ? 'bg-white border-zinc-400 text-black'
+                    : isLight
+                      ? 'bg-zinc-50 border-zinc-200 text-zinc-800'
+                      : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                }`}
+              />
+            </div>
+          )}
+
+          {/* Options List */}
+          <div className="max-h-52 overflow-y-auto space-y-1 scrollbar-thin">
+            {/* "Todas" Option */}
+            <label
+              className={`flex items-center justify-between p-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                isAllSelected
+                  ? (isLight ? 'bg-amber-100 text-amber-900' : 'bg-amber-500/20 text-amber-300 font-black')
+                  : (isLight ? 'hover:bg-zinc-100' : 'hover:bg-zinc-800/60')
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  onChange={selectAll}
+                  className="rounded text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>Todas ({allCount})</span>
+              </div>
+            </label>
+
+            {filteredItems.map(item => {
+              const isChecked = !isNoneSelected && (isAllSelected || selected.includes(item.name));
+              return (
+                <label
+                  key={item.name}
+                  className={`flex items-center justify-between p-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                    selected.includes(item.name)
+                      ? (isLight ? 'bg-amber-50 text-amber-950 font-black' : 'bg-amber-500/15 text-amber-300 font-black')
+                      : (isLight ? 'hover:bg-zinc-100 text-zinc-700' : 'hover:bg-zinc-800/60 text-zinc-300')
+                  }`}
+                >
+                  <div className="flex items-center gap-2 truncate pr-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(item.name)}
+                      onChange={() => toggleItem(item.name)}
+                      className="rounded text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <span className="truncate">{item.name}</span>
+                  </div>
+                  <span className="text-[10px] font-mono opacity-70 shrink-0">({item.count})</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── categorías del menú superior ─────────────────────────────────────────
@@ -198,8 +420,8 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
   const [payFilter, setPayFilter] = useState('Todos');
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [showHidden, setShowHidden] = useState(false);
-  const [stockCategoryFilter, setStockCategoryFilter] = useState('Todas');
-  const [stockBrandFilter, setStockBrandFilter] = useState('Todas');
+  const [stockCategoryFilter, setStockCategoryFilter] = useState<string[]>([]);
+  const [stockBrandFilter, setStockBrandFilter] = useState<string[]>([]);
   const [stockSearchQuery, setStockSearchQuery] = useState('');
   const [expandedRebastoIds, setExpandedRebastoIds] = useState<Record<string, boolean>>({});
   const [printPreview, setPrintPreview] = useState<{ html: string; open: boolean } | null>(null);
@@ -387,16 +609,18 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
     }
     if (category === 'stock-critico-tienda') {
       return criticalInventoryItems.filter(item => {
-        // Subfiltro por categoría
-        if (stockCategoryFilter !== 'Todas') {
+        // Subfiltro por categoría (multi-select)
+        if (stockCategoryFilter.length > 0) {
+          if (stockCategoryFilter.includes('__NONE__')) return false;
           const itemCat = (item.category || 'Accesorios').trim().toLowerCase();
-          if (itemCat !== stockCategoryFilter.trim().toLowerCase()) return false;
+          if (!stockCategoryFilter.some(c => c.trim().toLowerCase() === itemCat)) return false;
         }
 
-        // Subfiltro por marca
-        if (stockBrandFilter !== 'Todas') {
+        // Subfiltro por marca (multi-select)
+        if (stockBrandFilter.length > 0) {
+          if (stockBrandFilter.includes('__NONE__')) return false;
           const itemBrand = (item.brand || '').trim().toLowerCase();
-          if (itemBrand !== stockBrandFilter.trim().toLowerCase()) return false;
+          if (!stockBrandFilter.some(b => b.trim().toLowerCase() === itemBrand)) return false;
         }
 
         // Búsqueda por texto (nombre, código, marca)
@@ -415,16 +639,18 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
     }
     if (category === 'refacciones-criticas') {
       return criticalRefaccionesItems.filter(item => {
-        // Subfiltro por categoría
-        if (stockCategoryFilter !== 'Todas') {
+        // Subfiltro por categoría (multi-select)
+        if (stockCategoryFilter.length > 0) {
+          if (stockCategoryFilter.includes('__NONE__')) return false;
           const itemCat = (item.category || 'General').trim().toLowerCase();
-          if (itemCat !== stockCategoryFilter.trim().toLowerCase()) return false;
+          if (!stockCategoryFilter.some(c => c.trim().toLowerCase() === itemCat)) return false;
         }
 
-        // Subfiltro por marca
-        if (stockBrandFilter !== 'Todas') {
+        // Subfiltro por marca (multi-select)
+        if (stockBrandFilter.length > 0) {
+          if (stockBrandFilter.includes('__NONE__')) return false;
           const itemBrand = (item.deviceBrand || item.brand || '').trim().toLowerCase();
-          if (itemBrand !== stockBrandFilter.trim().toLowerCase()) return false;
+          if (!stockBrandFilter.some(b => b.trim().toLowerCase() === itemBrand)) return false;
         }
 
         // Búsqueda por texto
@@ -1536,8 +1762,8 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
     let filterDetails = '';
     if (isLiveInventory) {
       const parts: string[] = [];
-      if (stockCategoryFilter !== 'Todas') parts.push(`Categoría: ${stockCategoryFilter}`);
-      if (stockBrandFilter !== 'Todas') parts.push(`Marca: ${stockBrandFilter}`);
+      if (stockCategoryFilter.length > 0 && !stockCategoryFilter.includes('__NONE__')) parts.push(`Categorías: ${stockCategoryFilter.join(', ')}`);
+      if (stockBrandFilter.length > 0 && !stockBrandFilter.includes('__NONE__')) parts.push(`Marcas: ${stockBrandFilter.join(', ')}`);
       if (stockSearchQuery.trim()) parts.push(`Búsqueda: "${stockSearchQuery}"`);
       filterDetails = parts.length > 0 ? ` · [${parts.join(' | ')}]` : '';
     }
@@ -1611,113 +1837,50 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
 
         {/* PANEL DE FILTROS */}
         <aside className={`w-56 shrink-0 flex flex-col gap-4 p-4 border-r overflow-y-auto ${isRetro ? 'bg-[#eaeef3] border-zinc-400' : isLight ? 'bg-white border-zinc-200' : 'bg-[#0e0f13] border-zinc-800'}`}>
-          <div>
-            <p className={`text-[9px] font-black uppercase tracking-widest mb-3 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>
-              Filtros
-            </p>
+          {category !== 'stock-critico-tienda' && category !== 'refacciones-criticas' && (
+            <div>
+              <p className={`text-[9px] font-black uppercase tracking-widest mb-3 ${isRetro ? 'text-zinc-600' : isLight ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                Filtros
+              </p>
 
-            {/* Rango de fechas */}
-            {category !== 'historial-precios' && category !== 'historial-equipos' && category !== 'stock-critico-tienda' && category !== 'refacciones-criticas' && (
-              <>
-                <div className="mb-2">
-                  <label className={labelCls}>Desde</label>
-                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} />
-                </div>
+              {/* Rango de fechas */}
+              {category !== 'historial-precios' && category !== 'historial-equipos' && (
+                <>
+                  <div className="mb-2">
+                    <label className={labelCls}>Desde</label>
+                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} />
+                  </div>
+                  <div className="mb-3">
+                    <label className={labelCls}>Hasta</label>
+                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
+                  </div>
+                </>
+              )}
+
+              {/* Método de pago — Ventas POS y Ventas Órdenes */}
+              {(category === 'ventas-pos' || category === 'ventas-ordenes') && (
                 <div className="mb-3">
-                  <label className={labelCls}>Hasta</label>
-                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
-                </div>
-              </>
-            )}
-
-            {/* Método de pago — Ventas POS y Ventas Órdenes */}
-            {(category === 'ventas-pos' || category === 'ventas-ordenes') && (
-              <div className="mb-3">
-                <label className={labelCls}>Método de Pago</label>
-                <select value={payFilter} onChange={e => setPayFilter(e.target.value)} className={selectCls}>
-                  {['Todos', 'Efectivo', 'Tarjeta/Transfer', 'Múltiple'].map(o => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-            )}
-
-            {(category === 'stock-critico-tienda' || category === 'refacciones-criticas') && (
-              <>
-                {/* Búsqueda rápida */}
-                <div className="mb-3">
-                  <label className={labelCls}>Buscar</label>
-                  <input
-                    type="text"
-                    value={stockSearchQuery}
-                    onChange={e => setStockSearchQuery(e.target.value)}
-                    placeholder={category === 'stock-critico-tienda' ? "Ej: cargador, mica, samsung..." : "Ej: pantalla, centro de carga..."}
-                    className={inputCls}
-                  />
-                </div>
-
-                {/* Subfiltro Categoría */}
-                <div className="mb-3">
-                  <label className={labelCls}>Categoría</label>
-                  <select
-                    value={stockCategoryFilter}
-                    onChange={e => setStockCategoryFilter(e.target.value)}
-                    className={selectCls}
-                  >
-                    <option value="Todas">Todas ({category === 'stock-critico-tienda' ? criticalInventoryItems.length : criticalRefaccionesItems.length})</option>
-                    {(category === 'stock-critico-tienda' ? availableInventoryCategories : availableRefaccionesCategories).map(c => (
-                      <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
-                    ))}
+                  <label className={labelCls}>Método de Pago</label>
+                  <select value={payFilter} onChange={e => setPayFilter(e.target.value)} className={selectCls}>
+                    {['Todos', 'Efectivo', 'Tarjeta/Transfer', 'Múltiple'].map(o => <option key={o}>{o}</option>)}
                   </select>
                 </div>
+              )}
 
-                {/* Subfiltro Marca / Modelo */}
-                <div className="mb-3">
-                  <label className={labelCls}>{category === 'stock-critico-tienda' ? 'Marca Producto' : 'Marca Celular'}</label>
-                  <select
-                    value={stockBrandFilter}
-                    onChange={e => setStockBrandFilter(e.target.value)}
-                    className={selectCls}
-                  >
-                    <option value="Todas">Todas las marcas</option>
-                    {(category === 'stock-critico-tienda' ? availableInventoryBrands : availableRefaccionesBrands).map(b => (
-                      <option key={b.name} value={b.name}>{b.name} ({b.count})</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Incluir ocultos */}
-                <div className="mb-4">
-                  <label className="flex items-center gap-2 text-[10.5px] font-bold select-none cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showHidden}
-                      onChange={e => setShowHidden(e.target.checked)}
-                      className="rounded text-violet-600 focus:ring-violet-500 border-zinc-300 dark:border-zinc-700 w-3.5 h-3.5"
-                    />
-                    <span className={isRetro ? 'text-zinc-800' : isLight ? 'text-zinc-700' : 'text-zinc-300'}>
-                      Incluir ocultos
-                    </span>
-                  </label>
-                </div>
-              </>
-            )}
-
-            {/* Limpiar */}
-            <button
-              onClick={() => {
-                setDateFrom(today);
-                setDateTo(today);
-                setPayFilter('Todos');
-                setStatusFilter('Todos');
-                setShowHidden(false);
-                setStockCategoryFilter('Todas');
-                setStockBrandFilter('Todas');
-                setStockSearchQuery('');
-              }}
-              className={`w-full py-1.5 text-[10px] font-bold uppercase rounded cursor-pointer transition-all ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-500 border-r-zinc-500 text-zinc-700' : isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg'}`}
-            >
-              ✕ Limpiar filtros
-            </button>
-          </div>
+              {/* Limpiar */}
+              <button
+                onClick={() => {
+                  setDateFrom(today);
+                  setDateTo(today);
+                  setPayFilter('Todos');
+                  setStatusFilter('Todos');
+                }}
+                className={`w-full py-1.5 text-[10px] font-bold uppercase rounded cursor-pointer transition-all ${isRetro ? 'bg-[#dfdfdf] border-2 border-t-white border-l-white border-b-zinc-500 border-r-zinc-500 text-zinc-700' : isLight ? 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg'}`}
+              >
+                ✕ Limpiar filtros
+              </button>
+            </div>
+          )}
 
           {/* Resumen */}
           {(summary.total !== null || summary.count > 0) && (
@@ -1876,41 +2039,55 @@ export default function ReportesView({ sales, orders, expenses, cortesHistorial,
                   )}
                 </div>
 
-                {/* Category Dropdown */}
-                <select
-                  value={stockCategoryFilter}
-                  onChange={e => setStockCategoryFilter(e.target.value)}
-                  className={`text-xs px-2.5 py-1 border rounded-lg font-bold focus:outline-none cursor-pointer ${
-                    isRetro ? 'bg-white border-zinc-400 text-black' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
-                  }`}
-                >
-                  <option value="Todas">🏷️ Todas ({category === 'stock-critico-tienda' ? criticalInventoryItems.length : criticalRefaccionesItems.length})</option>
-                  {(category === 'stock-critico-tienda' ? availableInventoryCategories : availableRefaccionesCategories).map(c => (
-                    <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
-                  ))}
-                </select>
+                {/* Category Dropdown Multi-Select */}
+                <MultiSelectFilterDropdown
+                  title="Categorías"
+                  placeholderAll="🏷️ Categorías"
+                  items={category === 'stock-critico-tienda' ? availableInventoryCategories : availableRefaccionesCategories}
+                  selected={stockCategoryFilter}
+                  onChange={setStockCategoryFilter}
+                  allCount={category === 'stock-critico-tienda' ? criticalInventoryItems.length : criticalRefaccionesItems.length}
+                  isRetro={isRetro}
+                  isLight={isLight}
+                  compact={true}
+                />
 
-                {/* Brand Dropdown */}
-                <select
-                  value={stockBrandFilter}
-                  onChange={e => setStockBrandFilter(e.target.value)}
-                  className={`text-xs px-2.5 py-1 border rounded-lg font-bold focus:outline-none cursor-pointer ${
-                    isRetro ? 'bg-white border-zinc-400 text-black' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
-                  }`}
-                >
-                  <option value="Todas">🏢 Todas las marcas</option>
-                  {(category === 'stock-critico-tienda' ? availableInventoryBrands : availableRefaccionesBrands).map(b => (
-                    <option key={b.name} value={b.name}>{b.name} ({b.count})</option>
-                  ))}
-                </select>
+                {/* Brand Dropdown Multi-Select */}
+                <MultiSelectFilterDropdown
+                  title={category === 'stock-critico-tienda' ? 'Marcas' : 'Marcas Celular'}
+                  placeholderAll="🏢 Marcas"
+                  items={category === 'stock-critico-tienda' ? availableInventoryBrands : availableRefaccionesBrands}
+                  selected={stockBrandFilter}
+                  onChange={setStockBrandFilter}
+                  allCount={category === 'stock-critico-tienda' ? criticalInventoryItems.length : criticalRefaccionesItems.length}
+                  isRetro={isRetro}
+                  isLight={isLight}
+                  compact={true}
+                />
+
+                {/* Incluir ocultos */}
+                <label className={`flex items-center gap-1.5 text-xs font-bold select-none cursor-pointer px-2.5 py-1 border rounded-lg transition-all ${
+                  showHidden
+                    ? isRetro ? 'bg-zinc-200 border-zinc-500 text-black' : isLight ? 'bg-violet-50 border-violet-300 text-violet-900' : 'bg-violet-950/40 border-violet-500/50 text-violet-300'
+                    : isRetro ? 'bg-white border-zinc-400 text-black' : isLight ? 'bg-zinc-50 border-zinc-200 text-zinc-700' : 'bg-zinc-900 border-zinc-700 text-zinc-300'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={showHidden}
+                    onChange={e => setShowHidden(e.target.checked)}
+                    className="rounded text-violet-600 focus:ring-violet-500 border-zinc-300 dark:border-zinc-700 w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <span>Ocultos</span>
+                </label>
 
                 {/* Reset button if active */}
-                {(stockCategoryFilter !== 'Todas' || stockBrandFilter !== 'Todas' || stockSearchQuery) && (
+                {(stockCategoryFilter.length > 0 || stockBrandFilter.length > 0 || stockSearchQuery || showHidden) && (
                   <button
                     onClick={() => {
-                      setStockCategoryFilter('Todas');
-                      setStockBrandFilter('Todas');
+                      setStockCategoryFilter([]);
+                      setStockBrandFilter([]);
                       setStockSearchQuery('');
+                      setShowHidden(false);
                     }}
                     title="Restablecer filtros"
                     className="text-[10px] font-bold text-rose-500 hover:underline px-1 py-0.5 cursor-pointer"

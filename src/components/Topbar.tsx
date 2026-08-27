@@ -18,7 +18,7 @@ const WhatsappIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 // ─── TIPOS DE LICENCIA ────────────────────────────────────────────────────────
 interface LicenseInfo {
-  status: 'active' | 'expired' | 'invalid' | 'none';
+  status: 'active' | 'trial' | 'expired' | 'invalid' | 'none';
   machineId: string;
   key?: string;
   type?: string;       // PRO | BASICA | VITALICIA
@@ -79,7 +79,7 @@ interface TopbarProps {
   lanSyncBlocked?: boolean;
   terminalName?: string;
   licenseInfo?: LicenseInfo | null;
-  licenseStatus?: 'checking' | 'active' | 'none' | 'invalid' | 'expired';
+  licenseStatus?: 'checking' | 'active' | 'trial' | 'none' | 'invalid' | 'expired';
   isSendingPromos?: boolean;
   sendingCurrentIndex?: number;
   sendingTotal?: number;
@@ -345,11 +345,15 @@ export default function Topbar({
   const [currentUserEmail, setCurrentUserEmail]   = useState('');
 
   const parseExpiryToDate = (expiryStr: string): Date | null => {
-    if (!expiryStr || expiryStr === 'PERPETUA' || expiryStr.length !== 8) return null;
-    const year = parseInt(expiryStr.slice(0, 4), 10);
-    const month = parseInt(expiryStr.slice(4, 6), 10) - 1;
-    const day = parseInt(expiryStr.slice(6, 8), 10);
-    return new Date(year, month, day, 23, 59, 59);
+    if (!expiryStr || expiryStr === 'PERPETUA') return null;
+    if (typeof expiryStr === 'string' && expiryStr.length === 8 && /^\d{8}$/.test(expiryStr)) {
+      const year = parseInt(expiryStr.slice(0, 4), 10);
+      const month = parseInt(expiryStr.slice(4, 6), 10) - 1;
+      const day = parseInt(expiryStr.slice(6, 8), 10);
+      return new Date(year, month, day, 23, 59, 59);
+    }
+    const d = new Date(expiryStr);
+    return isNaN(d.getTime()) ? null : d;
   };
 
   const getDaysLeft = (): number | null => {
@@ -922,7 +926,7 @@ export default function Topbar({
               <button
                 type="button"
                 onClick={handleOpenLicenseModal}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors font-bold border flex items-center gap-1 border-transparent hover:bg-zinc-200 ${licenseInfo && licenseInfo.status !== 'active' ? 'text-amber-700' : 'text-zinc-800'}`}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors font-bold border flex items-center gap-1 border-transparent hover:bg-zinc-200 ${licenseInfo && licenseInfo.status !== 'active' && licenseInfo.status !== 'trial' ? 'text-amber-700' : 'text-zinc-800'}`}
                 title="Ver detalles de tu licencia Fixmanager"
               >
                 <Award className="w-3 h-3" />
@@ -988,7 +992,7 @@ export default function Topbar({
             {/* Date & Time right section */}
             <div className="flex items-center gap-2.5 flex-wrap justify-center font-sans">
               <div className="text-[10px] font-mono text-zinc-600 hidden md:flex items-center gap-2 select-none">
-                {licenseInfo?.status === 'active' ? (
+                {licenseInfo?.status === 'active' || licenseInfo?.status === 'trial' ? (
                   <>
                     <button
                       type="button"
@@ -1325,7 +1329,7 @@ export default function Topbar({
               <button
                 type="button"
                 onClick={handleOpenLicenseModal}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors font-medium flex items-center gap-1 ${licenseInfo && licenseInfo.status !== 'active' ? 'text-amber-400 hover:text-amber-300' : (isFluent ? (isLight ? 'text-zinc-650 hover:text-zinc-800' : 'text-zinc-500 hover:text-zinc-350') : 'text-gray-400 hover:text-white')}`}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors font-medium flex items-center gap-1 ${licenseInfo && licenseInfo.status !== 'active' && licenseInfo.status !== 'trial' ? 'text-amber-400 hover:text-amber-300' : (isFluent ? (isLight ? 'text-zinc-650 hover:text-zinc-800' : 'text-zinc-500 hover:text-zinc-350') : 'text-gray-400 hover:text-white')}`}
                 title="Ver detalles de tu licencia Fixmanager"
               >
                 <Award className="w-3 h-3" />
@@ -1395,7 +1399,7 @@ export default function Topbar({
 
             <div className="flex items-center gap-3">
               <div className="text-[10px] font-mono text-gray-500 hidden md:flex items-center gap-2 select-none">
-                {licenseInfo?.status === 'active' ? (
+                {licenseInfo?.status === 'active' || licenseInfo?.status === 'trial' ? (
                   <>
                     <button
                       type="button"
@@ -1683,13 +1687,15 @@ export default function Topbar({
                     <p className={`text-[10.5px] mt-0.5 ${isRetro ? 'text-zinc-600' : 'text-zinc-400'}`}>El sistema está en modo demo. Contacta a Hugo para activar tu licencia.</p>
                   </div>
                 </div>
-              ) : licenseInfo.status === 'active' ? (
+              ) : (licenseInfo.status === 'active' || licenseInfo.status === 'trial') ? (
                 <>
                   <div className={`rounded-lg overflow-hidden ${isRetro ? 'bg-white border-2 border-t-zinc-400 border-l-zinc-400 border-b-white border-r-white' : 'bg-zinc-900/50 border border-zinc-700'}`}>
                     <div className={`flex items-center gap-2 px-3 py-2 ${isRetro ? 'bg-emerald-50 border-b border-emerald-200' : 'bg-emerald-900/20 border-b border-emerald-700/30'}`}>
                       <ShieldCheck className={`w-4 h-4 shrink-0 ${isRetro ? 'text-emerald-600' : 'text-emerald-400'}`} />
-                      <span className={`text-[11px] font-black ${isRetro ? 'text-emerald-800' : 'text-emerald-300'}`}>● Licencia Activa</span>
-                      <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded ${isRetro ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/40'}`}>{licenseInfo.type}</span>
+                      <span className={`text-[11px] font-black ${isRetro ? 'text-emerald-800' : 'text-emerald-300'}`}>
+                        {licenseInfo.status === 'trial' ? '● Prueba Gratuita (7 días)' : '● Licencia Activa'}
+                      </span>
+                      <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded ${isRetro ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' : 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/40'}`}>{licenseInfo.type || (licenseInfo.status === 'trial' ? 'Prueba' : 'Activa')}</span>
                     </div>
                     <div className={`p-3 space-y-1.5 text-[11px] font-mono ${isRetro ? 'text-zinc-700' : 'text-zinc-400'}`}>
                       {licenseInfo.ownerName && (
@@ -1850,7 +1856,7 @@ export default function Topbar({
           {showRenewPanel && (
             <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
               {/* Plan actual */}
-              {licenseInfo?.status === 'active' && (
+              {(licenseInfo?.status === 'active' || licenseInfo?.status === 'trial') && (
                 <div className={`p-3 rounded-lg text-[10.5px] ${isRetro ? 'bg-zinc-100 border border-zinc-300' : 'bg-zinc-900/50 border border-zinc-700'}`}>
                   <p className={`text-[9.5px] font-black uppercase tracking-wider mb-1 ${isRetro ? 'text-zinc-500' : 'text-zinc-600'}`}>Plan actual</p>
                   <p className={`font-black ${isRetro ? 'text-zinc-800' : 'text-zinc-200'}`}>
