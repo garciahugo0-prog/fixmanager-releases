@@ -1,0 +1,201 @@
+{
+  "lastUpdated": "2026-10-07T12:00:00Z",
+  "version": "2.1",
+  "defaultCountry": "MX",
+  "countries": {
+    "MX": {
+      "countryName": "México",
+      "flag": "🇲🇽",
+      "siteId": "MLM",
+      "currency": "MXN",
+      "currencySymbol": "$",
+      "vatPercentage": 16.0,
+      "taxLabel": "IVA (16% SAT)",
+      "source": "Mercado Pago México - Tarifas Oficiales Point",
+      "portalUrl": "https://www.mercadopago.com.mx/herramientas/simulador-de-costos",
+      "sourceUrl": "https://www.mercadopago.com.mx/ayuda/costos-comisiones-point_4798",
+      "store": {
+        "modelName": "Point Smart 2",
+        "badgePromo": "91% OFF • $379 MXN",
+        "priceLabel": "$379 MXN",
+        "buttonLabel": "Comprar Point Smart 2 ($379 MXN)",
+        "purchaseUrl": "https://mpago.li/2GyFmbL",
+        "isAffiliate": true,
+        "description": "Consigue tu terminal oficial Point Smart 2 con el descuento especial para talleres FixManager:"
+      },
+      "tiers": [
+        { "installments": 1, "label": "1 Pago (Contado)", "baseFeePercentage": 3.50, "feeWithIvaPercentage": 4.06 },
+        { "installments": 3, "label": "3 Meses", "baseFeePercentage": 4.69, "feeWithIvaPercentage": 5.44 },
+        { "installments": 6, "label": "6 Meses", "baseFeePercentage": 7.69, "feeWithIvaPercentage": 8.92 },
+        { "installments": 9, "label": "9 Meses", "baseFeePercentage": 11.19, "feeWithIvaPercentage": 12.98 },
+        { "installments": 12, "label": "12 Meses", "baseFeePercentage": 12.89, "feeWithIvaPercentage": 14.95 },
+        { "installments": 18, "label": "18 Meses", "baseFeePercentage": 19.39, "feeWithIvaPercentage": 22.49 },
+        { "installments": 24, "label": "24 Meses", "baseFeePercentage": 27.29, "feeWithIvaPercentage": 31.66 }
+      ]
+    },
+    "AR": {
+      "countryName": "Argentina",
+      "flag": "🇦🇷",
+      "siteId": "MLA",
+      "currency": "ARS",
+      "currencySymbol": "$",
+      "vatPercentage": 21.0,
+      "taxLabel": "IVA (21% AFIP/ARCA)",
+      "source": "Mercado Pago Argentina - Tarifas Oficiales Point",
+      "portalUrl": "https://www.mercadopago.com.ar/herramientas/simulador-de-costos",
+      "sourceUrl": "https://www.mercadopago.com.ar/ayuda/costos-comisiones-point_2760",
+      "store": {
+        "modelName": "Point Smart",
+        "badgePromo": "Tienda Oficial • Mercado Pago AR",
+        "priceLabel": "Tienda Oficial ARS",
+        "buttonLabel": "Comprar Point Smart Oficial",
+        "purchaseUrl": "https://www.mercadopago.com.ar/point/smart",
+        "isAffiliate": false,
+        "description": "Consigue tu terminal oficial Point Smart con impresora de recibos en la tienda oficial de Mercado Pago Argentina:"
+      },
+      "tiers": [
+        { "installments": 1, "label": "1 Pago (Débito)", "baseFeePercentage": 0.80, "feeWithIvaPercentage": 0.97 },
+        { "installments": 1, "label": "1 Pago (Crédito Inmediato)", "baseFeePercentage": 6.29, "feeWithIvaPercentage": 7.61 },
+        { "installments": 3, "label": "3 Cuotas (Cuota Simple)", "baseFeePercentage": 11.56, "feeWithIvaPercentage": 13.99 },
+        { "installments": 6, "label": "6 Cuotas (Cuota Simple)", "baseFeePercentage": 21.78, "feeWithIvaPercentage": 26.35 },
+        { "installments": 12, "label": "12 Cuotas", "baseFeePercentage": 43.12, "feeWithIvaPercentage": 52.18 }
+      ]
+    },
+    "CO": {
+      "countryName": "Colombia",
+      "flag": "🇨🇴",
+      "siteId": "MCO",
+      "currency": "COP",
+      "currencySymbol": "$",
+      "vatPercentage": 19.0,
+      "taxLabel": "IVA (19% DIAN)",
+      "source": "Mercado Pago Colombia - Tarifas Oficiales Point",
+      "portalUrl": "https://www.mercadopago.com.co/herramientas/simulador-de-costos",
+      "sourceUrl": "https://www.mercadopago.com.co/ayuda/costos-comisiones-point_3126",
+      "store": {
+        "modelName": "Point Smart",
+        "badgePromo": "Tienda Oficial • Mercado Pago CO",
+        "priceLabel": "Tienda Oficial COP",
+        "buttonLabel": "Comprar Point Smart Oficial",
+        "purchaseUrl": "https://www.mercadopago.com.co/point/smart",
+        "isAffiliate": false,
+        "description": "Consigue tu terminal oficial Point Smart con impresora térmica en la tienda oficial de Mercado Pago Colombia:"
+      },
+      "tiers": [
+        { "installments": 1, "label": "1 Pago (Contado)", "baseFeePercentage": 2.99, "feeWithIvaPercentage": 3.56 },
+        { "installments": 3, "label": "3 Cuotas", "baseFeePercentage": 5.20, "feeWithIvaPercentage": 6.19 },
+        { "installments": 6, "label": "6 Cuotas", "baseFeePercentage": 8.90, "feeWithIvaPercentage": 10.59 },
+        { "installments": 12, "label": "12 Cuotas", "baseFeePercentage": 14.50, "feeWithIvaPercentage": 17.26 }
+      ]
+    },
+    "CL": {
+      "countryName": "Chile",
+      "flag": "🇨🇱",
+      "siteId": "MLC",
+      "currency": "CLP",
+      "currencySymbol": "$",
+      "vatPercentage": 19.0,
+      "taxLabel": "IVA (19% SII)",
+      "source": "Mercado Pago Chile - Tarifas Oficiales Point",
+      "portalUrl": "https://www.mercadopago.cl/herramientas/simulador-de-costos",
+      "sourceUrl": "https://www.mercadopago.cl/ayuda/costos-comisiones-point_2760",
+      "store": {
+        "modelName": "Point Smart",
+        "badgePromo": "Tienda Oficial • Mercado Pago CL",
+        "priceLabel": "Tienda Oficial CLP",
+        "buttonLabel": "Comprar Point Smart Oficial",
+        "purchaseUrl": "https://www.mercadopago.cl/point/smart",
+        "isAffiliate": false,
+        "description": "Consigue tu terminal oficial Point Smart con rollo térmico en la tienda oficial de Mercado Pago Chile:"
+      },
+      "tiers": [
+        { "installments": 1, "label": "1 Pago (Contado)", "baseFeePercentage": 2.95, "feeWithIvaPercentage": 3.51 },
+        { "installments": 3, "label": "3 Cuotas (Sin Interés)", "baseFeePercentage": 4.50, "feeWithIvaPercentage": 5.36 },
+        { "installments": 6, "label": "6 Cuotas (Sin Interés)", "baseFeePercentage": 7.50, "feeWithIvaPercentage": 8.93 },
+        { "installments": 12, "label": "12 Cuotas", "baseFeePercentage": 13.90, "feeWithIvaPercentage": 16.54 }
+      ]
+    },
+    "BR": {
+      "countryName": "Brasil",
+      "flag": "🇧🇷",
+      "siteId": "MLB",
+      "currency": "BRL",
+      "currencySymbol": "R$",
+      "vatPercentage": 0.0,
+      "taxLabel": "MDR Taxas",
+      "source": "Mercado Pago Brasil - Tarifas Oficiais Point",
+      "portalUrl": "https://www.mercadopago.com.br/ferramentas/simulador-de-custos",
+      "sourceUrl": "https://www.mercadopago.com.br/ajuda/custos-point_3126",
+      "store": {
+        "modelName": "Point Smart",
+        "badgePromo": "Loja Oficial • Mercado Pago BR",
+        "priceLabel": "Loja Oficial BRL",
+        "buttonLabel": "Comprar Point Smart Oficial",
+        "purchaseUrl": "https://www.mercadopago.com.br/point/smart",
+        "isAffiliate": false,
+        "description": "Adquira sua maquininha Point Smart na loja oficial do Mercado Pago Brasil com bobina inclusa:"
+      },
+      "tiers": [
+        { "installments": 1, "label": "Débito na Hora", "baseFeePercentage": 1.99, "feeWithIvaPercentage": 1.99 },
+        { "installments": 1, "label": "Crédito à Vista", "baseFeePercentage": 3.19, "feeWithIvaPercentage": 3.19 },
+        { "installments": 3, "label": "3x Parcelado", "baseFeePercentage": 6.89, "feeWithIvaPercentage": 6.89 },
+        { "installments": 6, "label": "6x Parcelado", "baseFeePercentage": 9.99, "feeWithIvaPercentage": 9.99 },
+        { "installments": 12, "label": "12x Parcelado", "baseFeePercentage": 15.99, "feeWithIvaPercentage": 15.99 }
+      ]
+    },
+    "UY": {
+      "countryName": "Uruguay",
+      "flag": "🇺🇾",
+      "siteId": "MLU",
+      "currency": "UYU",
+      "currencySymbol": "$",
+      "vatPercentage": 22.0,
+      "taxLabel": "IVA (22% DGI)",
+      "source": "Mercado Pago Uruguay - Tarifas Oficiales Point",
+      "portalUrl": "https://www.mercadopago.com.uy/herramientas/simulador-de-costos",
+      "sourceUrl": "https://www.mercadopago.com.uy/ayuda/costos-comisiones-point_2760",
+      "store": {
+        "modelName": "Point Smart",
+        "badgePromo": "Tienda Oficial • Mercado Pago UY",
+        "priceLabel": "Tienda Oficial UYU",
+        "buttonLabel": "Comprar Point Smart Oficial",
+        "purchaseUrl": "https://www.mercadopago.com.uy/point/smart",
+        "isAffiliate": false,
+        "description": "Consigue tu terminal oficial Point Smart en la tienda oficial de Mercado Pago Uruguay:"
+      },
+      "tiers": [
+        { "installments": 1, "label": "1 Pago (Contado)", "baseFeePercentage": 3.99, "feeWithIvaPercentage": 4.87 },
+        { "installments": 3, "label": "3 Cuotas", "baseFeePercentage": 6.49, "feeWithIvaPercentage": 7.92 },
+        { "installments": 6, "label": "6 Cuotas", "baseFeePercentage": 9.99, "feeWithIvaPercentage": 12.19 },
+        { "installments": 12, "label": "12 Cuotas", "baseFeePercentage": 16.99, "feeWithIvaPercentage": 20.73 }
+      ]
+    },
+    "PE": {
+      "countryName": "Perú",
+      "flag": "🇵🇪",
+      "siteId": "MPE",
+      "currency": "PEN",
+      "currencySymbol": "S/.",
+      "vatPercentage": 18.0,
+      "taxLabel": "IGV (18% SUNAT)",
+      "source": "Mercado Pago Perú - Tarifas Oficiales Point",
+      "portalUrl": "https://www.mercadopago.com.pe/herramientas/simulador-de-costos",
+      "sourceUrl": "https://www.mercadopago.com.pe/ayuda/costos-comisiones-point_2760",
+      "store": {
+        "modelName": "Point Smart",
+        "badgePromo": "Tienda Oficial • Mercado Pago PE",
+        "priceLabel": "Tienda Oficial PEN",
+        "buttonLabel": "Comprar Point Smart Oficial",
+        "purchaseUrl": "https://www.mercadopago.com.pe/point/smart",
+        "isAffiliate": false,
+        "description": "Consigue tu terminal oficial Point Smart en la tienda oficial de Mercado Pago Perú:"
+      },
+      "tiers": [
+        { "installments": 1, "label": "1 Pago (Contado)", "baseFeePercentage": 3.49, "feeWithIvaPercentage": 4.12 },
+        { "installments": 3, "label": "3 Cuotas", "baseFeePercentage": 5.99, "feeWithIvaPercentage": 7.07 },
+        { "installments": 6, "label": "6 Cuotas", "baseFeePercentage": 9.49, "feeWithIvaPercentage": 11.20 },
+        { "installments": 12, "label": "12 Cuotas", "baseFeePercentage": 15.49, "feeWithIvaPercentage": 18.28 }
+      ]
+    }
+  }
+}
